@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { JOURNAL_PAGE_ID, buildCategoryTree, categoryPath, formatCategory, samePath, type CategoryNode } from '@shared/pages'
 import type { PageMeta, WikiMeta } from '@shared/types'
+import { kbd } from '@renderer/keys'
 
 export type SidebarSelection =
   | { kind: 'page'; pageId: string }
@@ -120,7 +121,7 @@ export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, o
               type="button"
               className={`page-link page-review${!search && selection.kind === 'review' ? ' is-selected' : ''}`}
               onClick={() => onSelect({ kind: 'review' })}
-              title="Weekly review (⌘⇧R)"
+              title={`Weekly review (${kbd('mod', 'shift', 'R')})`}
             >
               <span className="page-icon">▦</span>
               <span className="page-name">Weekly review</span>
@@ -131,7 +132,7 @@ export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, o
               type="button"
               className={`page-link page-timeline${!search && selection.kind === 'timeline' ? ' is-selected' : ''}`}
               onClick={() => onSelect({ kind: 'timeline' })}
-              title="Day timeline (⌘⇧T)"
+              title={`Day timeline (${kbd('mod', 'shift', 'T')})`}
             >
               <span className="page-icon">◷</span>
               <span className="page-name">Timeline</span>
@@ -149,7 +150,7 @@ export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, o
             )}
           </ul>
         )}
-        <button type="button" className="page-link page-new" onClick={onNewPage} title="New page (⌘N)">
+        <button type="button" className="page-link page-new" onClick={onNewPage} title={`New page (${kbd('mod', 'N')})`}>
           <span className="page-icon">+</span>
           <span className="page-name">New page</span>
         </button>

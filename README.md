@@ -229,7 +229,13 @@ remote URL) live under **Settings** (⌘,).
 npm run typecheck   # main + renderer
 npm test            # unit tests: file format, store, git sync (uses a local bare remote)
 npm run smoke       # builds, then drives the real app with Playwright (needs a display; use xvfb-run on Linux)
+npm run screens     # builds, seeds a demo devlog and screenshots every view in light and dark mode
 ```
+
+The window remembers its size and position, closes to the tray while tracking
+is on, and shows the current page in its title. Failed background actions
+(a move, an archive, a sync) surface as a toast in the corner rather than
+disappearing into the console.
 
 Code map:
 

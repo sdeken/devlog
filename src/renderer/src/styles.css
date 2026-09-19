@@ -1961,3 +1961,165 @@ body[data-platform='darwin'] .sidebar-head {
 .task-status .status-detail {
   max-width: none;
 }
+
+/* ------------------------------------------------------------ fit & finish */
+
+/* Placeholder never wraps or scrolls the composer. */
+.composer-editor {
+  position: relative;
+}
+
+.composer-editor p.is-editor-empty:first-child::before {
+  float: none;
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wiki .composer-editor p.is-editor-empty:first-child::before {
+  left: 16px;
+  right: 16px;
+  white-space: normal;
+}
+
+/* Timeline rows clip instead of pushing the page wider. */
+.tl-body {
+  overflow: hidden;
+}
+
+.tl-link {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.tl-row time {
+  flex: none;
+}
+
+/* Status bar stays on one line at any width. */
+.statusbar {
+  flex-wrap: nowrap;
+  overflow: hidden;
+}
+
+.statusbar > *,
+.task-status > * {
+  flex: none;
+}
+
+.statusbar .status-text,
+.statusbar .status-detail,
+.task-status .status-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-status {
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.task-label {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.task-label .status-text {
+  max-width: 28vw;
+}
+
+.statusbar .spacer {
+  flex: 1 1 0;
+  min-width: 8px;
+}
+
+@media (max-width: 900px) {
+  .statusbar .status-detail,
+  .statusbar .status-branch {
+    display: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: 200px 1fr;
+  }
+
+  .feed,
+  .composer-dock {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+}
+
+/* Toasts */
+.toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 44px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 50;
+  max-width: min(420px, calc(100vw - 32px));
+}
+
+.toast {
+  text-align: left;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: var(--shadow);
+  padding: 8px 12px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.toast-error {
+  border-color: var(--danger);
+  border-left-width: 4px;
+}
+
+/* Keyboard focus is visible without dotted outlines everywhere. */
+:focus-visible {
+  outline: 2px solid var(--link);
+  outline-offset: 1px;
+}
+
+.composer-editor:focus-visible,
+.ProseMirror:focus-visible {
+  outline: none;
+}
+
+/* Scrollbars that match the theme. */
+.feed::-webkit-scrollbar,
+.sidebar-pages::-webkit-scrollbar,
+.composer-content::-webkit-scrollbar,
+.modal::-webkit-scrollbar,
+.review-table-wrap::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.feed::-webkit-scrollbar-thumb,
+.sidebar-pages::-webkit-scrollbar-thumb,
+.composer-content::-webkit-scrollbar-thumb,
+.modal::-webkit-scrollbar-thumb,
+.review-table-wrap::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.sidebar-pages::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  background-clip: padding-box;
+}

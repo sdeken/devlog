@@ -1,9 +1,9 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, screen, shell } from 'electron'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { IPC, type MenuCommand } from '@shared/ipc'
 import type { AttachedImage, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
-import { JOURNAL_PAGE_ID } from '@shared/pages'
+import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
 import { localDate, parseDurationMarker } from '@shared/entries'
 import { DevlogStore } from './devlog/store'
 import { ActivityLog } from './activity/log'
@@ -38,6 +38,8 @@ let tracker: Tracker | null = null
 let commits: CommitWatcher | null = null
 let tray: Tray | null = null
 let quitting = false
+/** Page id → "Client / Project / Title", for the tray. */
+let pageLabels = new Map<string, string>()
 
 const activityLog = new ActivityLog(() => {
   const s = settings.get()
@@ -147,6 +149,8 @@ async function refreshCommitWatchers(): Promise<void> {
     return
   }
   const pages = await store.listPages()
+  pageLabels = new Map(pages.map((p) => [p.id, p.id === JOURNAL_PAGE_ID ? 'Journal' : [...categoryPath(p.category), p.title].join(' / ')]))
+  updateTray(tracker?.getStatus() ?? null)
   const list: Array<{ pageId: string; path: string }> = []
   for (const p of pages) {
     if (p.archived) continue // a finished project's repo should not feed an archived page
@@ -184,7 +188,11 @@ async function onEntryAdded(pageId: string, entry: Entry): Promise<void> {
 
 function updateTray(st: TrackerStatus | null): void {
   if (!tray) return
-  const label = !st || !st.tracking ? 'Devlog' : st.activePageId ? `Devlog · ${st.activePageId}${st.paused ? ' (paused)' : ''}` : 'Devlog · no active task'
+  const label = !st || !st.tracking
+    ? 'Devlog'
+    : st.activePageId
+      ? `Devlog · ${pageLabels.get(st.activePageId) ?? st.activePageId}${st.paused ? ' (paused)' : ''}`
+      : 'Devlog · no active task'
   tray.setToolTip(label)
   tray.setContextMenu(
     Menu.buildFromTemplate([
@@ -230,13 +238,68 @@ export async function repoInfo(): Promise<RepoInfo | null> {
   return { path: store.root, remoteUrl: st.remoteUrl, branch: st.branch }
 }
 
+interface WindowState {
+  x?: number
+  y?: number
+  width: number
+  height: number
+  maximized?: boolean
+}
+
+const windowStateFile = (): string => path.join(app.getPath('userData'), 'window-state.json')
+
+function loadWindowState(): WindowState {
+  const fallback: WindowState = { width: 1180, height: 800 }
+  try {
+    const raw = JSON.parse(require('node:fs').readFileSync(windowStateFile(), 'utf8')) as Partial<WindowState>
+    const st: WindowState = { width: Math.max(720, Number(raw.width) || fallback.width), height: Math.max(480, Number(raw.height) || fallback.height), maximized: !!raw.maximized }
+    if (typeof raw.x === 'number' && typeof raw.y === 'number') {
+      // Only restore a position that is still on a connected display.
+      const onScreen = screen.getAllDisplays().some((d) => {
+        const b = d.workArea
+        return raw.x! >= b.x - 50 && raw.y! >= b.y - 50 && raw.x! < b.x + b.width - 100 && raw.y! < b.y + b.height - 100
+      })
+      if (onScreen) {
+        st.x = raw.x
+        st.y = raw.y
+      }
+    }
+    return st
+  } catch {
+    return fallback
+  }
+}
+
+function watchWindowState(win: BrowserWindow): void {
+  let timer: NodeJS.Timeout | null = null
+  const save = (): void => {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(() => {
+      if (win.isDestroyed()) return
+      const maximized = win.isMaximized()
+      const b = maximized ? (win.getNormalBounds?.() ?? win.getBounds()) : win.getBounds()
+      const st: WindowState = { x: b.x, y: b.y, width: b.width, height: b.height, maximized }
+      fs.writeFile(windowStateFile(), JSON.stringify(st)).catch(() => undefined)
+    }, 300)
+  }
+  win.on('resize', save)
+  win.on('move', save)
+  win.on('maximize', save)
+  win.on('unmaximize', save)
+  win.on('close', save)
+}
+
 function createWindow(): BrowserWindow {
+  const state = loadWindowState()
   const win = new BrowserWindow({
-    width: 1180,
-    height: 800,
+    x: state.x,
+    y: state.y,
+    width: state.width,
+    height: state.height,
     minWidth: 720,
     minHeight: 480,
     show: false,
+    icon: process.platform === 'darwin' ? undefined : nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`),
     title: 'Devlog',
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     trafficLightPosition: { x: 14, y: 14 },
@@ -250,7 +313,11 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  win.on('ready-to-show', () => win.show())
+  win.on('ready-to-show', () => {
+    if (state.maximized) win.maximize()
+    win.show()
+  })
+  watchWindowState(win)
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }

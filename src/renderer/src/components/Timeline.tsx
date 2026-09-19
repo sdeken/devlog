@@ -121,7 +121,7 @@ export function Timeline({ pages, today, date, onChangeDate, onJumpTo }: Props):
             <input type="checkbox" checked={showSystem} onChange={(ev) => setShowSystem(ev.target.checked)} /> System
           </label>
           <label className="check check-inline">
-            <input type="checkbox" checked={showFocus} onChange={(ev) => setShowFocus(ev.target.checked)} /> Windows
+            <input type="checkbox" checked={showFocus} onChange={(ev) => setShowFocus(ev.target.checked)} /> Apps
           </label>
           <div className="week-nav">
             <button type="button" className="btn btn-quiet btn-xs" onClick={() => onChangeDate(addDays(date, -1))} title="Previous day">

@@ -9,6 +9,7 @@ import { isBlankMarkdown, localDate } from '@shared/entries'
 import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
 import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
+import { kbd } from '@renderer/keys'
 
 export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
@@ -36,7 +37,7 @@ export interface ComposerProps {
 }
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
-  new: 'Write a note…  Enter posts, Shift+Enter new line, ⇧⌘I or paste for images',
+  new: `Write a note…  Enter posts, Shift+Enter new line, paste or ${kbd('mod', 'shift', 'I')} for images`,
   edit: 'Edit note…  Enter saves, Esc cancels',
   reply: 'Reply…  Enter posts, Esc cancels',
   insert: 'New note here…  Enter posts, Esc cancels',
@@ -90,6 +91,7 @@ export function Composer({
   const [, forceRender] = useState(0)
   const submitRef = useRef<() => boolean>(() => false)
   const cancelRef = useRef<() => boolean>(() => false)
+  const linkRef = useRef<() => boolean>(() => false)
   const editLastRef = useRef<(() => void) | undefined>(onEditLast)
   editLastRef.current = onEditLast
   const editorRef = useRef<Editor | null>(null)
@@ -172,6 +174,7 @@ export function Composer({
       SubmitKeymap.configure({
         onSubmit: () => (isDocument ? false : submitRef.current()),
         onCancel: () => (isDocument ? false : cancelRef.current()),
+        onLink: () => linkRef.current(),
         onEditLast: () => {
           if (mode !== 'new' || !editLastRef.current) return false
           editLastRef.current()
@@ -227,10 +230,19 @@ export function Composer({
     return () => clearActiveComposer(sink)
   }, [autoFocus, sink])
 
-  // Document mode: never lose the last edit when the view goes away.
+  // Document mode: never lose the last edit when the view or the window goes away.
   useEffect(() => {
     if (!isDocument) return
-    return () => flushRef.current()
+    const flush = (): void => flushRef.current()
+    window.addEventListener('beforeunload', flush)
+    window.addEventListener('pagehide', flush)
+    document.addEventListener('visibilitychange', flush)
+    return () => {
+      window.removeEventListener('beforeunload', flush)
+      window.removeEventListener('pagehide', flush)
+      document.removeEventListener('visibilitychange', flush)
+      flush()
+    }
   }, [isDocument])
 
   const submit = useCallback((): boolean => {
@@ -280,6 +292,11 @@ export function Composer({
     setLinkUrl((editor.getAttributes('link').href as string | undefined) ?? '')
     setLinkOpen(true)
   }
+  linkRef.current = () => {
+    if (!editor || (editor.state.selection.empty && !editor.isActive('link'))) return false
+    openLink()
+    return true
+  }
 
   const applyLink = (): void => {
     if (!editor) return
@@ -294,11 +311,11 @@ export function Composer({
 
   const marks: Array<{ key: string; label: string; title: string; cls?: string; active: boolean; run: () => void }> = editor
     ? [
-        { key: 'bold', label: 'B', title: 'Bold ⌘B', cls: 'bm-bold', active: editor.isActive('bold'), run: () => editor.chain().focus().toggleBold().run() },
-        { key: 'italic', label: 'I', title: 'Italic ⌘I', cls: 'bm-italic', active: editor.isActive('italic'), run: () => editor.chain().focus().toggleItalic().run() },
-        { key: 'strike', label: 'S', title: 'Strikethrough ⌘⇧X', cls: 'bm-strike', active: editor.isActive('strike'), run: () => editor.chain().focus().toggleStrike().run() },
-        { key: 'code', label: '</>', title: 'Code ⌘E', cls: 'bm-code', active: editor.isActive('code'), run: () => editor.chain().focus().toggleCode().run() },
-        { key: 'link', label: '🔗', title: 'Link ⌘K', active: editor.isActive('link'), run: openLink }
+        { key: 'bold', label: 'B', title: `Bold ${kbd('mod', 'B')}`, cls: 'bm-bold', active: editor.isActive('bold'), run: () => editor.chain().focus().toggleBold().run() },
+        { key: 'italic', label: 'I', title: `Italic ${kbd('mod', 'I')}`, cls: 'bm-italic', active: editor.isActive('italic'), run: () => editor.chain().focus().toggleItalic().run() },
+        { key: 'strike', label: 'S', title: `Strikethrough ${kbd('mod', 'shift', 'X')}`, cls: 'bm-strike', active: editor.isActive('strike'), run: () => editor.chain().focus().toggleStrike().run() },
+        { key: 'code', label: '</>', title: `Code ${kbd('mod', 'E')}`, cls: 'bm-code', active: editor.isActive('code'), run: () => editor.chain().focus().toggleCode().run() },
+        { key: 'link', label: '🔗', title: `Link ${kbd('mod', 'K')}`, active: editor.isActive('link'), run: openLink }
       ]
     : []
 

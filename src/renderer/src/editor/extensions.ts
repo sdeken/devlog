@@ -44,6 +44,8 @@ export interface SubmitKeymapOptions {
   onCancel: () => boolean
   /** Up arrow in an empty editor: edit the previous note (Slack behaviour). */
   onEditLast: () => boolean
+  /** Mod+K: open the link editor. */
+  onLink: () => boolean
 }
 
 /**
@@ -59,7 +61,7 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
   priority: 1000,
 
   addOptions() {
-    return { onSubmit: () => false, onCancel: () => false, onEditLast: () => false }
+    return { onSubmit: () => false, onCancel: () => false, onEditLast: () => false, onLink: () => false }
   },
 
   addKeyboardShortcuts() {
@@ -91,7 +93,8 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
       ArrowUp: () => {
         if (this.editor.isEmpty) return this.options.onEditLast()
         return false
-      }
+      },
+      'Mod-k': () => this.options.onLink()
     }
   }
 })

@@ -117,7 +117,7 @@ export function Review({ pages, today, onJumpTo, onOpenTimeline }: Props): React
             <td key={d} className={`review-cell${d === today ? ' is-today' : ''}${cell ? ' has-notes' : ''}`}>
               {cell && (
                 <>
-                  <span className="cell-minutes">{cell.minutes > 0 ? formatMinutes(cell.minutes) : '·'}</span>
+                  <span className="cell-minutes">{Math.round(cell.minutes) >= 1 ? formatMinutes(cell.minutes) : '·'}</span>
                   <span className="cell-notes">{cell.notes > 0 ? cell.notes : ''}</span>
                 </>
               )}

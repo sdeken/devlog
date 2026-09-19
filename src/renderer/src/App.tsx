@@ -14,6 +14,9 @@ import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Welcome } from './components/Welcome'
 import { getActiveComposer } from './editor/active'
+import { Toasts } from './components/Toasts'
+import { errorMessage, reported, showToast } from './toasts'
+import { kbd } from './keys'
 
 const TIMELINE_DAYS = 10
 
@@ -115,7 +118,7 @@ export function App(): React.JSX.Element {
       if (cmd === 'openSettings') setSettingsOpen(true)
       if (cmd === 'focusComposer') setFocusToken((n) => n + 1)
       if (cmd === 'search') searchRef.current?.focus()
-      if (cmd === 'syncNow') void api.sync.now()
+      if (cmd === 'syncNow') void reported(api.sync.now())
       if (cmd === 'newPage') setPageDialog({ page: null })
       if (cmd === 'review') setView('review')
       if (cmd === 'timeline') {
@@ -136,6 +139,23 @@ export function App(): React.JSX.Element {
       offAttach()
     }
   }, [])
+
+  // Surface failures from fire-and-forget calls instead of losing them in the console.
+  useEffect(() => {
+    const onRejection = (ev: PromiseRejectionEvent): void => {
+      ev.preventDefault()
+      showToast(errorMessage(ev.reason))
+    }
+    window.addEventListener('unhandledrejection', onRejection)
+    return () => window.removeEventListener('unhandledrejection', onRejection)
+  }, [])
+
+  // Window title follows the view.
+  useEffect(() => {
+    const label =
+      view === 'review' ? 'Weekly review' : view === 'timeline' ? 'Timeline' : view === 'category' ? formatCategory(categoryPathSel) : pageLabelOf(pages, pageId)
+    document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
+  }, [view, categoryPathSel, pages, pageId, search])
 
   // Roll over at midnight.
   useEffect(() => {
@@ -316,7 +336,7 @@ export function App(): React.JSX.Element {
           onDelete={deleteEntry}
           onMove={moveEntry}
           onEditPage={() => setPageDialog({ page })}
-          onArchivePage={(archived) => void api.pages.archive(pageId, archived).then(() => refreshPages())}
+          onArchivePage={(archived) => void reported(api.pages.archive(pageId, archived).then(() => refreshPages()))}
           onJumpTo={jumpTo}
           onOpenCategory={openCategory}
         />
@@ -329,7 +349,7 @@ export function App(): React.JSX.Element {
             placeholder={
               page.id === JOURNAL_PAGE_ID
                 ? undefined
-                : `Write a note on ${page.title}…  Enter posts, Shift+Enter new line, ⇧⌘I or paste for images`
+                : `Write a note on ${page.title}…  Enter posts, Shift+Enter new line, paste or ${kbd('mod', 'shift', 'I')} for images`
             }
             assetPageId={pageId}
             draftKey={`devlog:draft:${repo.path}:${pageId}`}
@@ -344,15 +364,16 @@ export function App(): React.JSX.Element {
           status={sync}
           tracker={tracker}
           taskLabel={tracker?.activePageId ? pageLabelOf(pages, tracker.activePageId) : null}
-          onSyncNow={() => void api.sync.now()}
+          onSyncNow={() => void reported(api.sync.now())}
           onOpenSettings={() => setSettingsOpen(true)}
-          onStopTask={() => void api.tracker.setTask(null)}
+          onStopTask={() => void reported(api.tracker.setTask(null))}
           onOpenTimeline={() => {
             setTimelineDate(localDate(new Date()))
             setView('timeline')
           }}
         />
       </main>
+      <Toasts />
       {settingsOpen && (
         <SettingsDialog
           settings={settings}

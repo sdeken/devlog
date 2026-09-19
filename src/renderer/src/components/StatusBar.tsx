@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { SyncStatus, TrackerStatus } from '@shared/types'
 import { formatMinutes } from '@shared/review'
+import { kbd } from '@renderer/keys'
 
 interface Props {
   status: SyncStatus | null
@@ -102,7 +103,7 @@ export function StatusBar({ status, tracker, taskLabel, onSyncNow, onOpenSetting
             )}
           </button>
           {tracker.activePageId && (
-            <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title="Stop the active task (⌘⇧.)">
+            <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title={`Stop the active task (${kbd('mod', 'shift', '.')})`}>
               Stop
             </button>
           )}
@@ -122,10 +123,10 @@ export function StatusBar({ status, tracker, taskLabel, onSyncNow, onOpenSetting
         </span>
       )}
       <span className="spacer" />
-      <button type="button" className="btn btn-quiet btn-xs" onClick={onSyncNow} disabled={!status || dot === 'busy'} title="Commit and push now (⌘⇧S)">
+      <button type="button" className="btn btn-quiet btn-xs" onClick={onSyncNow} disabled={!status || dot === 'busy'} title={`Commit and push now (${kbd('mod', 'shift', 'S')})`}>
         Sync now
       </button>
-      <button type="button" className="btn btn-quiet btn-xs" onClick={onOpenSettings} title="Settings (⌘,)">
+      <button type="button" className="btn btn-quiet btn-xs" onClick={onOpenSettings} title={`Settings (${kbd('mod', ',')})`}>
         ⚙︎
       </button>
     </footer>
