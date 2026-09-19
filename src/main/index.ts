@@ -203,6 +203,7 @@ if (!gotLock) {
       openSettings: menuCmd('openSettings'),
       focusComposer: menuCmd('focusComposer'),
       search: menuCmd('search'),
+      newPage: menuCmd('newPage'),
       attachImage: async () => {
         const opts: Electron.OpenDialogOptions = {
           title: 'Attach image',

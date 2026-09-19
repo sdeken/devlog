@@ -6,11 +6,14 @@ import type {
   DaySummary,
   Entry,
   EntryPosition,
+  PageInput,
+  PageMeta,
   RepoInfo,
   SavedAsset,
   SearchHit,
   Settings,
-  SyncStatus
+  SyncStatus,
+  Timeline
 } from '../shared/types'
 
 type Unsubscribe = () => void
@@ -36,20 +39,30 @@ const api = {
     close: (): Promise<void> => ipcRenderer.invoke(IPC.repoClose),
     onChanged: (cb: (info: RepoInfo | null) => void): Unsubscribe => on(IPC.evRepoChanged, cb)
   },
+  pages: {
+    list: (): Promise<PageMeta[]> => ipcRenderer.invoke(IPC.pagesList),
+    create: (input: PageInput): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageCreate, input),
+    update: (pageId: string, patch: Partial<PageInput>): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageUpdate, pageId, patch),
+    remove: (pageId: string): Promise<number> => ipcRenderer.invoke(IPC.pageDelete, pageId)
+  },
   entries: {
-    listDays: (): Promise<DaySummary[]> => ipcRenderer.invoke(IPC.daysList),
-    getDay: (date: string): Promise<Day> => ipcRenderer.invoke(IPC.dayGet, date),
-    add: (markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry }> =>
-      ipcRenderer.invoke(IPC.entryAdd, markdown, position),
-    update: (date: string, id: string, markdown: string): Promise<Entry> =>
-      ipcRenderer.invoke(IPC.entryUpdate, date, id, markdown),
-    remove: (date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, date, id),
+    listDays: (pageId: string): Promise<DaySummary[]> => ipcRenderer.invoke(IPC.daysList, pageId),
+    getDay: (pageId: string, date: string): Promise<Day> => ipcRenderer.invoke(IPC.dayGet, pageId, date),
+    timeline: (pageId: string, opts?: { beforeDate?: string; days?: number }): Promise<Timeline> =>
+      ipcRenderer.invoke(IPC.timelineGet, pageId, opts),
+    add: (pageId: string, markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry }> =>
+      ipcRenderer.invoke(IPC.entryAdd, pageId, markdown, position),
+    update: (pageId: string, date: string, id: string, markdown: string): Promise<Entry> =>
+      ipcRenderer.invoke(IPC.entryUpdate, pageId, date, id, markdown),
+    remove: (pageId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, pageId, date, id),
+    move: (fromPageId: string, date: string, id: string, toPageId: string): Promise<{ date: string; entry: Entry }> =>
+      ipcRenderer.invoke(IPC.entryMove, fromPageId, date, id, toPageId),
     search: (query: string): Promise<SearchHit[]> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
   assets: {
-    save: (date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
-      ipcRenderer.invoke(IPC.assetSave, date, bytes, mime, name)
+    save: (pageId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
+      ipcRenderer.invoke(IPC.assetSave, pageId, date, bytes, mime, name)
   },
   sync: {
     now: (): Promise<unknown> => ipcRenderer.invoke(IPC.syncNow),

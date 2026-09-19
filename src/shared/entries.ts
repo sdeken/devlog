@@ -64,21 +64,21 @@ export function newEntryId(random: () => number = Math.random): string {
 // Paths
 // ---------------------------------------------------------------------------
 
-/** Repo-relative POSIX path of a day's markdown file. */
-export function dayFilePath(date: string): string {
+/** Repo-relative POSIX path of a day's markdown file. `base` is the page's entries dir. */
+export function dayFilePath(date: string, base: string = ENTRIES_DIR): string {
   const [y, m] = date.split('-')
-  return `${ENTRIES_DIR}/${y}/${m}/${date}.md`
+  return `${base}/${y}/${m}/${date}.md`
 }
 
 /** Repo-relative POSIX directory that holds a day's file. */
-export function dayDir(date: string): string {
+export function dayDir(date: string, base: string = ENTRIES_DIR): string {
   const [y, m] = date.split('-')
-  return `${ENTRIES_DIR}/${y}/${m}`
+  return `${base}/${y}/${m}`
 }
 
 /** Repo-relative POSIX directory for a day's attachments. */
-export function assetDir(date: string): string {
-  return `${dayDir(date)}/${ASSETS_DIR}`
+export function assetDir(date: string, base: string = ENTRIES_DIR): string {
+  return `${dayDir(date, base)}/${ASSETS_DIR}`
 }
 
 /** Parse a `YYYY-MM-DD` out of a day file path, or null. */
@@ -141,18 +141,23 @@ export function rewriteImageSrcs(markdown: string, fn: (src: string) => string):
     .replace(HTML_IMG_RE, (_m, pre: string, q: string, src: string) => `${pre}${q}${fn(src)}${q}`)
 }
 
+/** Root-relative image paths always start with one of the top-level content folders. */
+export function isRootRelativeSrc(src: string): boolean {
+  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('pages/')
+}
+
 /** Convert image paths relative to a day's file into repo-root-relative paths. */
-export function toRootRelative(markdown: string, date: string): string {
-  const dir = dayDir(date)
+export function toRootRelative(markdown: string, date: string, base: string = ENTRIES_DIR): string {
+  const dir = dayDir(date, base)
   return rewriteImageSrcs(markdown, (src) => (isExternalSrc(src) ? src : joinPosix(dir, src)))
 }
 
 /** Convert repo-root-relative image paths into paths relative to a day's file. */
-export function toDayRelative(markdown: string, date: string): string {
-  const dir = dayDir(date)
+export function toDayRelative(markdown: string, date: string, base: string = ENTRIES_DIR): string {
+  const dir = dayDir(date, base)
   return rewriteImageSrcs(markdown, (src) => {
     if (isExternalSrc(src)) return src
-    if (!src.startsWith(`${ENTRIES_DIR}/`)) return src // already relative / unknown
+    if (!isRootRelativeSrc(src)) return src // already relative / unknown
     return relativePosix(dir, src)
   })
 }
@@ -188,7 +193,7 @@ function trimBlankLines(lines: string[]): string[] {
 }
 
 /** Parse the contents of a day file. Image paths are returned repo-root-relative. */
-export function parseDayFile(date: string, text: string): Day {
+export function parseDayFile(date: string, text: string, base: string = ENTRIES_DIR): Day {
   const lines = text.split(/\r?\n/)
   const entries: Entry[] = []
   let current: { attrs: Record<string, string>; lines: string[] } | null = null
@@ -204,7 +209,7 @@ export function parseDayFile(date: string, text: string): Day {
     const entry: Entry = {
       id: current.attrs.id || newEntryId(),
       createdAt,
-      markdown: toRootRelative(body.join('\n'), date)
+      markdown: toRootRelative(body.join('\n'), date, base)
     }
     if (current.attrs.parent) entry.parentId = current.attrs.parent
     if (current.attrs.updated) entry.updatedAt = current.attrs.updated
@@ -231,7 +236,7 @@ export function parseDayFile(date: string, text: string): Day {
 }
 
 /** Serialise a day to markdown. Image paths are written relative to the day file. */
-export function serializeDayFile(day: Day): string {
+export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
   const parts: string[] = [`# ${day.date}`, '']
   for (const e of day.entries) {
     const depth = depthOf(day.entries, e.id)
@@ -243,7 +248,7 @@ export function serializeDayFile(day: Day): string {
     const level = '#'.repeat(Math.min(3 + depth, 6))
     parts.push(`${level} ${depth > 0 ? '↳ ' : ''}${localTime(new Date(e.createdAt))}`)
     parts.push('')
-    const body = toDayRelative(e.markdown, day.date).replace(/\s+$/, '')
+    const body = toDayRelative(e.markdown, day.date, base).replace(/\s+$/, '')
     if (body) {
       parts.push(body)
       parts.push('')

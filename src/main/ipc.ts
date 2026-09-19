@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { EntryPosition, RepoInfo, Settings } from '@shared/types'
+import type { EntryPosition, PageInput, RepoInfo, Settings } from '@shared/types'
 import type { DevlogStore } from './devlog/store'
 import type { SyncManager } from './devlog/sync'
 import type { SettingsStore } from './settings'
@@ -63,20 +63,31 @@ export function registerIpc(deps: IpcDeps): void {
     await settings.set({ repoPath: null })
   })
 
-  ipcMain.handle(IPC.daysList, () => requireStore(deps).listDays())
-  ipcMain.handle(IPC.dayGet, (_e, date: string) => requireStore(deps).readDay(date))
-  ipcMain.handle(IPC.entryAdd, (_e, markdown: string, position?: EntryPosition) =>
-    requireStore(deps).addEntry(markdown, position ?? {})
+  ipcMain.handle(IPC.pagesList, () => requireStore(deps).listPages())
+  ipcMain.handle(IPC.pageCreate, (_e, input: PageInput) => requireStore(deps).createPage(input))
+  ipcMain.handle(IPC.pageUpdate, (_e, pageId: string, patch: Partial<PageInput>) => requireStore(deps).updatePage(pageId, patch))
+  ipcMain.handle(IPC.pageDelete, (_e, pageId: string) => requireStore(deps).deletePage(pageId))
+
+  ipcMain.handle(IPC.daysList, (_e, pageId: string) => requireStore(deps).listDays(pageId))
+  ipcMain.handle(IPC.dayGet, (_e, pageId: string, date: string) => requireStore(deps).readDay(pageId, date))
+  ipcMain.handle(IPC.timelineGet, (_e, pageId: string, opts?: { beforeDate?: string; days?: number }) =>
+    requireStore(deps).getTimeline(pageId, opts ?? {})
   )
-  ipcMain.handle(IPC.entryUpdate, (_e, date: string, id: string, markdown: string) =>
-    requireStore(deps).updateEntry(date, id, markdown)
+  ipcMain.handle(IPC.entryAdd, (_e, pageId: string, markdown: string, position?: EntryPosition) =>
+    requireStore(deps).addEntry(pageId, markdown, position ?? {})
   )
-  ipcMain.handle(IPC.entryDelete, (_e, date: string, id: string) => requireStore(deps).deleteEntry(date, id))
+  ipcMain.handle(IPC.entryUpdate, (_e, pageId: string, date: string, id: string, markdown: string) =>
+    requireStore(deps).updateEntry(pageId, date, id, markdown)
+  )
+  ipcMain.handle(IPC.entryDelete, (_e, pageId: string, date: string, id: string) => requireStore(deps).deleteEntry(pageId, date, id))
+  ipcMain.handle(IPC.entryMove, (_e, fromPageId: string, date: string, id: string, toPageId: string) =>
+    requireStore(deps).moveEntry(fromPageId, date, id, toPageId)
+  )
   ipcMain.handle(IPC.entrySearch, (_e, query: string) => requireStore(deps).search(query))
   ipcMain.handle(
     IPC.assetSave,
-    (_e, date: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
-      requireStore(deps).saveAsset(date, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
+    (_e, pageId: string, date: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
+      requireStore(deps).saveAsset(pageId, date, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
   )
 
   ipcMain.handle(IPC.syncNow, () => deps.getSync()?.syncNow('manual') ?? null)

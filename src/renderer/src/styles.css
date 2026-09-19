@@ -168,13 +168,19 @@ body[data-platform='darwin'] .sidebar-head {
   background: rgba(255, 255, 255, 0.14);
 }
 
-.sidebar-days {
+.sidebar-pages {
   overflow-y: auto;
   flex: 1;
   padding: 0 8px 12px;
 }
 
-.sidebar-month h2 {
+.sidebar-pages ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-group h2 {
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -182,13 +188,7 @@ body[data-platform='darwin'] .sidebar-head {
   margin: 14px 8px 4px;
 }
 
-.sidebar-month ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.day-link {
+.page-link {
   display: flex;
   align-items: center;
   width: 100%;
@@ -201,28 +201,44 @@ body[data-platform='darwin'] .sidebar-head {
   gap: 8px;
 }
 
-.day-link:hover {
+.page-link:hover {
   background: var(--sidebar-hover);
 }
 
-.day-link.is-selected {
+.page-link.is-selected {
   background: var(--sidebar-active);
   color: #fff;
 }
 
-.day-link.is-today .day-name {
+.page-journal {
   font-weight: 600;
 }
 
-.day-name {
-  flex: 1;
+.page-icon {
+  width: 14px;
+  text-align: center;
+  color: var(--sidebar-muted);
+  flex: none;
 }
 
-.day-count {
-  font-size: 11px;
-  background: rgba(255, 255, 255, 0.15);
-  border-radius: 10px;
-  padding: 1px 7px;
+.page-link.is-selected .page-icon {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.page-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-new {
+  margin-top: 12px;
+  color: var(--sidebar-muted);
+}
+
+.page-new:hover {
+  color: var(--sidebar-fg);
 }
 
 /* ------------------------------------------------------------------ feed */
@@ -251,6 +267,82 @@ body[data-platform='darwin'] .sidebar-head {
 .feed-head h2 {
   margin: 0;
   font-size: 18px;
+}
+
+.page-head {
+  display: block;
+}
+
+.page-head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.page-category {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  background: var(--bg-3);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+
+.page-description {
+  margin-top: 6px;
+  font-size: 14px;
+  color: var(--fg-muted);
+  -webkit-app-region: no-drag;
+}
+
+.load-more {
+  text-align: center;
+  padding: 6px 0;
+}
+
+.day-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0 6px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 600;
+  user-select: none;
+}
+
+.day-divider::before,
+.day-divider::after {
+  content: '';
+  flex: 1;
+  border-top: 1px solid var(--border);
+}
+
+.day-divider-label {
+  padding: 2px 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+}
+
+.day-group:first-of-type .day-divider {
+  margin-top: 8px;
+}
+
+.move-select {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--fg);
+  max-width: 220px;
+}
+
+.btn-danger-text {
+  color: var(--danger);
 }
 
 .feed-sub {
@@ -871,6 +963,16 @@ body[data-platform='darwin'] .sidebar-head {
 .card label {
   font-size: 12px;
   color: var(--fg-muted);
+}
+
+.modal textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  font: inherit;
+  resize: vertical;
 }
 
 .card input,

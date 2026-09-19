@@ -17,6 +17,8 @@ export interface ComposerProps {
   initialMarkdown?: string
   placeholder?: string
   autoFocus?: boolean
+  /** Page whose asset folder receives pasted images. */
+  assetPageId: string
   /** Day whose asset folder receives pasted images. Defaults to today. */
   assetDate?: string
   /** Called with markdown when the user posts. Resolve to clear the editor. */
@@ -65,6 +67,7 @@ export function Composer({
   initialMarkdown = '',
   placeholder,
   autoFocus = false,
+  assetPageId,
   assetDate,
   onSubmit,
   onCancel,
@@ -109,7 +112,7 @@ export function Composer({
         if (view && coords) insertPos = view.posAtCoords(coords)?.pos ?? null
         for (const file of files) {
           const bytes = new Uint8Array(await file.arrayBuffer())
-          const saved = await api.assets.save(date, bytes, file.type, file.name)
+          const saved = await api.assets.save(assetPageId, date, bytes, file.type, file.name)
           const node = { type: 'image', attrs: { src: saved.src, alt: file.name.replace(/\.[^.]+$/, '') || 'image' } }
           if (insertPos !== null) {
             editor.chain().focus().insertContentAt(insertPos, node).run()
@@ -124,7 +127,7 @@ export function Composer({
         setUploading((n) => Math.max(0, n - files.length))
       }
     },
-    [assetDate]
+    [assetPageId, assetDate]
   )
   const sinkRef = useRef<(files: File[]) => void>(() => undefined)
   sinkRef.current = (files) => void uploadImages(files)

@@ -1,44 +1,84 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@shared/entries'
-import type { Day, DaySummary, EntryPosition, RepoInfo, SearchHit, Settings, SyncStatus } from '@shared/types'
+import { JOURNAL_PAGE, JOURNAL_PAGE_ID } from '@shared/pages'
+import type { Day, EntryPosition, PageMeta, RepoInfo, SearchHit, Settings, SyncStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
+import { PageDialog } from './components/PageDialog'
 import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Welcome } from './components/Welcome'
 import { getActiveComposer } from './editor/active'
 
+const TIMELINE_DAYS = 10
+
+/** Replace or insert one day in an ascending timeline; drop it when empty. */
+function mergeDay(days: Day[], day: Day): Day[] {
+  const rest = days.filter((d) => d.date !== day.date)
+  if (day.entries.length === 0) return rest
+  return [...rest, day].sort((a, b) => a.date.localeCompare(b.date))
+}
+
 export function App(): React.JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [repo, setRepo] = useState<RepoInfo | null | undefined>(undefined)
   const [today, setToday] = useState(localDate(new Date()))
-  const [days, setDays] = useState<DaySummary[]>([])
-  const [selected, setSelected] = useState(today)
-  const [day, setDay] = useState<Day | null>(null)
-  const [loadingDay, setLoadingDay] = useState(false)
+  const [pages, setPages] = useState<PageMeta[]>([JOURNAL_PAGE])
+  const [pageId, setPageId] = useState<string>(JOURNAL_PAGE_ID)
+  const [days, setDays] = useState<Day[]>([])
+  const [hasMore, setHasMore] = useState(false)
+  const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [hits, setHits] = useState<SearchHit[] | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [pageDialog, setPageDialog] = useState<{ page: PageMeta | null } | null>(null)
   const [focusToken, setFocusToken] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
   const [editRequest, setEditRequest] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
+  const pageIdRef = useRef(pageId)
+  pageIdRef.current = pageId
 
-  const refreshDays = useCallback(async () => {
-    setDays(await api.entries.listDays())
+  const page = useMemo(() => pages.find((p) => p.id === pageId) ?? JOURNAL_PAGE, [pages, pageId])
+  const categories = useMemo(() => [...new Set(pages.map((p) => p.category).filter(Boolean))].sort(), [pages])
+
+  const refreshPages = useCallback(async () => {
+    const list = await api.pages.list()
+    setPages(list)
+    if (!list.some((p) => p.id === pageIdRef.current)) setPageId(JOURNAL_PAGE_ID)
   }, [])
 
-  const loadDay = useCallback(async (date: string) => {
-    setLoadingDay(true)
+  const loadTimeline = useCallback(async (id: string) => {
+    setLoading(true)
     try {
-      setDay(await api.entries.getDay(date))
+      const t = await api.entries.timeline(id, { days: TIMELINE_DAYS })
+      if (pageIdRef.current !== id) return
+      setDays(t.days)
+      setHasMore(t.hasMore)
     } finally {
-      setLoadingDay(false)
+      setLoading(false)
     }
   }, [])
+
+  const loadMore = useCallback(async () => {
+    const first = days[0]
+    if (!first) return
+    const t = await api.entries.timeline(pageId, { beforeDate: first.date, days: TIMELINE_DAYS })
+    if (pageIdRef.current !== pageId) return
+    setDays((cur) => [...t.days, ...cur])
+    setHasMore(t.hasMore)
+  }, [days, pageId])
+
+  const reloadDay = useCallback(
+    async (id: string, date: string) => {
+      const day = await api.entries.getDay(id, date)
+      if (pageIdRef.current === id) setDays((cur) => mergeDay(cur, day))
+    },
+    []
+  )
 
   // Boot: settings + repo.
   useEffect(() => {
@@ -49,13 +89,17 @@ export function App(): React.JSX.Element {
       setSync(st)
       if (!r && s.repoPath) setBootError(`Could not reopen ${s.repoPath}. Open it again or create a new devlog.`)
     })()
-    const offRepo = api.repo.onChanged((info) => setRepo(info))
+    const offRepo = api.repo.onChanged((info) => {
+      setRepo(info)
+      setPageId(JOURNAL_PAGE_ID)
+    })
     const offSync = api.sync.onStatus((st) => setSync(st))
     const offMenu = api.onMenu((cmd) => {
       if (cmd === 'openSettings') setSettingsOpen(true)
       if (cmd === 'focusComposer') setFocusToken((n) => n + 1)
       if (cmd === 'search') searchRef.current?.focus()
       if (cmd === 'syncNow') void api.sync.now()
+      if (cmd === 'newPage') setPageDialog({ page: null })
     })
     const offAttach = api.onAttachImages((images) => {
       const sink = getActiveComposer()
@@ -74,24 +118,21 @@ export function App(): React.JSX.Element {
   useEffect(() => {
     const t = setInterval(() => {
       const d = localDate(new Date())
-      if (d !== today) {
-        setToday(d)
-        setSelected((sel) => (sel === today ? d : sel))
-      }
+      if (d !== today) setToday(d)
     }, 30_000)
     return () => clearInterval(t)
   }, [today])
 
-  // Load data when the repo changes or another machine pushed something.
+  // Load pages + timeline when the repo or page changes, or another machine pushed something.
   useEffect(() => {
     if (!repo) return
-    void refreshDays()
-    void loadDay(selected)
+    void refreshPages()
+    void loadTimeline(pageId)
     return api.entries.onChanged(() => {
-      void refreshDays()
-      void loadDay(selected)
+      void refreshPages()
+      void loadTimeline(pageIdRef.current)
     })
-  }, [repo, selected, refreshDays, loadDay])
+  }, [repo, pageId, refreshPages, loadTimeline])
 
   // Search (debounced).
   useEffect(() => {
@@ -108,42 +149,53 @@ export function App(): React.JSX.Element {
   }, [search, repo])
 
   const addEntry = useCallback(
-    async (markdown: string, position?: EntryPosition) => {
-      const { date } = await api.entries.add(markdown, position)
-      if (!position) {
-        if (date !== today) setToday(date)
-        setSelected(date)
-      }
-      await Promise.all([date === selected || !position ? loadDay(date) : Promise.resolve(), refreshDays()])
+    async (id: string, markdown: string, position?: EntryPosition) => {
+      const { date } = await api.entries.add(id, markdown, position)
+      if (!position && date !== today) setToday(date)
+      await reloadDay(id, date)
     },
-    [today, selected, loadDay, refreshDays]
+    [today, reloadDay]
   )
 
-  const editLast = useCallback(() => {
-    if (selected !== today || !day || day.entries.length === 0) return
-    const last = day.entries[day.entries.length - 1]
-    setEditRequest(last.id)
-    // Clear on the next tick so the same note can be requested again later.
-    setTimeout(() => setEditRequest(null), 0)
-  }, [selected, today, day])
-
   const updateEntry = useCallback(
-    async (date: string, id: string, markdown: string) => {
-      await api.entries.update(date, id, markdown)
-      if (date === selected) await loadDay(date)
+    async (id: string, date: string, entryId: string, markdown: string) => {
+      await api.entries.update(id, date, entryId, markdown)
+      await reloadDay(id, date)
       if (search) setHits(await api.entries.search(search))
     },
-    [selected, search, loadDay]
+    [search, reloadDay]
   )
 
   const deleteEntry = useCallback(
-    async (date: string, id: string) => {
-      await api.entries.remove(date, id)
-      await Promise.all([date === selected ? loadDay(date) : Promise.resolve(), refreshDays()])
+    async (id: string, date: string, entryId: string) => {
+      await api.entries.remove(id, date, entryId)
+      await reloadDay(id, date)
       if (search) setHits(await api.entries.search(search))
     },
-    [selected, search, loadDay, refreshDays]
+    [search, reloadDay]
   )
+
+  const moveEntry = useCallback(
+    async (id: string, date: string, entryId: string, toPageId: string) => {
+      await api.entries.move(id, date, entryId, toPageId)
+      await reloadDay(id, date)
+    },
+    [reloadDay]
+  )
+
+  const editLast = useCallback(() => {
+    const last = days[days.length - 1]
+    if (!last || last.date !== today || last.entries.length === 0) return
+    setEditRequest(last.entries[last.entries.length - 1].id)
+    setTimeout(() => setEditRequest(null), 0)
+  }, [days, today])
+
+  const jumpTo = useCallback((id: string, date: string) => {
+    setSearch('')
+    setPageId(id)
+    // Scroll the day into view once the timeline has rendered.
+    setTimeout(() => document.querySelector(`.day-group[data-date="${date}"]`)?.scrollIntoView({ block: 'start' }), 250)
+  }, [])
 
   if (repo === undefined || settings === null) {
     return <div className="boot">Loading…</div>
@@ -163,37 +215,50 @@ export function App(): React.JSX.Element {
 
   return (
     <div className="app">
-      <Sidebar days={days} today={today} selected={selected} search={search} onSearch={setSearch} onSelect={setSelected} searchRef={searchRef} />
+      <Sidebar
+        pages={pages}
+        currentPageId={pageId}
+        search={search}
+        onSearch={setSearch}
+        onSelectPage={(id) => {
+          setSearch('')
+          setPageId(id)
+        }}
+        onNewPage={() => setPageDialog({ page: null })}
+        searchRef={searchRef}
+      />
       <main className="main">
         <Feed
-          day={search ? null : day}
+          page={page}
+          pages={pages}
+          days={days}
+          hasMore={hasMore}
           today={today}
           search={search}
           hits={hits}
-          loading={loadingDay}
+          loading={loading}
           editRequest={editRequest}
+          onLoadMore={loadMore}
           onAdd={addEntry}
           onUpdate={updateEntry}
           onDelete={deleteEntry}
-          onJumpToDay={(d) => {
-            setSearch('')
-            setSelected(d)
-          }}
+          onMove={moveEntry}
+          onEditPage={() => setPageDialog({ page })}
+          onJumpTo={jumpTo}
         />
         <div className="composer-dock">
-          {selected !== today && !search && (
-            <div className="composer-notice">
-              New entries are posted to today.{' '}
-              <button type="button" className="link" onClick={() => setSelected(today)}>
-                Go to today
-              </button>
-            </div>
-          )}
           <Composer
+            key={pageId}
             mode="new"
-            draftKey={`devlog:draft:${repo.path}`}
+            placeholder={
+              page.id === JOURNAL_PAGE_ID
+                ? undefined
+                : `Write a note on ${page.title}…  Enter posts, Shift+Enter new line, ⇧⌘I or paste for images`
+            }
+            assetPageId={pageId}
+            draftKey={`devlog:draft:${repo.path}:${pageId}`}
             autoFocus
-            onSubmit={(md) => addEntry(md)}
+            onSubmit={(md) => addEntry(pageId, md)}
             onEditLast={editLast}
             focusToken={focusToken}
           />
@@ -207,6 +272,22 @@ export function App(): React.JSX.Element {
           onClose={() => setSettingsOpen(false)}
           onSaved={setSettings}
           onRepoChanged={(r) => setRepo(r)}
+        />
+      )}
+      {pageDialog && (
+        <PageDialog
+          page={pageDialog.page}
+          categories={categories}
+          onClose={() => setPageDialog(null)}
+          onSaved={async (saved) => {
+            await refreshPages()
+            setSearch('')
+            setPageId(saved.id)
+          }}
+          onDeleted={async () => {
+            setPageId(JOURNAL_PAGE_ID)
+            await refreshPages()
+          }}
         />
       )}
     </div>

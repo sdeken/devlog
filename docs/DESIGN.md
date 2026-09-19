@@ -36,8 +36,10 @@ outside the open repository.
 
 ## Storage format
 
-- `entries/YYYY/MM/YYYY-MM-DD.md` – one file per local calendar day.
+- `entries/YYYY/MM/YYYY-MM-DD.md` – the journal, one file per local day.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
+- `pages/<slug>/page.md` + `pages/<slug>/entries/…` – every other page, in
+  the same day-file layout (see **Pages** below).
 
 Each note is delimited by
 `<!-- devlog:entry id=… [parent=…] created=… [updated=…] -->`.
@@ -76,6 +78,36 @@ only code that reasons about positions:
 A reply written on a later day is stored in the parent's day file, so a
 thread never splits across files. Replies render with `↳` and a deeper
 heading level so GitHub shows the nesting without breaking Markdown.
+
+### Pages and categories
+
+A page is a separate stream of notes: a client, a project, a topic. The
+journal is the built-in page rooted at `entries/`; everything else lives
+under `pages/<slug>/`, where the slug is derived from the title and made
+unique. `page.md` holds a tiny `key: value` front matter (title, category,
+created) and a markdown description rendered at the top of the page. No
+YAML library: the parser accepts `key: value` lines and quoted values only.
+
+Categories are just a string on the page. The sidebar groups pages by it
+(uncategorised last), and the page dialog offers existing categories as
+suggestions, so a new category costs nothing and an empty one disappears.
+This keeps "how to slice things up" entirely in the user's hands: clients,
+projects, areas, people, whatever.
+
+Every store operation takes a page id; the helpers in `entries.ts` take the
+page's entries base so day files and image links are computed the same way
+everywhere. Root-relative image paths start with `entries/` or `pages/`,
+which is how `toDayRelative` recognises them.
+
+**Moving** a note (with its thread) to another page rewrites nothing but the
+file it lives in: assets stay put and the serialised link becomes
+`../../../../../entries/2026/09/assets/x.png`, which still renders on
+GitHub. Ids are re-generated only on collision in the target day.
+
+The feed is a continuous timeline per page: the newest ten non-empty days,
+oldest first with day dividers, and older days load on scroll or via "Show
+earlier notes" while preserving the scroll position. Search runs across all
+pages and each hit links to its page and day.
 
 ## Editor
 
@@ -142,5 +174,7 @@ timeout kills a stalled network call.
 
 - Multiple devlogs open at once (switching is supported).
 - Conflict resolution UI; git's own tooling is the fallback.
-- Tags/categories. Search is full-text over all entries.
+- Tags inside notes for cross-cutting slices; pages/categories cover the
+  main use, and search is full-text across every page.
+- A calendar or day picker; the timeline plus search stand in for now.
 - Drag-to-reorder or re-parenting notes; insert/reply cover the common cases.

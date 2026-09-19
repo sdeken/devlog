@@ -44,7 +44,37 @@ export interface DaySummary {
   count: number
 }
 
+/**
+ * A page is a separate stream of notes (a client, a project, …). The journal
+ * is the built-in page whose notes live at the repository root.
+ */
+export interface PageMeta {
+  /** Folder slug under `pages/`, or `journal` for the built-in page. */
+  id: string
+  title: string
+  /** Free-text grouping shown in the sidebar (e.g. "Clients"). Empty for none. */
+  category: string
+  /** Markdown shown at the top of the page. */
+  description: string
+  createdAt: string
+}
+
+export interface PageInput {
+  title: string
+  category?: string
+  description?: string
+}
+
+/** A slice of a page's history: whole days, oldest first. */
+export interface Timeline {
+  pageId: string
+  days: Day[]
+  /** True when older days exist before the first one returned. */
+  hasMore: boolean
+}
+
 export interface SearchHit {
+  pageId: string
   date: string
   entry: Entry
 }

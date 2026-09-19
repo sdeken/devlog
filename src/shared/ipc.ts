@@ -11,12 +11,19 @@ export const IPC = {
   repoSetRemote: 'repo:setRemote',
   repoRevealInFinder: 'repo:reveal',
   repoClose: 'repo:close',
+  // pages
+  pagesList: 'pages:list',
+  pageCreate: 'page:create',
+  pageUpdate: 'page:update',
+  pageDelete: 'page:delete',
   // entries
   daysList: 'days:list',
   dayGet: 'day:get',
+  timelineGet: 'timeline:get',
   entryAdd: 'entry:add',
   entryUpdate: 'entry:update',
   entryDelete: 'entry:delete',
+  entryMove: 'entry:move',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
   // sync
@@ -32,4 +39,4 @@ export const IPC = {
   evAttachImages: 'ev:attachImages'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage'

@@ -13,6 +13,10 @@ repository, and committed and pushed automatically.
 - **Every note is a node.** Reply to a note to start a thread, hover between
   two notes and press **+** to insert one there, double-click a note (or press
   ↑ in the empty composer) to edit it. Notes on past days work the same way.
+- **Pages and categories.** Besides the journal, create a page per client,
+  project, or whatever you want to slice by, and group pages under free-form
+  categories in the sidebar. Each page is its own stream with a description
+  at the top; notes can be moved between pages, and search covers all of them.
 - **Pasted images just work.** Paste or drop an image into the composer and it
   is saved into the repository next to the day's entry and linked relatively,
   so the log also renders on GitHub.
@@ -43,12 +47,28 @@ existing devlog** (a clone from another machine).
 
 ```
 README.md
-entries/
+entries/                          ← the journal
   2026/
     09/
       2026-09-19.md
       assets/
         2026-09-19-143201-a1b2.png
+pages/
+  acme-corp/                      ← a page (client, project, …)
+    page.md                       ← title, category, description
+    entries/2026/09/2026-09-19.md ← same day-file format
+```
+
+`page.md` is a short front-matter block followed by the description:
+
+```markdown
+---
+title: Acme Corp
+category: Clients
+created: 2026-09-19T10:00:00.000Z
+---
+
+Retainer client. Weekly sync on Tuesdays.
 ```
 
 A day file looks like this:
@@ -110,6 +130,7 @@ Code map:
 | Path                              | Purpose                                                        |
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/shared/entries.ts`           | Day-file format: parse/serialize, path helpers, image rewriting |
+| `src/shared/pages.ts`             | Page metadata (`page.md`), slugs, category grouping             |
 | `src/main/devlog/store.ts`        | Reads/writes entries and assets inside the repo                |
 | `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |

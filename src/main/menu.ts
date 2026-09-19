@@ -7,6 +7,7 @@ export interface MenuActions {
   focusComposer: () => void
   search: () => void
   attachImage: () => void
+  newPage: () => void
 }
 
 export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions): void {
@@ -35,6 +36,7 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
   template.push({
     label: 'File',
     submenu: [
+      { label: 'New Page…', accelerator: 'CmdOrCtrl+N', click: actions.newPage },
       { label: 'Open Devlog Repository…', accelerator: 'CmdOrCtrl+O', click: actions.openRepo },
       { type: 'separator' },
       { label: 'Sync Now', accelerator: 'CmdOrCtrl+Shift+S', click: actions.syncNow },
