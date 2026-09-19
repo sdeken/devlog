@@ -80,6 +80,28 @@ export function registerIpc(deps: IpcDeps): void {
     await deps.onPagesChanged()
     return page
   })
+  ipcMain.handle(IPC.pageArchive, async (_e, pageId: string, archived: boolean) => {
+    const page = await requireStore(deps).setPageArchived(pageId, archived)
+    if (archived && deps.trackerStatus()?.activePageId === pageId) await deps.trackerSetTask(null)
+    await deps.onPagesChanged()
+    return page
+  })
+  ipcMain.handle(IPC.categoryArchive, async (_e, path: string[], archived: boolean) => {
+    const result = await requireStore(deps).setCategoryArchived(path, archived)
+    const active = deps.trackerStatus()?.activePageId
+    if (archived && active) {
+      const page = await requireStore(deps).readPage(active).catch(() => null)
+      if (page?.archived) await deps.trackerSetTask(null)
+    }
+    await deps.onPagesChanged()
+    return result
+  })
+  ipcMain.handle(IPC.wikisList, () => requireStore(deps).listWikis())
+  ipcMain.handle(IPC.wikiGet, (_e, path: string[]) => requireStore(deps).readWiki(path))
+  ipcMain.handle(IPC.wikiSet, (_e, path: string[], markdown: string) => requireStore(deps).writeWiki(path, markdown))
+  ipcMain.handle(IPC.wikiAssetSave, (_e, path: string[], bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
+    requireStore(deps).saveWikiAsset(path, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
+  )
   ipcMain.handle(IPC.pageDelete, async (_e, pageId: string) => {
     const n = await requireStore(deps).deletePage(pageId)
     await deps.onPagesChanged()

@@ -111,6 +111,26 @@ oldest first with day dividers, and older days load on scroll or via "Show
 earlier notes" while preserving the scroll position. Search runs across all
 pages and each hit links to its page and day.
 
+### Category wikis and archiving
+
+A category is a path, so its wiki lives at `categories/<slug>/<slug>/wiki.md`
+with the same tiny front matter (`path`, `updated`, `archived`) and a Markdown
+body; images go in an `assets/` folder beside it and use the same
+root-relative-in-memory, file-relative-on-disk rule as notes (`toRootRelativeFrom`
+/ `toRelativeFrom`). The editor is the note Composer in a `document` mode:
+Enter is a paragraph break, there is no submit, and changes are debounced
+800 ms into `writeWiki`, with a flush on unmount so switching views never
+loses the last keystrokes.
+
+Archiving is a flag, not a move: `archived: true` in `page.md` or `wiki.md`.
+Everything that reads pages still sees archived ones; the sidebar tree,
+move targets, commit watchers and the active task simply filter them out.
+Search returns archived hits with a badge. Archiving a category flags every
+page whose path starts with it (case-insensitive segments) and every wiki
+beneath it, writing a wiki file if none existed so the category itself
+carries the flag; unarchiving reverses the same set. Keeping it a flag means
+git history stays linear and a mistaken archive is a one-line change.
+
 ### Active task and the activity log
 
 The model is deliberately small: **one active task at a time, and the task

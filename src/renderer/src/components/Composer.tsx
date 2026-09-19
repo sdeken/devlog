@@ -10,19 +10,23 @@ import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
 import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
 
-export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert'
+export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
 export interface ComposerProps {
   mode: ComposerMode
   initialMarkdown?: string
   placeholder?: string
   autoFocus?: boolean
-  /** Page whose asset folder receives pasted images. */
-  assetPageId: string
+  /** Page whose asset folder receives pasted images (unless `saveImage` is given). */
+  assetPageId?: string
   /** Day whose asset folder receives pasted images. Defaults to today. */
   assetDate?: string
+  /** Custom image sink (e.g. a wiki's asset folder). */
+  saveImage?: (bytes: Uint8Array, mime: string, name: string) => Promise<{ src: string }>
   /** Called with markdown when the user posts. Resolve to clear the editor. */
   onSubmit: (markdown: string) => Promise<void>
+  /** Document mode: called (debounced) whenever the content changes. */
+  onChange?: (markdown: string) => Promise<void> | void
   onCancel?: () => void
   /** Up arrow in an empty composer (new mode only). */
   onEditLast?: () => void
@@ -35,7 +39,8 @@ const PLACEHOLDER: Record<ComposerMode, string> = {
   new: 'Write a note…  Enter posts, Shift+Enter new line, ⇧⌘I or paste for images',
   edit: 'Edit note…  Enter saves, Esc cancels',
   reply: 'Reply…  Enter posts, Esc cancels',
-  insert: 'New note here…  Enter posts, Esc cancels'
+  insert: 'New note here…  Enter posts, Esc cancels',
+  document: 'Write anything…'
 }
 
 function isImageFile(f: File): boolean {
@@ -69,7 +74,9 @@ export function Composer({
   autoFocus = false,
   assetPageId,
   assetDate,
+  saveImage,
   onSubmit,
+  onChange,
   onCancel,
   onEditLast,
   draftKey,
@@ -86,6 +93,22 @@ export function Composer({
   const editLastRef = useRef<(() => void) | undefined>(onEditLast)
   editLastRef.current = onEditLast
   const editorRef = useRef<Editor | null>(null)
+  const isDocument = mode === 'document'
+  const changeRef = useRef(onChange)
+  changeRef.current = onChange
+  const changeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pendingDoc = useRef<string | null>(null)
+  const flushChange = (): void => {
+    if (changeTimer.current) clearTimeout(changeTimer.current)
+    changeTimer.current = null
+    if (pendingDoc.current !== null && changeRef.current) {
+      const md = pendingDoc.current
+      pendingDoc.current = null
+      void changeRef.current(md)
+    }
+  }
+  const flushRef = useRef(flushChange)
+  flushRef.current = flushChange
 
   const startContent = useMemo(() => {
     if (initialMarkdown) return initialMarkdown
@@ -112,7 +135,9 @@ export function Composer({
         if (view && coords) insertPos = view.posAtCoords(coords)?.pos ?? null
         for (const file of files) {
           const bytes = new Uint8Array(await file.arrayBuffer())
-          const saved = await api.assets.save(assetPageId, date, bytes, file.type, file.name)
+          const saved = saveImage
+            ? await saveImage(bytes, file.type, file.name)
+            : await api.assets.save(assetPageId ?? 'journal', date, bytes, file.type, file.name)
           const node = { type: 'image', attrs: { src: saved.src, alt: file.name.replace(/\.[^.]+$/, '') || 'image' } }
           if (insertPos !== null) {
             editor.chain().focus().insertContentAt(insertPos, node).run()
@@ -127,7 +152,7 @@ export function Composer({
         setUploading((n) => Math.max(0, n - files.length))
       }
     },
-    [assetPageId, assetDate]
+    [assetPageId, assetDate, saveImage]
   )
   const sinkRef = useRef<(files: File[]) => void>(() => undefined)
   sinkRef.current = (files) => void uploadImages(files)
@@ -145,8 +170,8 @@ export function Composer({
       DevlogImage,
       Placeholder.configure({ placeholder: placeholder ?? PLACEHOLDER[mode] }),
       SubmitKeymap.configure({
-        onSubmit: () => submitRef.current(),
-        onCancel: () => cancelRef.current(),
+        onSubmit: () => (isDocument ? false : submitRef.current()),
+        onCancel: () => (isDocument ? false : cancelRef.current()),
         onEditLast: () => {
           if (mode !== 'new' || !editLastRef.current) return false
           editLastRef.current()
@@ -178,6 +203,12 @@ export function Composer({
     onFocus: () => setActiveComposer(sink),
     onTransaction: () => forceRender((n) => n + 1),
     onUpdate: ({ editor: e }) => {
+      if (isDocument) {
+        pendingDoc.current = e.getMarkdown()
+        if (changeTimer.current) clearTimeout(changeTimer.current)
+        changeTimer.current = setTimeout(() => flushRef.current(), 800)
+        return
+      }
       if (!draftKey) return
       try {
         const md = e.getMarkdown()
@@ -195,6 +226,12 @@ export function Composer({
     if (autoFocus) setActiveComposer(sink)
     return () => clearActiveComposer(sink)
   }, [autoFocus, sink])
+
+  // Document mode: never lose the last edit when the view goes away.
+  useEffect(() => {
+    if (!isDocument) return
+    return () => flushRef.current()
+  }, [isDocument])
 
   const submit = useCallback((): boolean => {
     const e = editorRef.current

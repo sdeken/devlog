@@ -1,7 +1,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { buildTree, type EntryNode } from '@shared/entries'
 import { JOURNAL_PAGE_ID } from '@shared/pages'
-import type { Day, EntryPosition, PageMeta, SearchHit } from '@shared/types'
+import type { Day, EntryPosition, PageMeta, SearchResult } from '@shared/types'
+import { categoryPath, formatCategory } from '@shared/pages'
 import { renderMarkdown } from '@renderer/markdown'
 import { Composer } from './Composer'
 import { EntryView } from './EntryView'
@@ -13,7 +14,7 @@ interface Props {
   hasMore: boolean
   today: string
   search: string
-  hits: SearchHit[] | null
+  hits: SearchResult | null
   loading: boolean
   /** Id of the entry that should open in edit mode, if any. */
   editRequest: string | null
@@ -23,7 +24,9 @@ interface Props {
   onDelete: (pageId: string, date: string, id: string) => Promise<void>
   onMove: (pageId: string, date: string, id: string, toPageId: string) => Promise<void>
   onEditPage: () => void
+  onArchivePage: (archived: boolean) => void
   onJumpTo: (pageId: string, date: string) => void
+  onOpenCategory: (path: string[]) => void
 }
 
 const headingFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
@@ -99,7 +102,7 @@ function NoteNode({ node, pageId, pages, date, editRequest, onAdd, onUpdate, onD
         entry={node.entry}
         replyCount={replies}
         forceEdit={editRequest === node.entry.id}
-        pages={pages}
+        pages={pages.filter((p) => !p.archived)}
         onUpdate={onUpdate}
         onDelete={onDelete}
         onMove={onMove}
@@ -213,7 +216,9 @@ export function Feed({
   onDelete,
   onMove,
   onEditPage,
-  onJumpTo
+  onArchivePage,
+  onJumpTo,
+  onOpenCategory
 }: Props): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const lastPage = useRef<string | null>(null)
@@ -263,19 +268,32 @@ export function Feed({
   }
 
   if (search) {
-    const titleOf = (id: string): string => pages.find((p) => p.id === id)?.title ?? id
+    const labelOf = (id: string): string => {
+      const p = pages.find((x) => x.id === id)
+      return p ? [...categoryPath(p.category), p.title].join(' / ') : id === JOURNAL_PAGE_ID ? 'Journal' : id
+    }
+    const total = hits ? hits.notes.length + hits.wikis.length : 0
     return (
       <div className="feed" ref={scroller}>
         <header className="feed-head">
           <h2>Search: “{search}”</h2>
-          <span className="feed-sub">{hits ? `${hits.length} result${hits.length === 1 ? '' : 's'} across all pages` : 'Searching…'}</span>
+          <span className="feed-sub">{hits ? `${total} result${total === 1 ? '' : 's'} across all pages and wikis, archived included` : 'Searching…'}</span>
         </header>
-        {hits && hits.length === 0 && <p className="feed-empty">Nothing matched.</p>}
-        {hits?.map((h) => (
+        {hits && total === 0 && <p className="feed-empty">Nothing matched.</p>}
+        {hits?.wikis.map((w) => (
+          <div key={`wiki/${w.path.join('/')}`} className="hit hit-wiki">
+            <button type="button" className="hit-day" onClick={() => onOpenCategory(w.path)}>
+              ▤ {formatCategory(w.path)} · wiki{w.archived ? ' · archived' : ''}
+            </button>
+            <p className="hit-excerpt">{w.excerpt}</p>
+          </div>
+        ))}
+        {hits?.notes.map((h) => (
           <div key={`${h.pageId}/${h.date}/${h.entry.id}`} className="hit">
             <button type="button" className="hit-day" onClick={() => onJumpTo(h.pageId, h.date)}>
-              {titleOf(h.pageId)} · {headingFmt.format(parseLocal(h.date))}
+              {labelOf(h.pageId)} · {headingFmt.format(parseLocal(h.date))}
               {h.entry.parentId ? ' · in thread' : ''}
+              {h.archived ? ' · archived' : ''}
             </button>
             <EntryView pageId={h.pageId} date={h.date} entry={h.entry} showDate onUpdate={onUpdate} onDelete={onDelete} />
           </div>
@@ -295,14 +313,29 @@ export function Feed({
       <header className="feed-head page-head">
         <div className="page-head-row">
           <h2>{page.title}</h2>
-          {page.category && <span className="page-category">{page.category}</span>}
-          <span className="spacer" />
-          {page.id !== JOURNAL_PAGE_ID && (
-            <button type="button" className="btn btn-quiet btn-xs" onClick={onEditPage} title="Edit page">
-              Edit page
+          {page.category && (
+            <button type="button" className="page-category page-category-link" onClick={() => onOpenCategory(categoryPath(page.category))} title="Open the category wiki">
+              {page.category}
             </button>
           )}
+          <span className="spacer" />
+          {page.id !== JOURNAL_PAGE_ID && (
+            <>
+              <button type="button" className="btn btn-quiet btn-xs" onClick={onEditPage} title="Edit page">
+                Edit page
+              </button>
+              <button
+                type="button"
+                className="btn btn-quiet btn-xs"
+                onClick={() => onArchivePage(!page.archived)}
+                title={page.archived ? 'Bring this page back to the sidebar' : 'Hide this page from the sidebar; it stays searchable'}
+              >
+                {page.archived ? 'Unarchive' : 'Archive'}
+              </button>
+            </>
+          )}
         </div>
+        {page.archived && <div className="archived-banner">This page is archived. It stays searchable and readable; unarchive it to post again.</div>}
         {page.description && (
           <div className="page-description markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(page.description) }} />
         )}

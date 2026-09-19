@@ -19,6 +19,13 @@ repository, and committed and pushed automatically.
   under clients (and a "Website" under two clients is two different projects).
   Each page is its own stream with a description at the top; notes can be
   moved between pages, and search covers all of them.
+- **A wiki per category.** Click a client or project in the sidebar to open
+  its wiki: a blank canvas that is not a task, for links to the issue tracker,
+  environments, contacts, credentials, how-tos. It saves as you type and lives
+  in the repo as `categories/<path>/wiki.md`.
+- **Archive what you're done with.** Archive a page, or a whole category with
+  everything beneath it, to get it out of the sidebar. Archived things stay
+  readable and searchable, and one click brings them back.
 - **One active task, tracked for you.** Posting on a page makes it the active
   task; it stays active until you post elsewhere, press Stop, lock the
   machine, go idle or sleep. Devlog keeps running in the tray to watch. A note
@@ -73,8 +80,13 @@ entries/                          ← the journal
         2026-09-19-143201-a1b2.png
 pages/
   acme-corp-web-website/          ← a page; folder name = category path + title
-    page.md                       ← title, category path, description
+    page.md                       ← title, category path, description, archived flag
     entries/2026/09/2026-09-19.md ← same day-file format
+categories/
+  acme-corp/
+    wiki.md                       ← the "Acme Corp" wiki (front matter + markdown)
+    assets/                       ← images pasted into it
+    web/wiki.md                   ← the "Acme Corp / Web" wiki
 ```
 
 `page.md` is a short front-matter block followed by the description:
@@ -88,6 +100,29 @@ created: 2026-09-19T10:00:00.000Z
 
 Marketing site rebuild. Weekly sync on Tuesdays.
 ```
+
+## Category wikis
+
+Every category node (a client, a project) has a wiki. Open it by clicking the
+category name in the sidebar, the category chip on a page, or a breadcrumb. It
+is a full-height editor with the same Markdown and image support as notes,
+but no posting: Enter is just a new line and every change is saved a moment
+later (the header says "Saved"). Below the canvas the view lists the pages in
+that category, including archived ones with an Unarchive button, and offers
+"+ Page here" to create a page pre-filled with the category.
+
+Wikis are searched along with notes. Like everything else in the repository,
+they are plain files; treat the repository as sensitive, because it is.
+
+## Archiving
+
+**Archive** in a page header hides the page from the sidebar. It keeps its
+notes, stays searchable (results are marked "archived"), can still be opened
+and read, and comes back with **Unarchive**. Archived pages cannot become the
+active task or receive commits. **Archive category…** in a wiki header does
+the same for the category and every page beneath it; unarchiving restores
+them all. The sidebar's collapsible **Archived** section lists everything
+archived so it is never lost.
 
 ## Time tracking
 
@@ -201,7 +236,7 @@ Code map:
 | Path                              | Purpose                                                        |
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/shared/entries.ts`           | Day-file format: parse/serialize, path helpers, image rewriting |
-| `src/shared/pages.ts`             | Page metadata (`page.md`), slugs, category paths and tree      |
+| `src/shared/pages.ts`             | Page and wiki files, slugs, category paths and tree, archiving |
 | `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
 | `src/main/activity/`              | Activity log, tracker (lock/idle/focus), commit watcher         |

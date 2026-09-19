@@ -65,6 +65,8 @@ export interface PageMeta {
   createdAt: string
   /** Local git repositories whose commits belong to this page. */
   repos: string[]
+  /** Archived pages are hidden from the sidebar but still searchable. */
+  archived: boolean
 }
 
 export interface PageInput {
@@ -86,6 +88,33 @@ export interface SearchHit {
   pageId: string
   date: string
   entry: Entry
+  /** True when the page holding this note is archived. */
+  archived: boolean
+}
+
+/** A category's wiki: a free-form markdown canvas, one per category path. */
+export interface WikiMeta {
+  /** Category path segments, e.g. ["Acme Corp", "Web"]. */
+  path: string[]
+  archived: boolean
+  updatedAt: string
+}
+
+export interface Wiki extends WikiMeta {
+  /** Markdown with repo-root-relative image paths. Empty when the wiki has not been written yet. */
+  markdown: string
+  exists: boolean
+}
+
+export interface WikiHit {
+  path: string[]
+  archived: boolean
+  excerpt: string
+}
+
+export interface SearchResult {
+  notes: SearchHit[]
+  wikis: WikiHit[]
 }
 
 export interface Settings {

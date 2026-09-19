@@ -6,11 +6,13 @@
  *
  * The journal is the built-in page at the repository root (`entries/`).
  */
-import type { PageMeta } from './types'
+import type { PageMeta, WikiMeta } from './types'
 
 export const JOURNAL_PAGE_ID = 'journal'
 export const PAGES_DIR = 'pages'
 export const PAGE_FILE = 'page.md'
+export const CATEGORIES_DIR = 'categories'
+export const WIKI_FILE = 'wiki.md'
 
 export const JOURNAL_PAGE: PageMeta = {
   id: JOURNAL_PAGE_ID,
@@ -18,7 +20,8 @@ export const JOURNAL_PAGE: PageMeta = {
   category: '',
   description: '',
   createdAt: '1970-01-01T00:00:00.000Z',
-  repos: []
+  repos: [],
+  archived: false
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -54,6 +57,21 @@ export function normalizeCategory(category: string): string {
   return formatCategory(categoryPath(category))
 }
 
+/** True when `path` equals `prefix` or lies beneath it (segments compared case-insensitively). */
+export function pathStartsWith(path: string[], prefix: string[]): boolean {
+  if (prefix.length === 0 || prefix.length > path.length) return prefix.length === 0
+  return prefix.every((seg, i) => seg.toLowerCase() === path[i].toLowerCase())
+}
+
+export function samePath(a: string[], b: string[]): boolean {
+  return a.length === b.length && pathStartsWith(a, b)
+}
+
+/** Repo-relative directory holding a category's wiki and assets. */
+export function categoryDir(path: string[]): string {
+  return `${CATEGORIES_DIR}/${path.map(slugify).join('/')}`
+}
+
 export interface CategoryNode {
   /** Last segment, e.g. "Website". */
   name: string
@@ -66,18 +84,13 @@ export interface CategoryNode {
 /**
  * Nest pages by their category path. The journal is never included. Pages
  * without a category are returned separately as `uncategorised`.
+ * `extraPaths` (e.g. categories that only have a wiki) become nodes too.
  */
-export function buildCategoryTree(pages: PageMeta[]): { roots: CategoryNode[]; uncategorised: PageMeta[] } {
+export function buildCategoryTree(pages: PageMeta[], extraPaths: string[][] = []): { roots: CategoryNode[]; uncategorised: PageMeta[] } {
   const rootMap = new Map<string, CategoryNode>()
   const uncategorised: PageMeta[] = []
   const byTitle = (a: PageMeta, b: PageMeta): number => a.title.localeCompare(b.title)
-  for (const page of pages) {
-    if (page.id === JOURNAL_PAGE_ID) continue
-    const segments = categoryPath(page.category)
-    if (segments.length === 0) {
-      uncategorised.push(page)
-      continue
-    }
+  const ensure = (segments: string[]): CategoryNode | undefined => {
     let level = rootMap
     let node: CategoryNode | undefined
     const path: string[] = []
@@ -93,8 +106,18 @@ export function buildCategoryTree(pages: PageMeta[]): { roots: CategoryNode[]; u
       node = next
       level = childMap(next)
     }
-    node!.pages.push(page)
+    return node
   }
+  for (const page of pages) {
+    if (page.id === JOURNAL_PAGE_ID) continue
+    const segments = categoryPath(page.category)
+    if (segments.length === 0) {
+      uncategorised.push(page)
+      continue
+    }
+    ensure(segments)!.pages.push(page)
+  }
+  for (const extra of extraPaths) if (extra.length > 0) ensure(extra)
   const finish = (nodes: CategoryNode[]): CategoryNode[] =>
     nodes
       .map((n) => ({ ...n, pages: [...n.pages].sort(byTitle), children: finish(n.children) }))
@@ -151,32 +174,42 @@ function quote(v: string): string {
   return /[:#"'\\\n]|^\s|\s$/.test(v) || v === '' ? JSON.stringify(v) : v
 }
 
+/** Split simple `key: value` front matter from a markdown body. Repeated keys collect in order. */
+export function parseFrontMatter(text: string): { fields: Array<[string, string]>; body: string } {
+  const fields: Array<[string, string]> = []
+  const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
+  if (!m) return { fields, body: text }
+  for (const line of m[1].split(/\r?\n/)) {
+    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
+    if (kv) fields.push([kv[1].toLowerCase(), unquote(kv[2])])
+  }
+  return { fields, body: text.slice(m[0].length) }
+}
+
+const isTrue = (v: string): boolean => /^(true|yes|1)$/i.test(v.trim())
+
 /** Parse `page.md`: simple `key: value` front matter followed by a markdown description. */
 export function parsePageFile(id: string, text: string): PageMeta {
-  const meta: PageMeta = { id, title: id, category: '', description: '', createdAt: '', repos: [] }
-  let body = text
-  const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
-  if (m) {
-    for (const line of m[1].split(/\r?\n/)) {
-      const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
-      if (!kv) continue
-      const value = unquote(kv[2])
-      switch (kv[1].toLowerCase()) {
-        case 'title':
-          meta.title = value || id
-          break
-        case 'category':
-          meta.category = value
-          break
-        case 'created':
-          meta.createdAt = value
-          break
-        case 'repo':
-          if (value) meta.repos.push(value)
-          break
-      }
+  const meta: PageMeta = { id, title: id, category: '', description: '', createdAt: '', repos: [], archived: false }
+  const { fields, body } = parseFrontMatter(text)
+  for (const [key, value] of fields) {
+    switch (key) {
+      case 'title':
+        meta.title = value || id
+        break
+      case 'category':
+        meta.category = value
+        break
+      case 'created':
+        meta.createdAt = value
+        break
+      case 'repo':
+        if (value) meta.repos.push(value)
+        break
+      case 'archived':
+        meta.archived = isTrue(value)
+        break
     }
-    body = text.slice(m[0].length)
   }
   meta.description = body.trim()
   return meta
@@ -187,7 +220,34 @@ export function serializePageFile(meta: PageMeta): string {
   if (meta.category) lines.push(`category: ${quote(meta.category)}`)
   lines.push(`created: ${meta.createdAt}`)
   for (const r of meta.repos) lines.push(`repo: ${quote(r)}`)
+  if (meta.archived) lines.push('archived: true')
   lines.push('---', '')
   if (meta.description.trim()) lines.push(meta.description.trim(), '')
+  return lines.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Category wikis
+// ---------------------------------------------------------------------------
+
+/** Parse `wiki.md`. `fallbackPath` is used when the front matter lacks one. */
+export function parseWikiFile(text: string, fallbackPath: string[]): { meta: WikiMeta; markdown: string } {
+  const { fields, body } = parseFrontMatter(text)
+  const meta: WikiMeta = { path: fallbackPath, archived: false, updatedAt: '' }
+  for (const [key, value] of fields) {
+    if (key === 'path' && categoryPath(value).length > 0) meta.path = categoryPath(value)
+    else if (key === 'archived') meta.archived = isTrue(value)
+    else if (key === 'updated') meta.updatedAt = value
+  }
+  return { meta, markdown: body.replace(/^\s*\n/, '').replace(/\s+$/, '') }
+}
+
+export function serializeWikiFile(meta: WikiMeta, markdown: string): string {
+  const lines = ['---', `path: ${quote(formatCategory(meta.path))}`]
+  if (meta.updatedAt) lines.push(`updated: ${meta.updatedAt}`)
+  if (meta.archived) lines.push('archived: true')
+  lines.push('---', '')
+  const body = markdown.replace(/\s+$/, '')
+  if (body) lines.push(body, '')
   return lines.join('\n')
 }

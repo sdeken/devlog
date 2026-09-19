@@ -16,6 +16,12 @@ export const IPC = {
   pageCreate: 'page:create',
   pageUpdate: 'page:update',
   pageDelete: 'page:delete',
+  pageArchive: 'page:archive',
+  categoryArchive: 'category:archive',
+  wikiGet: 'wiki:get',
+  wikiSet: 'wiki:set',
+  wikiAssetSave: 'wiki:assetSave',
+  wikisList: 'wikis:list',
   // entries
   daysList: 'days:list',
   dayGet: 'day:get',

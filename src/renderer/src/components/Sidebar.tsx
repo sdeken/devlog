@@ -1,11 +1,16 @@
-import { useMemo } from 'react'
-import { JOURNAL_PAGE_ID, buildCategoryTree, type CategoryNode } from '@shared/pages'
-import type { PageMeta } from '@shared/types'
+import { useMemo, useState } from 'react'
+import { JOURNAL_PAGE_ID, buildCategoryTree, categoryPath, formatCategory, samePath, type CategoryNode } from '@shared/pages'
+import type { PageMeta, WikiMeta } from '@shared/types'
 
-export type SidebarSelection = { kind: 'page'; pageId: string } | { kind: 'review' } | { kind: 'timeline' }
+export type SidebarSelection =
+  | { kind: 'page'; pageId: string }
+  | { kind: 'review' }
+  | { kind: 'timeline' }
+  | { kind: 'category'; path: string[] }
 
 interface Props {
   pages: PageMeta[]
+  wikis: WikiMeta[]
   selection: SidebarSelection
   search: string
   onSearch: (q: string) => void
@@ -14,9 +19,33 @@ interface Props {
   searchRef: React.RefObject<HTMLInputElement | null>
 }
 
-export function Sidebar({ pages, selection, search, onSearch, onSelect, onNewPage, searchRef }: Props): React.JSX.Element {
-  const tree = useMemo(() => buildCategoryTree(pages), [pages])
+export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, onNewPage, searchRef }: Props): React.JSX.Element {
+  const live = useMemo(() => pages.filter((p) => !p.archived), [pages])
+  const tree = useMemo(
+    () => buildCategoryTree(live, wikis.filter((w) => !w.archived).map((w) => w.path)),
+    [live, wikis]
+  )
+  const archivedPages = useMemo(() => pages.filter((p) => p.archived), [pages])
+  const archivedWikis = useMemo(() => wikis.filter((w) => w.archived), [wikis])
+  const [showArchived, setShowArchived] = useState(() => {
+    try {
+      return localStorage.getItem('devlog:sidebar:archived') === '1'
+    } catch {
+      return false
+    }
+  })
+  const toggleArchived = (): void => {
+    setShowArchived((v) => {
+      try {
+        localStorage.setItem('devlog:sidebar:archived', v ? '0' : '1')
+      } catch {
+        /* ignore */
+      }
+      return !v
+    })
+  }
   const isPage = (id: string): boolean => !search && selection.kind === 'page' && selection.pageId === id
+  const isCategory = (path: string[]): boolean => !search && selection.kind === 'category' && samePath(selection.path, path)
 
   const pageButton = (p: PageMeta, depth: number): React.JSX.Element => (
     <li key={p.id}>
@@ -37,9 +66,15 @@ export function Sidebar({ pages, selection, search, onSearch, onSelect, onNewPag
     const depth = node.path.length - 1
     return (
       <li key={node.path.join('/')} className="category-node">
-        <div className={`category-label depth-${Math.min(depth, 3)}`} style={{ paddingLeft: 8 + depth * 14 }} title={node.path.join(' / ')}>
+        <button
+          type="button"
+          className={`category-label depth-${Math.min(depth, 3)}${isCategory(node.path) ? ' is-selected' : ''}`}
+          style={{ paddingLeft: 8 + depth * 14 }}
+          title={`${node.path.join(' / ')} · wiki`}
+          onClick={() => onSelect({ kind: 'category', path: node.path })}
+        >
           {node.name}
-        </div>
+        </button>
         <ul>
           {node.children.map(renderNode)}
           {node.pages.map((p) => pageButton(p, depth + 1))}
@@ -118,6 +153,33 @@ export function Sidebar({ pages, selection, search, onSearch, onSelect, onNewPag
           <span className="page-icon">+</span>
           <span className="page-name">New page</span>
         </button>
+        {(archivedPages.length > 0 || archivedWikis.length > 0) && (
+          <div className="sidebar-archived">
+            <button type="button" className="category-label depth-0 archived-toggle" onClick={toggleArchived}>
+              {showArchived ? '▾' : '▸'} Archived ({archivedPages.length + archivedWikis.length})
+            </button>
+            {showArchived && (
+              <ul>
+                {archivedWikis.map((w) => (
+                  <li key={`w-${w.path.join('/')}`}>
+                    <button type="button" className={`page-link page-archived${isCategory(w.path) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'category', path: w.path })}>
+                      <span className="page-icon">▤</span>
+                      <span className="page-name">{formatCategory(w.path)}</span>
+                    </button>
+                  </li>
+                ))}
+                {archivedPages.map((p) => (
+                  <li key={p.id}>
+                    <button type="button" className={`page-link page-archived${isPage(p.id) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'page', pageId: p.id })} title={p.category ? `${p.category} / ${p.title}` : p.title}>
+                      <span className="page-icon">#</span>
+                      <span className="page-name">{[...categoryPath(p.category), p.title].join(' / ')}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        )}
       </nav>
     </aside>
   )

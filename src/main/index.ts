@@ -148,7 +148,10 @@ async function refreshCommitWatchers(): Promise<void> {
   }
   const pages = await store.listPages()
   const list: Array<{ pageId: string; path: string }> = []
-  for (const p of pages) for (const r of p.repos) list.push({ pageId: p.id, path: r })
+  for (const p of pages) {
+    if (p.archived) continue // a finished project's repo should not feed an archived page
+    for (const r of p.repos) list.push({ pageId: p.id, path: r })
+  }
   await commits.setRepos(list)
 }
 

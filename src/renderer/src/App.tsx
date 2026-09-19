@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@shared/entries'
-import { JOURNAL_PAGE, JOURNAL_PAGE_ID, categoryPath, categorySuggestions } from '@shared/pages'
-import type { Day, EntryPosition, PageMeta, RepoInfo, SearchHit, Settings, SyncStatus, TrackerStatus } from '@shared/types'
+import { JOURNAL_PAGE, JOURNAL_PAGE_ID, categoryPath, categorySuggestions, formatCategory } from '@shared/pages'
+import type { Day, EntryPosition, PageMeta, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus, WikiMeta } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { PageDialog } from './components/PageDialog'
 import { Review } from './components/Review'
+import { CategoryView } from './components/CategoryView'
 import { Timeline } from './components/Timeline'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
@@ -35,17 +36,19 @@ export function App(): React.JSX.Element {
   const [today, setToday] = useState(localDate(new Date()))
   const [pages, setPages] = useState<PageMeta[]>([JOURNAL_PAGE])
   const [pageId, setPageId] = useState<string>(JOURNAL_PAGE_ID)
-  const [view, setView] = useState<'page' | 'review' | 'timeline'>('page')
+  const [view, setView] = useState<'page' | 'review' | 'timeline' | 'category'>('page')
+  const [categoryPathSel, setCategoryPathSel] = useState<string[]>([])
+  const [wikis, setWikis] = useState<WikiMeta[]>([])
   const [timelineDate, setTimelineDate] = useState<string>(localDate(new Date()))
   const [tracker, setTracker] = useState<TrackerStatus | null>(null)
   const [days, setDays] = useState<Day[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
-  const [hits, setHits] = useState<SearchHit[] | null>(null)
+  const [hits, setHits] = useState<SearchResult | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [pageDialog, setPageDialog] = useState<{ page: PageMeta | null } | null>(null)
+  const [pageDialog, setPageDialog] = useState<{ page: PageMeta | null; category?: string } | null>(null)
   const [focusToken, setFocusToken] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
   const [editRequest, setEditRequest] = useState<string | null>(null)
@@ -57,8 +60,9 @@ export function App(): React.JSX.Element {
   const categories = useMemo(() => categorySuggestions(pages), [pages])
 
   const refreshPages = useCallback(async () => {
-    const list = await api.pages.list()
+    const [list, wikiList] = await Promise.all([api.pages.list(), api.wiki.list()])
     setPages(list)
+    setWikis(wikiList)
     if (!list.some((p) => p.id === pageIdRef.current)) setPageId(JOURNAL_PAGE_ID)
   }, [])
 
@@ -209,6 +213,12 @@ export function App(): React.JSX.Element {
     setTimeout(() => setEditRequest(null), 0)
   }, [days, today])
 
+  const openCategory = useCallback((path: string[]) => {
+    setSearch('')
+    setCategoryPathSel(path)
+    setView('category')
+  }, [])
+
   const jumpTo = useCallback((id: string, date: string) => {
     setSearch('')
     setView('page')
@@ -237,13 +247,23 @@ export function App(): React.JSX.Element {
     <div className="app">
       <Sidebar
         pages={pages}
-        selection={view === 'review' ? { kind: 'review' } : view === 'timeline' ? { kind: 'timeline' } : { kind: 'page', pageId }}
+        wikis={wikis}
+        selection={
+          view === 'review'
+            ? { kind: 'review' }
+            : view === 'timeline'
+              ? { kind: 'timeline' }
+              : view === 'category'
+                ? { kind: 'category', path: categoryPathSel }
+                : { kind: 'page', pageId }
+        }
         search={search}
         onSearch={setSearch}
         onSelect={(sel: SidebarSelection) => {
           setSearch('')
           if (sel.kind === 'review') setView('review')
           else if (sel.kind === 'timeline') setView('timeline')
+          else if (sel.kind === 'category') openCategory(sel.path)
           else {
             setView('page')
             setPageId(sel.pageId)
@@ -265,6 +285,20 @@ export function App(): React.JSX.Element {
           />
         )}
         {view === 'timeline' && !search && <Timeline pages={pages} today={today} date={timelineDate} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />}
+        {view === 'category' && !search && (
+          <CategoryView
+            key={formatCategory(categoryPathSel)}
+            path={categoryPathSel}
+            pages={pages}
+            onSelectCategory={openCategory}
+            onSelectPage={(id) => {
+              setView('page')
+              setPageId(id)
+            }}
+            onNewPage={(category) => setPageDialog({ page: null, category })}
+            onChanged={refreshPages}
+          />
+        )}
         {(view === 'page' || search) && (
         <Feed
           page={page}
@@ -282,10 +316,12 @@ export function App(): React.JSX.Element {
           onDelete={deleteEntry}
           onMove={moveEntry}
           onEditPage={() => setPageDialog({ page })}
+          onArchivePage={(archived) => void api.pages.archive(pageId, archived).then(() => refreshPages())}
           onJumpTo={jumpTo}
+          onOpenCategory={openCategory}
         />
         )}
-        {view === 'page' && (
+        {view === 'page' && !page.archived && (
         <div className="composer-dock">
           <Composer
             key={pageId}
@@ -330,6 +366,7 @@ export function App(): React.JSX.Element {
         <PageDialog
           page={pageDialog.page}
           categories={categories}
+          initialCategory={pageDialog.category}
           onClose={() => setPageDialog(null)}
           onSaved={async (saved) => {
             await refreshPages()

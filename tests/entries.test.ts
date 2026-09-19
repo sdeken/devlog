@@ -15,7 +15,9 @@ import {
   rewriteImageSrcs,
   serializeDayFile,
   toDayRelative,
-  toRootRelative
+  toRelativeFrom,
+  toRootRelative,
+  toRootRelativeFrom
 } from '../src/shared/entries'
 import type { Day, Entry } from '../src/shared/types'
 
@@ -48,6 +50,14 @@ describe('image src rewriting', () => {
     expect(root).toBe('![shot](entries/2026/09/assets/2026-09-19-1.png) and ![old](entries/2026/08/assets/x.png)')
     expect(toDayRelative(root, '2026-09-19')).toBe(rel)
     expect(collectImageSrcs(root)).toEqual(['entries/2026/09/assets/2026-09-19-1.png', 'entries/2026/08/assets/x.png'])
+  })
+
+  it('rewrites paths relative to any directory, including category wikis', () => {
+    const md = '![d](assets/x.png) ![e](https://x/y.png)'
+    const root = toRootRelativeFrom(md, 'categories/acme-corp/web')
+    expect(root).toBe('![d](categories/acme-corp/web/assets/x.png) ![e](https://x/y.png)')
+    expect(toRelativeFrom(root, 'categories/acme-corp/web')).toBe(md)
+    expect(toRelativeFrom('![n](entries/2026/09/assets/n.png)', 'categories/acme-corp')).toBe('![n](../../entries/2026/09/assets/n.png)')
   })
 
   it('places a cross-month asset correctly when posted on a later day', () => {

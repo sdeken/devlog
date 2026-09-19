@@ -11,11 +11,13 @@ import type {
   PageMeta,
   RepoInfo,
   SavedAsset,
-  SearchHit,
+  SearchResult,
   Settings,
   SyncStatus,
   Timeline,
-  TrackerStatus
+  TrackerStatus,
+  Wiki,
+  WikiMeta
 } from '../shared/types'
 
 type Unsubscribe = () => void
@@ -45,7 +47,19 @@ const api = {
     list: (): Promise<PageMeta[]> => ipcRenderer.invoke(IPC.pagesList),
     create: (input: PageInput): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageCreate, input),
     update: (pageId: string, patch: Partial<PageInput>): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageUpdate, pageId, patch),
-    remove: (pageId: string): Promise<number> => ipcRenderer.invoke(IPC.pageDelete, pageId)
+    remove: (pageId: string): Promise<number> => ipcRenderer.invoke(IPC.pageDelete, pageId),
+    archive: (pageId: string, archived: boolean): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageArchive, pageId, archived)
+  },
+  categories: {
+    archive: (path: string[], archived: boolean): Promise<{ pages: number; wikis: number }> =>
+      ipcRenderer.invoke(IPC.categoryArchive, path, archived)
+  },
+  wiki: {
+    list: (): Promise<WikiMeta[]> => ipcRenderer.invoke(IPC.wikisList),
+    get: (path: string[]): Promise<Wiki> => ipcRenderer.invoke(IPC.wikiGet, path),
+    set: (path: string[], markdown: string): Promise<Wiki> => ipcRenderer.invoke(IPC.wikiSet, path, markdown),
+    saveAsset: (path: string[], bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
+      ipcRenderer.invoke(IPC.wikiAssetSave, path, bytes, mime, name)
   },
   entries: {
     listDays: (pageId: string): Promise<DaySummary[]> => ipcRenderer.invoke(IPC.daysList, pageId),
@@ -61,7 +75,7 @@ const api = {
     remove: (pageId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, pageId, date, id),
     move: (fromPageId: string, date: string, id: string, toPageId: string): Promise<{ date: string; entry: Entry }> =>
       ipcRenderer.invoke(IPC.entryMove, fromPageId, date, id, toPageId),
-    search: (query: string): Promise<SearchHit[]> => ipcRenderer.invoke(IPC.entrySearch, query),
+    search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
   assets: {

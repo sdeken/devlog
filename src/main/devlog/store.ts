@@ -23,23 +23,47 @@ import {
   newEntryId,
   normalizeDurationMarker,
   parseDayFile,
+  previewText,
   removeSubtree,
-  serializeDayFile
+  serializeDayFile,
+  toRelativeFrom,
+  toRootRelativeFrom
 } from '@shared/entries'
 import {
+  CATEGORIES_DIR,
   JOURNAL_PAGE,
   JOURNAL_PAGE_ID,
   PAGES_DIR,
+  WIKI_FILE,
+  categoryDir,
   categoryPath,
   isValidPageId,
   normalizeCategory,
   pageEntriesBase,
   pageFilePath,
   parsePageFile,
+  parseWikiFile,
+  pathStartsWith,
   serializePageFile,
+  serializeWikiFile,
   slugify
 } from '@shared/pages'
-import type { Day, DaySummary, Entry, EntryKind, EntryPosition, PageInput, PageMeta, SavedAsset, SearchHit, Timeline } from '@shared/types'
+import type {
+  Day,
+  DaySummary,
+  Entry,
+  EntryKind,
+  EntryPosition,
+  PageInput,
+  PageMeta,
+  SavedAsset,
+  SearchHit,
+  SearchResult,
+  Timeline,
+  Wiki,
+  WikiHit,
+  WikiMeta
+} from '@shared/types'
 
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png',
@@ -142,7 +166,8 @@ export class DevlogStore extends EventEmitter {
       category,
       description: (input.description ?? '').trim(),
       createdAt: now.toISOString(),
-      repos: cleanRepos(input.repos)
+      repos: cleanRepos(input.repos),
+      archived: false
     }
     await fs.mkdir(this.resolve(pageEntriesBase(id)), { recursive: true })
     await this.writePage(meta)
@@ -165,6 +190,47 @@ export class DevlogStore extends EventEmitter {
     return meta
   }
 
+  async setPageArchived(pageId: string, archived: boolean): Promise<PageMeta> {
+    if (pageId === JOURNAL_PAGE_ID) throw new Error('The journal cannot be archived')
+    const meta = await this.readPage(pageId)
+    meta.archived = archived
+    await this.writePage(meta)
+    return meta
+  }
+
+  /**
+   * Archive (or restore) a whole category: every page at or beneath the path
+   * and every wiki at or beneath it. Returns how many pages changed.
+   */
+  async setCategoryArchived(path: string[], archived: boolean): Promise<{ pages: number; wikis: number }> {
+    if (path.length === 0) throw new Error('Choose a category')
+    let pages = 0
+    for (const page of await this.listPages()) {
+      if (page.id === JOURNAL_PAGE_ID || !pathStartsWith(categoryPath(page.category), path)) continue
+      if (page.archived !== archived) {
+        page.archived = archived
+        await this.writePage(page)
+        pages++
+      }
+    }
+    let wikis = 0
+    const existing = await this.listWikis()
+    const targets = existing.filter((w) => pathStartsWith(w.path, path))
+    if (!targets.some((w) => w.path.length === path.length)) {
+      // Make sure the category itself carries the flag even without wiki text.
+      const wiki = await this.readWiki(path)
+      targets.push({ path: wiki.path, archived: wiki.archived, updatedAt: wiki.updatedAt })
+    }
+    for (const w of targets) {
+      const wiki = await this.readWiki(w.path)
+      if (wiki.archived !== archived || !wiki.exists) {
+        await this.writeWikiFile({ ...wiki, archived }, wiki.markdown)
+        wikis++
+      }
+    }
+    return { pages, wikis }
+  }
+
   /** Delete a page and every note in it. Returns the number of notes removed. */
   async deletePage(pageId: string): Promise<number> {
     if (pageId === JOURNAL_PAGE_ID) throw new Error('The journal cannot be deleted')
@@ -181,6 +247,63 @@ export class DevlogStore extends EventEmitter {
     await fs.mkdir(path.dirname(abs), { recursive: true })
     await writeAtomic(abs, serializePageFile(meta))
     this.emit('change', { kind: 'page', pageId: meta.id })
+  }
+
+  // -------------------------------------------------------------------------
+  // Category wikis
+  // -------------------------------------------------------------------------
+
+  async listWikis(): Promise<WikiMeta[]> {
+    const out: WikiMeta[] = []
+    const base = path.join(this.root, CATEGORIES_DIR)
+    const walk = async (dir: string, rel: string[]): Promise<void> => {
+      for (const d of await readdirSafe(dir)) {
+        if (d.isFile() && d.name === WIKI_FILE) {
+          const text = await fs.readFile(path.join(dir, d.name), 'utf8').catch(() => '')
+          const { meta } = parseWikiFile(text, rel)
+          if (meta.path.length > 0) out.push(meta)
+        } else if (d.isDirectory() && d.name !== 'assets') {
+          await walk(path.join(dir, d.name), [...rel, d.name])
+        }
+      }
+    }
+    await walk(base, [])
+    return out
+  }
+
+  async readWiki(pathSegments: string[]): Promise<Wiki> {
+    const segs = categoryPath(pathSegments.join(' / '))
+    if (segs.length === 0) throw new Error('Choose a category')
+    const dir = categoryDir(segs)
+    let text: string | null = null
+    try {
+      text = await fs.readFile(this.resolve(`${dir}/${WIKI_FILE}`), 'utf8')
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err
+    }
+    if (text === null) return { path: segs, archived: false, updatedAt: '', markdown: '', exists: false }
+    const { meta, markdown } = parseWikiFile(text, segs)
+    return { ...meta, path: meta.path.length ? meta.path : segs, markdown: toRootRelativeFrom(markdown, dir), exists: true }
+  }
+
+  async writeWiki(pathSegments: string[], markdown: string, now: Date = new Date()): Promise<Wiki> {
+    const wiki = await this.readWiki(pathSegments)
+    return this.writeWikiFile({ ...wiki, updatedAt: now.toISOString() }, markdown)
+  }
+
+  private async writeWikiFile(meta: WikiMeta, markdown: string): Promise<Wiki> {
+    const dir = categoryDir(meta.path)
+    const abs = this.resolve(`${dir}/${WIKI_FILE}`)
+    await fs.mkdir(path.dirname(abs), { recursive: true })
+    await writeAtomic(abs, serializeWikiFile(meta, toRelativeFrom(markdown, dir)))
+    this.emit('change', { kind: 'wiki', path: meta.path })
+    return { ...meta, markdown: markdown.replace(/\s+$/, ''), exists: true }
+  }
+
+  async saveWikiAsset(pathSegments: string[], bytes: Uint8Array, mime: string, originalName?: string, now: Date = new Date()): Promise<SavedAsset> {
+    const segs = categoryPath(pathSegments.join(' / '))
+    if (segs.length === 0) throw new Error('Choose a category')
+    return this.writeAsset(`${categoryDir(segs)}/${ASSETS_DIR}`, bytes, mime, originalName, now)
   }
 
   // -------------------------------------------------------------------------
@@ -246,23 +369,33 @@ export class DevlogStore extends EventEmitter {
     return out
   }
 
-  async search(query: string, limit = 200): Promise<SearchHit[]> {
+  /** Full-text search over every note (archived pages included) and every category wiki. */
+  async search(query: string, limit = 200): Promise<SearchResult> {
     const q = query.trim().toLowerCase()
-    if (!q) return []
-    const hits: SearchHit[] = []
+    if (!q) return { notes: [], wikis: [] }
+    const wikis: WikiHit[] = []
+    for (const meta of await this.listWikis()) {
+      const wiki = await this.readWiki(meta.path)
+      const idx = wiki.markdown.toLowerCase().indexOf(q)
+      if (idx >= 0) {
+        const start = Math.max(0, idx - 60)
+        wikis.push({ path: wiki.path, archived: wiki.archived, excerpt: previewText(wiki.markdown.slice(start, idx + 120), 180) })
+      }
+    }
+    const notes: SearchHit[] = []
     for (const page of await this.listPages()) {
       const dates = (await this.listDayFiles(page.id)).sort((a, b) => b.localeCompare(a))
       for (const date of dates) {
         const day = await this.readDay(page.id, date)
         for (const entry of [...day.entries].reverse()) {
           if (entry.markdown.toLowerCase().includes(q)) {
-            hits.push({ pageId: page.id, date, entry })
-            if (hits.length >= limit) return hits
+            notes.push({ pageId: page.id, date, entry, archived: page.archived })
+            if (notes.length >= limit) return { notes, wikis }
           }
         }
       }
     }
-    return hits
+    return { notes, wikis }
   }
 
   // -------------------------------------------------------------------------
@@ -374,10 +507,13 @@ export class DevlogStore extends EventEmitter {
   ): Promise<SavedAsset> {
     assertPageId(pageId)
     assertDate(date)
+    return this.writeAsset(assetDir(date, pageEntriesBase(pageId)), bytes, mime, originalName, now)
+  }
+
+  private async writeAsset(dir: string, bytes: Uint8Array, mime: string, originalName?: string, now: Date = new Date()): Promise<SavedAsset> {
     if (bytes.byteLength === 0) throw new Error('Empty image')
     if (bytes.byteLength > MAX_ASSET_BYTES) throw new Error('Image is larger than 25 MB')
     const ext = IMAGE_EXT_BY_MIME[mime] ?? extFromName(originalName) ?? 'png'
-    const dir = assetDir(date, pageEntriesBase(pageId))
     await fs.mkdir(this.resolve(dir), { recursive: true })
     const stamp = `${localDate(now)}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`
     let name = `${stamp}-${newEntryId().slice(0, 4)}.${ext}`

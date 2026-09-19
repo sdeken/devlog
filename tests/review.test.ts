@@ -3,7 +3,7 @@ import { buildReviewRows, computeWeekTime, estimateMinutes, formatMinutes, noteK
 import type { ActivityEvent } from '../src/shared/types'
 import type { PageMeta } from '../src/shared/types'
 
-const page = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '', repos: [] })
+const page = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '', repos: [], archived: false })
 const note = (pageId: string, date: string, time: string, id = `${pageId}-${time}`): ReviewNote => ({
   pageId,
   date,

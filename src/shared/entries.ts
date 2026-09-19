@@ -143,23 +143,31 @@ export function rewriteImageSrcs(markdown: string, fn: (src: string) => string):
 
 /** Root-relative image paths always start with one of the top-level content folders. */
 export function isRootRelativeSrc(src: string): boolean {
-  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('pages/')
+  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('pages/') || src.startsWith('categories/')
 }
 
-/** Convert image paths relative to a day's file into repo-root-relative paths. */
-export function toRootRelative(markdown: string, date: string, base: string = ENTRIES_DIR): string {
-  const dir = dayDir(date, base)
+/** Convert image paths relative to the file in `dir` into repo-root-relative paths. */
+export function toRootRelativeFrom(markdown: string, dir: string): string {
   return rewriteImageSrcs(markdown, (src) => (isExternalSrc(src) ? src : joinPosix(dir, src)))
 }
 
-/** Convert repo-root-relative image paths into paths relative to a day's file. */
-export function toDayRelative(markdown: string, date: string, base: string = ENTRIES_DIR): string {
-  const dir = dayDir(date, base)
+/** Convert repo-root-relative image paths into paths relative to the file in `dir`. */
+export function toRelativeFrom(markdown: string, dir: string): string {
   return rewriteImageSrcs(markdown, (src) => {
     if (isExternalSrc(src)) return src
     if (!isRootRelativeSrc(src)) return src // already relative / unknown
     return relativePosix(dir, src)
   })
+}
+
+/** Convert image paths relative to a day's file into repo-root-relative paths. */
+export function toRootRelative(markdown: string, date: string, base: string = ENTRIES_DIR): string {
+  return toRootRelativeFrom(markdown, dayDir(date, base))
+}
+
+/** Convert repo-root-relative image paths into paths relative to a day's file. */
+export function toDayRelative(markdown: string, date: string, base: string = ENTRIES_DIR): string {
+  return toRelativeFrom(markdown, dayDir(date, base))
 }
 
 /** Collect the repo-root-relative image sources referenced by an entry. */

@@ -7,14 +7,16 @@ interface Props {
   page: PageMeta | null
   /** Known categories, offered as suggestions. */
   categories: string[]
+  /** Pre-filled category for a new page. */
+  initialCategory?: string
   onClose: () => void
   onSaved: (page: PageMeta) => void
   onDeleted: (pageId: string) => void
 }
 
-export function PageDialog({ page, categories, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
+export function PageDialog({ page, categories, initialCategory, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
   const [title, setTitle] = useState(page?.title ?? '')
-  const [category, setCategory] = useState(page?.category ?? '')
+  const [category, setCategory] = useState(page?.category ?? initialCategory ?? '')
   const [description, setDescription] = useState(page?.description ?? '')
   const [repos, setRepos] = useState<string[]>(page?.repos ?? [])
   const [busy, setBusy] = useState(false)
