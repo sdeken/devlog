@@ -27,6 +27,10 @@ export const IPC = {
   entryMove: 'entry:move',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
+  // activity / tracker
+  activityRange: 'activity:range',
+  trackerStatus: 'tracker:status',
+  trackerSetTask: 'tracker:setTask',
   // sync
   syncNow: 'sync:now',
   syncStatus: 'sync:status',
@@ -37,7 +41,8 @@ export const IPC = {
   evEntriesChanged: 'ev:entriesChanged',
   evRepoChanged: 'ev:repoChanged',
   evMenu: 'ev:menu',
-  evAttachImages: 'ev:attachImages'
+  evAttachImages: 'ev:attachImages',
+  evTrackerStatus: 'ev:trackerStatus'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage' | 'review'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage' | 'review' | 'timeline' | 'stopTask'

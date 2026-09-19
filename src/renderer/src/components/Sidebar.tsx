@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { JOURNAL_PAGE_ID, buildCategoryTree, type CategoryNode } from '@shared/pages'
 import type { PageMeta } from '@shared/types'
 
-export type SidebarSelection = { kind: 'page'; pageId: string } | { kind: 'review' }
+export type SidebarSelection = { kind: 'page'; pageId: string } | { kind: 'review' } | { kind: 'timeline' }
 
 interface Props {
   pages: PageMeta[]
@@ -89,6 +89,17 @@ export function Sidebar({ pages, selection, search, onSearch, onSelect, onNewPag
             >
               <span className="page-icon">▦</span>
               <span className="page-name">Weekly review</span>
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              className={`page-link page-timeline${!search && selection.kind === 'timeline' ? ' is-selected' : ''}`}
+              onClick={() => onSelect({ kind: 'timeline' })}
+              title="Day timeline (⌘⇧T)"
+            >
+              <span className="page-icon">◷</span>
+              <span className="page-name">Timeline</span>
             </button>
           </li>
         </ul>

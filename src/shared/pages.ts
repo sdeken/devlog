@@ -17,7 +17,8 @@ export const JOURNAL_PAGE: PageMeta = {
   title: 'Journal',
   category: '',
   description: '',
-  createdAt: '1970-01-01T00:00:00.000Z'
+  createdAt: '1970-01-01T00:00:00.000Z',
+  repos: []
 }
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,63}$/
@@ -135,17 +136,24 @@ export function slugify(title: string): string {
 
 function unquote(v: string): string {
   const t = v.trim()
-  if ((t.startsWith('"') && t.endsWith('"')) || (t.startsWith("'") && t.endsWith("'"))) return t.slice(1, -1)
+  if (t.startsWith('"') && t.endsWith('"') && t.length >= 2) {
+    try {
+      return JSON.parse(t) as string
+    } catch {
+      return t.slice(1, -1)
+    }
+  }
+  if (t.startsWith("'") && t.endsWith("'") && t.length >= 2) return t.slice(1, -1)
   return t
 }
 
 function quote(v: string): string {
-  return /[:#"'\n]|^\s|\s$/.test(v) || v === '' ? JSON.stringify(v) : v
+  return /[:#"'\\\n]|^\s|\s$/.test(v) || v === '' ? JSON.stringify(v) : v
 }
 
 /** Parse `page.md`: simple `key: value` front matter followed by a markdown description. */
 export function parsePageFile(id: string, text: string): PageMeta {
-  const meta: PageMeta = { id, title: id, category: '', description: '', createdAt: '' }
+  const meta: PageMeta = { id, title: id, category: '', description: '', createdAt: '', repos: [] }
   let body = text
   const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
   if (m) {
@@ -163,6 +171,9 @@ export function parsePageFile(id: string, text: string): PageMeta {
         case 'created':
           meta.createdAt = value
           break
+        case 'repo':
+          if (value) meta.repos.push(value)
+          break
       }
     }
     body = text.slice(m[0].length)
@@ -174,7 +185,9 @@ export function parsePageFile(id: string, text: string): PageMeta {
 export function serializePageFile(meta: PageMeta): string {
   const lines = ['---', `title: ${quote(meta.title)}`]
   if (meta.category) lines.push(`category: ${quote(meta.category)}`)
-  lines.push(`created: ${meta.createdAt}`, '---', '')
+  lines.push(`created: ${meta.createdAt}`)
+  for (const r of meta.repos) lines.push(`repo: ${quote(r)}`)
+  lines.push('---', '')
   if (meta.description.trim()) lines.push(meta.description.trim(), '')
   return lines.join('\n')
 }

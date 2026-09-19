@@ -21,6 +21,7 @@ import {
   isValidDate,
   localDate,
   newEntryId,
+  normalizeDurationMarker,
   parseDayFile,
   removeSubtree,
   serializeDayFile
@@ -38,7 +39,7 @@ import {
   serializePageFile,
   slugify
 } from '@shared/pages'
-import type { Day, DaySummary, Entry, EntryPosition, PageInput, PageMeta, SavedAsset, SearchHit, Timeline } from '@shared/types'
+import type { Day, DaySummary, Entry, EntryKind, EntryPosition, PageInput, PageMeta, SavedAsset, SearchHit, Timeline } from '@shared/types'
 
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png',
@@ -140,7 +141,8 @@ export class DevlogStore extends EventEmitter {
       title,
       category,
       description: (input.description ?? '').trim(),
-      createdAt: now.toISOString()
+      createdAt: now.toISOString(),
+      repos: cleanRepos(input.repos)
     }
     await fs.mkdir(this.resolve(pageEntriesBase(id)), { recursive: true })
     await this.writePage(meta)
@@ -157,6 +159,7 @@ export class DevlogStore extends EventEmitter {
     }
     if (patch.category !== undefined) meta.category = normalizeCategory(patch.category)
     if (patch.description !== undefined) meta.description = patch.description.trim()
+    if (patch.repos !== undefined) meta.repos = cleanRepos(patch.repos)
     if (!meta.createdAt) meta.createdAt = new Date().toISOString()
     await this.writePage(meta)
     return meta
@@ -274,15 +277,24 @@ export class DevlogStore extends EventEmitter {
     pageId: string,
     markdown: string,
     position: EntryPosition = {},
-    now: Date = new Date()
+    now: Date = new Date(),
+    system?: { kind: EntryKind; meta?: Record<string, string> }
   ): Promise<{ date: string; entry: Entry }> {
     if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty entry')
     const date = position.date ?? localDate(now)
     const day = await this.readDay(pageId, date)
+    if (system?.kind === 'commit' && system.meta?.hash) {
+      const dup = day.entries.find((e) => e.kind === 'commit' && e.meta?.hash === system.meta?.hash)
+      if (dup) return { date, entry: dup }
+    }
     const entry: Entry = {
       id: uniqueId(day.entries),
       createdAt: now.toISOString(),
-      markdown: markdown.trim()
+      markdown: normalizeDurationMarker(markdown.trim())
+    }
+    if (system?.kind && system.kind !== 'note') {
+      entry.kind = system.kind
+      if (system.meta) entry.meta = { ...system.meta }
     }
     day.entries = insertEntry(day.entries, entry, position)
     await this.writeDay(pageId, day)
@@ -293,7 +305,8 @@ export class DevlogStore extends EventEmitter {
     const day = await this.readDay(pageId, date)
     const entry = day.entries.find((e) => e.id === id)
     if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
-    entry.markdown = markdown.trim()
+    if (entry.kind === 'commit') throw new Error('Captured commits are read-only; reply, move or delete instead')
+    entry.markdown = normalizeDurationMarker(markdown.trim())
     entry.updatedAt = now.toISOString()
     await this.writeDay(pageId, day)
     return entry
@@ -410,6 +423,15 @@ export class DevlogStore extends EventEmitter {
     }
     return dates
   }
+}
+
+function cleanRepos(repos?: string[]): string[] {
+  const out: string[] = []
+  for (const r of repos ?? []) {
+    const t = r.trim()
+    if (t && !out.includes(t)) out.push(t)
+  }
+  return out
 }
 
 function assertDate(date: string): void {

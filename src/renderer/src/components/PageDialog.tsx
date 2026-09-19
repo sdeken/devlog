@@ -16,6 +16,7 @@ export function PageDialog({ page, categories, onClose, onSaved, onDeleted }: Pr
   const [title, setTitle] = useState(page?.title ?? '')
   const [category, setCategory] = useState(page?.category ?? '')
   const [description, setDescription] = useState(page?.description ?? '')
+  const [repos, setRepos] = useState<string[]>(page?.repos ?? [])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -37,8 +38,8 @@ export function PageDialog({ page, categories, onClose, onSaved, onDeleted }: Pr
     setError(null)
     try {
       const saved = page
-        ? await api.pages.update(page.id, { title, category, description })
-        : await api.pages.create({ title, category, description })
+        ? await api.pages.update(page.id, { title, category, description, repos })
+        : await api.pages.create({ title, category, description, repos })
       onSaved(saved)
       onClose()
     } catch (err) {
@@ -109,6 +110,33 @@ export function PageDialog({ page, categories, onClose, onSaved, onDeleted }: Pr
             placeholder="Shown at the top of the page. Markdown is fine."
             onChange={(ev) => setDescription(ev.target.value)}
           />
+        </div>
+        <div className="field">
+          <label>Git repositories</label>
+          <ul className="repo-list">
+            {repos.map((r, i) => (
+              <li key={`${r}-${i}`}>
+                <code className="path" title={r}>
+                  {r}
+                </code>
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setRepos(repos.filter((_, j) => j !== i))} title="Remove">
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+          <button
+            type="button"
+            className="btn btn-quiet btn-xs"
+            onClick={() =>
+              void api.repo.chooseDirectory().then((dir) => {
+                if (dir && !repos.includes(dir)) setRepos([...repos, dir])
+              })
+            }
+          >
+            + Add repository folder…
+          </button>
+          <p className="hint">Commits made in these repositories are added to this page as read-only notes.</p>
         </div>
         {page && (
           <p className="hint">

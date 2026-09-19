@@ -19,9 +19,22 @@ repository, and committed and pushed automatically.
   under clients (and a "Website" under two clients is two different projects).
   Each page is its own stream with a description at the top; notes can be
   moved between pages, and search covers all of them.
+- **One active task, tracked for you.** Posting on a page makes it the active
+  task; it stays active until you post elsewhere, press Stop, lock the
+  machine, go idle or sleep. Devlog keeps running in the tray to watch. A note
+  with an explicit duration like `[2h]` or `[45m]` overrides tracking for that
+  window when you know better.
+- **Activity timeline.** Alongside your notes, Devlog records lock/unlock,
+  idle, sleep and which window was in front (app and title, so a browser tab
+  or a Teams call shows up). A per-day **Timeline** view lays it all out next
+  to your notes; the weekly review adds screen time by kind (coding, meetings,
+  browser…).
+- **Commits become notes.** Map a page to the git repositories you use for
+  it and every commit you make there is added to the page as a read-only note
+  you can reply to, move or delete.
 - **Weekly review.** One view rolls the week up by day and by client →
-  project → page, with a rough time estimate derived from your note
-  timestamps, plus a per-day breakdown of what you wrote. Made for Friday.
+  project → page with tracked time, plus a per-day breakdown of what you
+  wrote, task time and screen time. Made for Friday.
 - **Pasted images just work.** Paste or drop an image into the composer and it
   is saved into the repository next to the day's entry and linked relatively,
   so the log also renders on GitHub.
@@ -76,19 +89,58 @@ created: 2026-09-19T10:00:00.000Z
 Marketing site rebuild. Weekly sync on Tuesdays.
 ```
 
+## Time tracking
+
+There is one active task at a time. The workflow is: write a line or two to
+wrap up what you were doing, then a short note on the page for the next thing;
+that page is now the active task. The status bar shows it with a running clock
+and a **Stop** button (also ⌘⇧. and in the tray menu).
+
+Time stops accruing while the screen is locked, the machine sleeps, or there
+has been no input for a while (default 10 minutes, adjustable), and resumes on
+the same task afterwards. Journal notes never switch the task. Quitting Devlog
+stops the clock, so it keeps running in the tray when you close the window.
+
+When you know better than the tracker, say so in the note: `[2h] Acme sync`
+or `[45m] code review` counts exactly that much for the note's page, ending at
+the note's time, and replaces whatever was tracked in that window. Such notes
+do not switch the active task.
+
+Everything the tracker sees goes to an append-only activity log, one JSON
+file per day (`activity/YYYY/MM/YYYY-MM-DD.jsonl`). By default it lives in the
+app's data folder; Settings can move it into the devlog repository so it syncs
+(window titles included, so consider what they contain). Recorded events:
+task switches, lock/unlock, idle/active, sleep/wake, app start/stop, a
+heartbeat, and foreground-window changes (process name and window title, which
+for browsers is the active tab). Focus tracking uses a small PowerShell helper
+on Windows, `osascript` on macOS (window titles need the Accessibility
+permission) and `xdotool` on Linux if present.
+
+## Commits as notes
+
+Give a page its repositories (**Edit page → Git repositories**). Devlog watches
+each repository's reflog and, on every commit, adds a read-only note to the
+page: repo, branch, short hash and message. Reply to it, move it or delete it,
+but not edit it. Commits in the devlog repository itself are ignored.
+
 ## Weekly review
 
 **Weekly review** in the sidebar (⌘⇧R) shows a Monday–Sunday grid: one row
 per top-level category (client), nested rows for sub-categories (projects) and
-pages, one column per day, and a week total. Each cell shows an estimated
-duration and the number of notes. Below the grid, every day is broken down by
-client → project → page with the notes you wrote, so a Friday look-back takes a
-minute.
+pages, one column per day, and a week total. Each cell shows tracked time and
+the number of notes. Below the grid, every day is broken down by client →
+project → page with the notes you wrote, the task time segments, and screen
+time by kind (coding, terminal, meetings, email & chat, browser) and by app.
 
-The estimate is deliberately simple: a note counts from its timestamp until the
-next note that day on any page, capped (default 1 h, adjustable in the view);
-the last note of a day counts 15 minutes. Logging a short note whenever you
-switch tasks is enough to make it useful.
+Days with no tracking data at all are marked `~` and estimated from note
+timestamps instead (each note counts until the next one, capped at an hour).
+
+## Timeline
+
+**Timeline** (⌘⇧T) shows one day as a single chronological list: notes and
+captured commits, task starts and stops, lock/idle/sleep, and foreground
+windows grouped into runs per app that expand to show each window title with
+its duration. Click a note to open it on its page.
 
 A day file looks like this:
 
@@ -150,7 +202,9 @@ Code map:
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/shared/entries.ts`           | Day-file format: parse/serialize, path helpers, image rewriting |
 | `src/shared/pages.ts`             | Page metadata (`page.md`), slugs, category paths and tree      |
-| `src/shared/review.ts`            | Weekly roll-up: week math, time estimate, category matrix      |
+| `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
+| `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
+| `src/main/activity/`              | Activity log, tracker (lock/idle/focus), commit watcher         |
 | `src/main/devlog/store.ts`        | Reads/writes entries and assets inside the repo                |
 | `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |

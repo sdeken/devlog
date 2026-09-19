@@ -176,10 +176,16 @@ export function collectImageSrcs(markdown: string): string[] {
 // Parsing & serialising day files
 // ---------------------------------------------------------------------------
 
+const RESERVED_ATTRS = new Set(['id', 'parent', 'created', 'updated', 'kind'])
+
+function quoteAttr(v: string): string {
+  return /[\s"]/.test(v) || v === '' ? `"${v.replace(/"/g, '&quot;')}"` : v
+}
+
 function parseAttrs(s: string): Record<string, string> {
   const attrs: Record<string, string> = {}
   for (const m of s.matchAll(/([a-zA-Z_-]+)=("([^"]*)"|\S+)/g)) {
-    attrs[m[1]] = m[3] ?? m[2]
+    attrs[m[1]] = (m[3] ?? m[2]).replace(/&quot;/g, '"')
   }
   return attrs
 }
@@ -213,6 +219,12 @@ export function parseDayFile(date: string, text: string, base: string = ENTRIES_
     }
     if (current.attrs.parent) entry.parentId = current.attrs.parent
     if (current.attrs.updated) entry.updatedAt = current.attrs.updated
+    if (current.attrs.kind === 'commit') entry.kind = 'commit'
+    const meta: Record<string, string> = {}
+    for (const [k, v] of Object.entries(current.attrs)) {
+      if (!RESERVED_ATTRS.has(k)) meta[k] = v
+    }
+    if (Object.keys(meta).length > 0) entry.meta = meta
     entries.push(entry)
     current = null
   }
@@ -244,6 +256,10 @@ export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
     if (e.parentId) attrs.push(`parent=${e.parentId}`)
     attrs.push(`created=${e.createdAt}`)
     if (e.updatedAt) attrs.push(`updated=${e.updatedAt}`)
+    if (e.kind && e.kind !== 'note') attrs.push(`kind=${e.kind}`)
+    for (const [k, v] of Object.entries(e.meta ?? {})) {
+      if (!RESERVED_ATTRS.has(k) && /^[a-zA-Z_][\w-]*$/.test(k)) attrs.push(`${k}=${quoteAttr(v)}`)
+    }
     parts.push(`<!-- devlog:entry ${attrs.join(' ')} -->`)
     const level = '#'.repeat(Math.min(3 + depth, 6))
     parts.push(`${level} ${depth > 0 ? '↳ ' : ''}${localTime(new Date(e.createdAt))}`)
@@ -364,6 +380,33 @@ export function buildTree(entries: Entry[]): EntryNode[] {
   }
   setDepth(roots, 0, new Set())
   return roots
+}
+
+// ---------------------------------------------------------------------------
+// Explicit duration markers: "[2h]", "[45m]", "[1h 30m]", "[1.5h]"
+// ---------------------------------------------------------------------------
+
+export const DURATION_MARKER_RE = /\\?\[\s*(?:(\d+(?:\.\d+)?)\s*h(?:ours?|rs?)?)?\s*(?:(\d+)\s*m(?:in(?:ute)?s?)?)?\s*\\?\]/i
+
+/**
+ * Editors that serialise markdown escape square brackets (`\[2h\]`); store
+ * the marker unescaped so the file reads cleanly and the parser stays simple.
+ */
+export function normalizeDurationMarker(markdown: string): string {
+  return markdown.replace(DURATION_MARKER_RE, (m, h, min) => {
+    if (h === undefined && min === undefined) return m
+    return m.replace(/\\\[/, '[').replace(/\\\]/, ']')
+  })
+}
+
+/** Minutes declared by the first duration marker in a note, or null. */
+export function parseDurationMarker(markdown: string): number | null {
+  // Skip fenced code so "[1h]" in a snippet is not a marker.
+  const stripped = markdown.replace(/```[\s\S]*?```/g, '').replace(/`[^`]*`/g, '')
+  const m = DURATION_MARKER_RE.exec(stripped)
+  if (!m || (m[1] === undefined && m[2] === undefined)) return null
+  const minutes = (m[1] ? parseFloat(m[1]) * 60 : 0) + (m[2] ? parseInt(m[2], 10) : 0)
+  return minutes > 0 ? Math.round(minutes) : null
 }
 
 /** True if a markdown string has no meaningful content. */

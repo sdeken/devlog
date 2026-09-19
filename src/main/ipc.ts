@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { EntryPosition, PageInput, RepoInfo, Settings } from '@shared/types'
+import type { ActivityEvent, Entry, EntryPosition, PageInput, RepoInfo, Settings, TrackerStatus } from '@shared/types'
 import type { DevlogStore } from './devlog/store'
 import type { SyncManager } from './devlog/sync'
 import type { SettingsStore } from './settings'
@@ -15,6 +15,12 @@ export interface IpcDeps {
   repoInfo: () => Promise<RepoInfo | null>
   chooseDirectory: () => Promise<string | null>
   onSettingsChanged: (s: Settings) => void
+  /** A user note was added; lets the tracker switch the active task. */
+  onEntryAdded: (pageId: string, entry: Entry) => Promise<void>
+  onPagesChanged: () => Promise<void>
+  activityRange: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
+  trackerStatus: () => TrackerStatus | null
+  trackerSetTask: (pageId: string | null) => Promise<void>
 }
 
 function requireStore(deps: IpcDeps): DevlogStore {
@@ -64,9 +70,21 @@ export function registerIpc(deps: IpcDeps): void {
   })
 
   ipcMain.handle(IPC.pagesList, () => requireStore(deps).listPages())
-  ipcMain.handle(IPC.pageCreate, (_e, input: PageInput) => requireStore(deps).createPage(input))
-  ipcMain.handle(IPC.pageUpdate, (_e, pageId: string, patch: Partial<PageInput>) => requireStore(deps).updatePage(pageId, patch))
-  ipcMain.handle(IPC.pageDelete, (_e, pageId: string) => requireStore(deps).deletePage(pageId))
+  ipcMain.handle(IPC.pageCreate, async (_e, input: PageInput) => {
+    const page = await requireStore(deps).createPage(input)
+    await deps.onPagesChanged()
+    return page
+  })
+  ipcMain.handle(IPC.pageUpdate, async (_e, pageId: string, patch: Partial<PageInput>) => {
+    const page = await requireStore(deps).updatePage(pageId, patch)
+    await deps.onPagesChanged()
+    return page
+  })
+  ipcMain.handle(IPC.pageDelete, async (_e, pageId: string) => {
+    const n = await requireStore(deps).deletePage(pageId)
+    await deps.onPagesChanged()
+    return n
+  })
 
   ipcMain.handle(IPC.daysList, (_e, pageId: string) => requireStore(deps).listDays(pageId))
   ipcMain.handle(IPC.dayGet, (_e, pageId: string, date: string) => requireStore(deps).readDay(pageId, date))
@@ -74,9 +92,11 @@ export function registerIpc(deps: IpcDeps): void {
     requireStore(deps).getTimeline(pageId, opts ?? {})
   )
   ipcMain.handle(IPC.rangeGet, (_e, fromDate: string, toDate: string) => requireStore(deps).getRange(fromDate, toDate))
-  ipcMain.handle(IPC.entryAdd, (_e, pageId: string, markdown: string, position?: EntryPosition) =>
-    requireStore(deps).addEntry(pageId, markdown, position ?? {})
-  )
+  ipcMain.handle(IPC.entryAdd, async (_e, pageId: string, markdown: string, position?: EntryPosition) => {
+    const result = await requireStore(deps).addEntry(pageId, markdown, position ?? {})
+    await deps.onEntryAdded(pageId, result.entry)
+    return result
+  })
   ipcMain.handle(IPC.entryUpdate, (_e, pageId: string, date: string, id: string, markdown: string) =>
     requireStore(deps).updateEntry(pageId, date, id, markdown)
   )
@@ -90,6 +110,10 @@ export function registerIpc(deps: IpcDeps): void {
     (_e, pageId: string, date: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
       requireStore(deps).saveAsset(pageId, date, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
   )
+
+  ipcMain.handle(IPC.activityRange, (_e, fromDate: string, toDate: string) => deps.activityRange(fromDate, toDate))
+  ipcMain.handle(IPC.trackerStatus, () => deps.trackerStatus())
+  ipcMain.handle(IPC.trackerSetTask, (_e, pageId: string | null) => deps.trackerSetTask(pageId))
 
   ipcMain.handle(IPC.syncNow, () => deps.getSync()?.syncNow('manual') ?? null)
   ipcMain.handle(IPC.syncStatus, () => deps.getSync()?.getStatus() ?? null)

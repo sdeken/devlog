@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type MenuCommand } from '../shared/ipc'
 import type {
+  ActivityEvent,
   AttachedImage,
   Day,
   DaySummary,
@@ -13,7 +14,8 @@ import type {
   SearchHit,
   Settings,
   SyncStatus,
-  Timeline
+  Timeline,
+  TrackerStatus
 } from '../shared/types'
 
 type Unsubscribe = () => void
@@ -65,6 +67,14 @@ const api = {
   assets: {
     save: (pageId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
       ipcRenderer.invoke(IPC.assetSave, pageId, date, bytes, mime, name)
+  },
+  activity: {
+    range: (fromDate: string, toDate: string): Promise<ActivityEvent[]> => ipcRenderer.invoke(IPC.activityRange, fromDate, toDate)
+  },
+  tracker: {
+    status: (): Promise<TrackerStatus | null> => ipcRenderer.invoke(IPC.trackerStatus),
+    setTask: (pageId: string | null): Promise<void> => ipcRenderer.invoke(IPC.trackerSetTask, pageId),
+    onStatus: (cb: (status: TrackerStatus) => void): Unsubscribe => on(IPC.evTrackerStatus, cb)
   },
   sync: {
     now: (): Promise<unknown> => ipcRenderer.invoke(IPC.syncNow),

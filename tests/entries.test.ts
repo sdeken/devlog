@@ -194,6 +194,18 @@ describe('threads and ordering', () => {
     expect(parsed.entries.map((x) => x.id)).toEqual(['late', 'early'])
   })
 
+  it('round-trips system entries with kind and meta attributes', () => {
+    const day: Day = {
+      date: '2026-09-19',
+      entries: [
+        { id: 'c1', createdAt: '2026-09-19T10:00:00.000Z', markdown: '⎇ **proj** · `abc1234` — Fix', kind: 'commit', meta: { repo: 'C:\\src\\my proj', hash: 'abc1234def', branch: 'main' } }
+      ]
+    }
+    const text = serializeDayFile(day)
+    expect(text).toContain('kind=commit repo="C:\\src\\my proj" hash=abc1234def branch=main')
+    expect(parseDayFile('2026-09-19', text).entries).toEqual(day.entries)
+  })
+
   it('drops dangling parent links', () => {
     const parsed = parseDayFile('2026-09-19', '<!-- devlog:entry id=zz parent=gone created=2026-09-19T01:00:00.000Z -->\nhi\n')
     expect(parsed.entries[0].parentId).toBeUndefined()

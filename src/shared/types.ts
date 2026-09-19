@@ -1,8 +1,14 @@
 /** A single devlog post. Markdown image sources are repo-root-relative (e.g. `entries/2026/09/assets/x.png`). */
+export type EntryKind = 'note' | 'commit'
+
 export interface Entry {
   id: string
   /** Id of the note this one replies to; absent for top-level notes. */
   parentId?: string
+  /** Notes are user-written; commits are captured from git and read-only. */
+  kind?: EntryKind
+  /** Extra attributes for system entries (e.g. `repo`, `hash` for commits). */
+  meta?: Record<string, string>
   /** ISO-8601 timestamp of creation (UTC). */
   createdAt: string
   /** ISO-8601 timestamp of the last edit (UTC), if any. */
@@ -57,12 +63,15 @@ export interface PageMeta {
   /** Markdown shown at the top of the page. */
   description: string
   createdAt: string
+  /** Local git repositories whose commits belong to this page. */
+  repos: string[]
 }
 
 export interface PageInput {
   title: string
   category?: string
   description?: string
+  repos?: string[]
 }
 
 /** A slice of a page's history: whole days, oldest first. */
@@ -90,6 +99,16 @@ export interface Settings {
   commitOnQuit: boolean
   authorName: string
   authorEmail: string
+  /** Record task, lock/idle and focus events while the app runs. */
+  trackingEnabled: boolean
+  /** Record the foreground window (app + title). */
+  trackFocus: boolean
+  /** Minutes without input before the active task is paused. 0 disables. */
+  idleMinutes: number
+  /** Keep the activity log inside the devlog repository (synced) instead of locally. */
+  activityInRepo: boolean
+  /** Capture commits from page repositories as read-only notes. */
+  captureCommits: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -100,7 +119,12 @@ export const DEFAULT_SETTINGS: Settings = {
   pullOnStart: true,
   commitOnQuit: true,
   authorName: '',
-  authorEmail: ''
+  authorEmail: '',
+  trackingEnabled: true,
+  trackFocus: true,
+  idleMinutes: 10,
+  activityInRepo: false,
+  captureCommits: true
 }
 
 export type SyncState =
@@ -144,3 +168,41 @@ export interface SavedAsset {
 /** Scheme used by the renderer to load files from inside the devlog repo. */
 export const ASSET_SCHEME = 'devlog'
 export const ASSET_HOST = 'asset'
+
+// ---------------------------------------------------------------------------
+// Activity tracking
+// ---------------------------------------------------------------------------
+
+export type ActivityEventType =
+  | 'start' // app started (pageId = task restored, if any)
+  | 'stop' // app quitting
+  | 'heartbeat' // periodic "still running" marker
+  | 'lock'
+  | 'unlock'
+  | 'idle'
+  | 'active'
+  | 'suspend'
+  | 'resume'
+  | 'task' // active task changed (pageId, or null = stopped)
+  | 'focus' // foreground window changed
+
+export interface ActivityEvent {
+  /** ISO timestamp. */
+  t: string
+  type: ActivityEventType
+  pageId?: string | null
+  entryId?: string
+  app?: string
+  title?: string
+}
+
+export interface TrackerStatus {
+  tracking: boolean
+  activePageId: string | null
+  /** When the current task segment started (after the last pause). */
+  since: string | null
+  paused: boolean
+  pausedReason: 'locked' | 'idle' | 'suspended' | null
+  focusAvailable: boolean
+  lastFocus: { app: string; title: string } | null
+}

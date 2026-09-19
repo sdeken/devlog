@@ -1,10 +1,25 @@
 /**
- * Weekly review: roll notes up by day and category, with a rough estimate of
- * time spent derived from note timestamps.
+ * Weekly review: roll notes and tracked time up by day and category.
+ *
+ * Time comes from the activity log (task segments, explicit duration
+ * markers). When a day has no tracking data at all, it falls back to a
+ * timestamp heuristic so an untracked day still shows something.
  */
-import { localDate } from './entries'
+import { localDate, parseDurationMarker } from './entries'
 import { JOURNAL_PAGE_ID, categoryPath } from './pages'
-import type { Entry, PageMeta } from './types'
+import {
+  applyExplicitDurations,
+  buildFocusSegments,
+  buildTaskSegments,
+  focusSummaryByDay,
+  taskMinutesByDay,
+  type AppSummary,
+  type AppKind,
+  type ExplicitDuration,
+  type FocusSegment,
+  type TaskSegment
+} from './activity'
+import type { ActivityEvent, Entry, PageMeta } from './types'
 
 export interface ReviewNote {
   pageId: string
@@ -43,10 +58,8 @@ export function weekDates(start: string): string[] {
 }
 
 /**
- * Estimate minutes per note: sort a day's notes across every page by time;
- * each note owns the gap until the next one (capped), the last one gets a
- * fixed allowance. Crude, but it turns a stream of timestamps into "roughly
- * how long" without asking the user to track anything.
+ * Fallback estimate for untracked days: each note owns the gap until the
+ * next note that day (capped); the last note gets a fixed allowance.
  */
 export function estimateMinutes(notes: ReviewNote[], opts: EstimateOptions = DEFAULT_ESTIMATE): Map<string, number> {
   const out = new Map<string, number>()
@@ -80,6 +93,77 @@ export function formatMinutes(minutes: number): string {
   return rest === 0 ? `${h}h` : `${h}h ${rest}m`
 }
 
+// ---------------------------------------------------------------------------
+// Time computation
+// ---------------------------------------------------------------------------
+
+export type DayMethod = 'tracked' | 'estimated' | 'none'
+
+export interface WeekTime {
+  /** date → pageId → minutes */
+  byPageDay: Map<string, Map<string, number>>
+  /** How each date's minutes were obtained. */
+  method: Map<string, DayMethod>
+  taskSegments: TaskSegment[]
+  focusSegments: FocusSegment[]
+  focus: Map<string, { apps: AppSummary[]; kinds: Map<AppKind, number>; total: number }>
+  /** Explicit durations found in notes, by note key. */
+  explicitByNote: Map<string, number>
+}
+
+export interface WeekTimeOptions {
+  dates: string[]
+  estimate?: EstimateOptions
+  now?: string
+  /** Liveness window for segment building; defaults to the tracker's heartbeat. */
+  heartbeatMs?: number
+}
+
+/** Turn a week's notes and activity events into minutes per page per day. */
+export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], opts: WeekTimeOptions): WeekTime {
+  const explicit: ExplicitDuration[] = []
+  const explicitByNote = new Map<string, number>()
+  for (const n of notes) {
+    if (n.entry.kind && n.entry.kind !== 'note') continue
+    const minutes = parseDurationMarker(n.entry.markdown)
+    if (minutes) {
+      explicit.push({ pageId: n.pageId, end: n.entry.createdAt, minutes, entryId: n.entry.id })
+      explicitByNote.set(noteKey(n), minutes)
+    }
+  }
+  const segOpts = { now: opts.now, heartbeatMs: opts.heartbeatMs }
+  const tracked = applyExplicitDurations(buildTaskSegments(events, segOpts), explicit)
+  const focusSegments = buildFocusSegments(events, segOpts)
+  const byPageDay = taskMinutesByDay(tracked)
+  const method = new Map<string, DayMethod>()
+  const datesWithEvents = new Set(events.map((e) => localDate(new Date(e.t))))
+
+  // Fallback per day: no tracking data and no explicit markers → heuristic.
+  const fallback = estimateMinutes(notes, opts.estimate)
+  for (const date of opts.dates) {
+    const hasTracked = (byPageDay.get(date)?.size ?? 0) > 0 || datesWithEvents.has(date)
+    if (hasTracked) {
+      method.set(date, 'tracked')
+      continue
+    }
+    const dayNotes = notes.filter((n) => n.date === date)
+    if (dayNotes.length === 0) {
+      method.set(date, 'none')
+      continue
+    }
+    method.set(date, 'estimated')
+    const m = new Map<string, number>()
+    for (const n of dayNotes) m.set(n.pageId, (m.get(n.pageId) ?? 0) + (fallback.get(noteKey(n)) ?? 0))
+    byPageDay.set(date, m)
+  }
+
+  return { byPageDay, method, taskSegments: tracked, focusSegments, focus: focusSummaryByDay(focusSegments), explicitByNote }
+}
+
+// ---------------------------------------------------------------------------
+// Matrix rows
+// ---------------------------------------------------------------------------
+
 export interface ReviewRow {
   /** "category" rows group pages; "page" rows are leaves. */
   kind: 'category' | 'page'
@@ -97,14 +181,10 @@ export interface ReviewRow {
 
 /**
  * Build the review matrix: a tree of category rows (top level first, then
- * nested categories) with page rows as leaves. Only pages that have notes in
- * the range appear. The journal is a top-level row of its own.
+ * nested categories) with page rows as leaves. Pages appear when they have
+ * notes or time in the range. The journal is a top-level row of its own.
  */
-export function buildReviewRows(
-  pages: PageMeta[],
-  notes: ReviewNote[],
-  minutesByNote: Map<string, number>
-): ReviewRow[] {
+export function buildReviewRows(pages: PageMeta[], notes: ReviewNote[], byPageDay: Map<string, Map<string, number>>): ReviewRow[] {
   const pageById = new Map(pages.map((p) => [p.id, p]))
   const roots: ReviewRow[] = []
   const rowsByKey = new Map<string, ReviewRow>()
@@ -125,26 +205,30 @@ export function buildReviewRows(
     return row
   }
 
-  const bump = (row: ReviewRow, date: string, minutes: number): void => {
+  const bump = (row: ReviewRow, date: string, notesCount: number, minutes: number): void => {
     const cell = row.cells.get(date) ?? { notes: 0, minutes: 0 }
-    cell.notes += 1
+    cell.notes += notesCount
     cell.minutes += minutes
     row.cells.set(date, cell)
-    row.totalNotes += 1
+    row.totalNotes += notesCount
     row.totalMinutes += minutes
   }
 
-  for (const n of notes) {
-    const page = pageById.get(n.pageId)
-    const minutes = minutesByNote.get(noteKey(n)) ?? 0
-    const path = n.pageId === JOURNAL_PAGE_ID ? [] : categoryPath(page?.category ?? '')
-    const label = n.pageId === JOURNAL_PAGE_ID ? 'Journal' : (page?.title ?? n.pageId)
-    // Ensure category ancestors exist so they are ordered by first appearance.
-    for (let i = 1; i <= path.length; i++) rowFor('category', path.slice(0, i), path[i - 1])
-    const leaf = rowFor('page', path, label, n.pageId)
-    bump(leaf, n.date, minutes)
-    for (let i = 1; i <= path.length; i++) bump(rowFor('category', path.slice(0, i), path[i - 1]), n.date, minutes)
+  const pathOf = (pageId: string): { path: string[]; label: string } => {
+    const page = pageById.get(pageId)
+    if (pageId === JOURNAL_PAGE_ID) return { path: [], label: 'Journal' }
+    return { path: categoryPath(page?.category ?? ''), label: page?.title ?? pageId }
   }
+
+  const add = (pageId: string, date: string, notesCount: number, minutes: number): void => {
+    const { path, label } = pathOf(pageId)
+    for (let i = 1; i <= path.length; i++) rowFor('category', path.slice(0, i), path[i - 1])
+    bump(rowFor('page', path, label, pageId), date, notesCount, minutes)
+    for (let i = 1; i <= path.length; i++) bump(rowFor('category', path.slice(0, i), path[i - 1]), date, notesCount, minutes)
+  }
+
+  for (const n of notes) add(n.pageId, n.date, 1, 0)
+  for (const [date, perPage] of byPageDay) for (const [pageId, minutes] of perPage) add(pageId, date, 0, minutes)
 
   const sortRows = (rows: ReviewRow[]): ReviewRow[] =>
     rows

@@ -227,6 +227,19 @@ describe('pages in the store', () => {
     await expect(store.moveEntry('acme', '2026-09-19', a.entry.id, 'nope')).rejects.toThrow(/not found/)
   })
 
+  it('stores commit notes read-only and de-duplicates by hash', async () => {
+    await store.createPage({ title: 'Acme', repos: ['/tmp/x'] })
+    expect((await store.readPage('acme')).repos).toEqual(['/tmp/x'])
+    const sys = { kind: 'commit' as const, meta: { repo: '/tmp/x', hash: 'deadbeef' } }
+    const a = await store.addEntry('acme', 'commit one', {}, new Date(2026, 8, 19, 9), sys)
+    const b = await store.addEntry('acme', 'commit one again', {}, new Date(2026, 8, 19, 9, 1), sys)
+    expect(b.entry.id).toBe(a.entry.id)
+    expect((await store.readDay('acme', '2026-09-19')).entries).toHaveLength(1)
+    await expect(store.updateEntry('acme', '2026-09-19', a.entry.id, 'edited')).rejects.toThrow(/read-only/)
+    await store.addEntry('acme', 'a reply', { date: '2026-09-19', parentId: a.entry.id })
+    expect(await store.deleteEntry('acme', '2026-09-19', a.entry.id)).toBe(2)
+  })
+
   it('searches across pages', async () => {
     await store.createPage({ title: 'Acme' })
     await store.addEntry('journal', 'needle in journal', {}, new Date(2026, 8, 18, 9))

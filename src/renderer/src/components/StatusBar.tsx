@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react'
-import type { SyncStatus } from '@shared/types'
+import type { SyncStatus, TrackerStatus } from '@shared/types'
+import { formatMinutes } from '@shared/review'
 
 interface Props {
   status: SyncStatus | null
+  tracker: TrackerStatus | null
+  taskLabel: string | null
   onSyncNow: () => void
   onOpenSettings: () => void
+  onStopTask: () => void
+  onOpenTimeline: () => void
 }
 
 function ago(iso: string | null, now: number): string {
@@ -26,7 +31,7 @@ function inFuture(iso: string | null, now: number): string {
   return `${Math.round(s / 60)} min`
 }
 
-export function StatusBar({ status, onSyncNow, onOpenSettings }: Props): React.JSX.Element {
+export function StatusBar({ status, tracker, taskLabel, onSyncNow, onOpenSettings, onStopTask, onOpenTimeline }: Props): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 5000)
@@ -79,8 +84,31 @@ export function StatusBar({ status, onSyncNow, onOpenSettings }: Props): React.J
     }
   }
 
+  const elapsed = tracker?.since && !tracker.paused ? formatMinutes((now - new Date(tracker.since).getTime()) / 60_000) : null
+
   return (
     <footer className="statusbar">
+      {tracker?.tracking && (
+        <span className="task-status" title={tracker.lastFocus ? `Focused: ${tracker.lastFocus.app} — ${tracker.lastFocus.title}` : 'Activity tracking on'}>
+          <span className={`status-dot status-${tracker.activePageId ? (tracker.paused ? 'dirty' : 'busy') : 'idle'}`} />
+          <button type="button" className="task-label link" onClick={onOpenTimeline} title="Open today's timeline">
+            {tracker.activePageId ? (
+              <>
+                <span className="status-text">{taskLabel ?? tracker.activePageId}</span>
+                {tracker.paused ? <span className="status-detail">· paused ({tracker.pausedReason})</span> : elapsed ? <span className="status-detail">· {elapsed}</span> : null}
+              </>
+            ) : (
+              <span className="status-detail" title="Post on a page to start a task">No active task</span>
+            )}
+          </button>
+          {tracker.activePageId && (
+            <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title="Stop the active task (⌘⇧.)">
+              Stop
+            </button>
+          )}
+          <span className="status-sep" />
+        </span>
+      )}
       <span className={`status-dot status-${dot}`} />
       <span className="status-text">{text}</span>
       <span className="status-detail" title={detail}>

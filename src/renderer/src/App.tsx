@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@shared/entries'
-import { JOURNAL_PAGE, JOURNAL_PAGE_ID, categorySuggestions } from '@shared/pages'
-import type { Day, EntryPosition, PageMeta, RepoInfo, SearchHit, Settings, SyncStatus } from '@shared/types'
+import { JOURNAL_PAGE, JOURNAL_PAGE_ID, categoryPath, categorySuggestions } from '@shared/pages'
+import type { Day, EntryPosition, PageMeta, RepoInfo, SearchHit, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { PageDialog } from './components/PageDialog'
 import { Review } from './components/Review'
+import { Timeline } from './components/Timeline'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
@@ -14,6 +15,12 @@ import { Welcome } from './components/Welcome'
 import { getActiveComposer } from './editor/active'
 
 const TIMELINE_DAYS = 10
+
+function pageLabelOf(pages: PageMeta[], id: string): string {
+  if (id === JOURNAL_PAGE_ID) return 'Journal'
+  const p = pages.find((x) => x.id === id)
+  return p ? [...categoryPath(p.category), p.title].join(' / ') : id
+}
 
 /** Replace or insert one day in an ascending timeline; drop it when empty. */
 function mergeDay(days: Day[], day: Day): Day[] {
@@ -28,7 +35,9 @@ export function App(): React.JSX.Element {
   const [today, setToday] = useState(localDate(new Date()))
   const [pages, setPages] = useState<PageMeta[]>([JOURNAL_PAGE])
   const [pageId, setPageId] = useState<string>(JOURNAL_PAGE_ID)
-  const [view, setView] = useState<'page' | 'review'>('page')
+  const [view, setView] = useState<'page' | 'review' | 'timeline'>('page')
+  const [timelineDate, setTimelineDate] = useState<string>(localDate(new Date()))
+  const [tracker, setTracker] = useState<TrackerStatus | null>(null)
   const [days, setDays] = useState<Day[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -85,10 +94,11 @@ export function App(): React.JSX.Element {
   // Boot: settings + repo.
   useEffect(() => {
     void (async () => {
-      const [s, r, st] = await Promise.all([api.settings.get(), api.repo.info(), api.sync.status()])
+      const [s, r, st, tr] = await Promise.all([api.settings.get(), api.repo.info(), api.sync.status(), api.tracker.status()])
       setSettings(s)
       setRepo(r)
       setSync(st)
+      setTracker(tr)
       if (!r && s.repoPath) setBootError(`Could not reopen ${s.repoPath}. Open it again or create a new devlog.`)
     })()
     const offRepo = api.repo.onChanged((info) => {
@@ -96,6 +106,7 @@ export function App(): React.JSX.Element {
       setPageId(JOURNAL_PAGE_ID)
     })
     const offSync = api.sync.onStatus((st) => setSync(st))
+    const offTracker = api.tracker.onStatus((st) => setTracker(st))
     const offMenu = api.onMenu((cmd) => {
       if (cmd === 'openSettings') setSettingsOpen(true)
       if (cmd === 'focusComposer') setFocusToken((n) => n + 1)
@@ -103,6 +114,10 @@ export function App(): React.JSX.Element {
       if (cmd === 'syncNow') void api.sync.now()
       if (cmd === 'newPage') setPageDialog({ page: null })
       if (cmd === 'review') setView('review')
+      if (cmd === 'timeline') {
+        setTimelineDate(localDate(new Date()))
+        setView('timeline')
+      }
     })
     const offAttach = api.onAttachImages((images) => {
       const sink = getActiveComposer()
@@ -112,6 +127,7 @@ export function App(): React.JSX.Element {
     return () => {
       offRepo()
       offSync()
+      offTracker()
       offMenu()
       offAttach()
     }
@@ -221,12 +237,13 @@ export function App(): React.JSX.Element {
     <div className="app">
       <Sidebar
         pages={pages}
-        selection={view === 'review' ? { kind: 'review' } : { kind: 'page', pageId }}
+        selection={view === 'review' ? { kind: 'review' } : view === 'timeline' ? { kind: 'timeline' } : { kind: 'page', pageId }}
         search={search}
         onSearch={setSearch}
         onSelect={(sel: SidebarSelection) => {
           setSearch('')
           if (sel.kind === 'review') setView('review')
+          else if (sel.kind === 'timeline') setView('timeline')
           else {
             setView('page')
             setPageId(sel.pageId)
@@ -236,7 +253,18 @@ export function App(): React.JSX.Element {
         searchRef={searchRef}
       />
       <main className="main">
-        {view === 'review' && !search && <Review pages={pages} today={today} onJumpTo={jumpTo} />}
+        {view === 'review' && !search && (
+          <Review
+            pages={pages}
+            today={today}
+            onJumpTo={jumpTo}
+            onOpenTimeline={(d) => {
+              setTimelineDate(d)
+              setView('timeline')
+            }}
+          />
+        )}
+        {view === 'timeline' && !search && <Timeline pages={pages} today={today} date={timelineDate} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />}
         {(view === 'page' || search) && (
         <Feed
           page={page}
@@ -276,7 +304,18 @@ export function App(): React.JSX.Element {
           />
         </div>
         )}
-        <StatusBar status={sync} onSyncNow={() => void api.sync.now()} onOpenSettings={() => setSettingsOpen(true)} />
+        <StatusBar
+          status={sync}
+          tracker={tracker}
+          taskLabel={tracker?.activePageId ? pageLabelOf(pages, tracker.activePageId) : null}
+          onSyncNow={() => void api.sync.now()}
+          onOpenSettings={() => setSettingsOpen(true)}
+          onStopTask={() => void api.tracker.setTask(null)}
+          onOpenTimeline={() => {
+            setTimelineDate(localDate(new Date()))
+            setView('timeline')
+          }}
+        />
       </main>
       {settingsOpen && (
         <SettingsDialog

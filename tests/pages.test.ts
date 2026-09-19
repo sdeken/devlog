@@ -24,15 +24,16 @@ describe('pages', () => {
       title: 'Acme: Corp',
       category: 'Clients',
       description: 'Big **client**.\n\n- retainer',
-      createdAt: '2026-09-19T10:00:00.000Z'
+      createdAt: '2026-09-19T10:00:00.000Z',
+      repos: ['C:\\src\\acme', '/home/me/src/acme site']
     }
     const text = serializePageFile(meta)
-    expect(text.startsWith('---\ntitle: "Acme: Corp"\ncategory: Clients\ncreated: 2026-09-19T10:00:00.000Z\n---\n')).toBe(true)
+    expect(text.startsWith('---\ntitle: "Acme: Corp"\ncategory: Clients\ncreated: 2026-09-19T10:00:00.000Z\nrepo: "C:\\\\src\\\\acme"\nrepo: /home/me/src/acme site\n---\n')).toBe(true)
     expect(parsePageFile('acme', text)).toEqual(meta)
   })
 
   it('tolerates a missing or partial front matter', () => {
-    expect(parsePageFile('x', 'just a description')).toEqual({ id: 'x', title: 'x', category: '', description: 'just a description', createdAt: '' })
+    expect(parsePageFile('x', 'just a description')).toEqual({ id: 'x', title: 'x', category: '', description: 'just a description', createdAt: '', repos: [] })
     expect(parsePageFile('x', '---\ntitle: Hi\n---\n')).toMatchObject({ title: 'Hi', description: '' })
   })
 
@@ -43,7 +44,7 @@ describe('pages', () => {
   })
 
   it('builds a category tree with nested projects and uncategorised pages last', () => {
-    const p = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '' })
+    const p = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '', repos: [] })
     const tree = buildCategoryTree([
       p('journal', 'Journal', ''),
       p('zed', 'Zed', ''),

@@ -1,6 +1,8 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { Entry, PageMeta } from '@shared/types'
 import { renderMarkdown } from '@renderer/markdown'
+import { parseDurationMarker } from '@shared/entries'
+import { formatMinutes } from '@shared/review'
 import { api } from '@renderer/api'
 import { Composer } from './Composer'
 
@@ -65,6 +67,8 @@ export const EntryView = memo(function EntryView({
 
   const timeLabel = showDate ? dateTimeFmt.format(created) : timeFmt.format(created)
   const targets = (pages ?? []).filter((p) => p.id !== pageId)
+  const readOnly = entry.kind === 'commit'
+  const duration = readOnly ? null : parseDurationMarker(entry.markdown)
 
   if (editing) {
     return (
@@ -91,10 +95,11 @@ export const EntryView = memo(function EntryView({
 
   return (
     <article
-      className="entry"
+      className={`entry${readOnly ? ' entry-commit' : ''}`}
       id={`entry-${entry.id}`}
       onDoubleClick={(ev) => {
         // Double-click on the text edits the note, unless the user is selecting text.
+        if (readOnly) return
         if ((ev.target as HTMLElement).closest('a, img, button, select')) return
         if (!window.getSelection()?.isCollapsed) return
         setEditing(true)
@@ -104,6 +109,16 @@ export const EntryView = memo(function EntryView({
         <time dateTime={entry.createdAt} title={created.toLocaleString()}>
           {timeLabel}
         </time>
+        {readOnly && (
+          <span className="entry-kind" title={`Captured from ${entry.meta?.repo ?? 'git'}; read-only`}>
+            commit
+          </span>
+        )}
+        {duration !== null && (
+          <span className="duration-chip" title="Explicit duration: counts exactly this much for this page">
+            {formatMinutes(duration)}
+          </span>
+        )}
         {entry.updatedAt && (
           <span className="entry-edited" title={`Edited ${new Date(entry.updatedAt).toLocaleString()}`}>
             (edited)
@@ -155,9 +170,11 @@ export const EntryView = memo(function EntryView({
                   Reply
                 </button>
               )}
-              <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title="Edit (or double-click)">
-                Edit
-              </button>
+              {!readOnly && (
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title="Edit (or double-click)">
+                  Edit
+                </button>
+              )}
               {onMove && targets.length > 0 && !entry.parentId && (
                 <button type="button" className="btn btn-quiet btn-xs" onClick={() => setMoving(true)} title="Move to another page">
                   Move

@@ -105,6 +105,31 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
         </section>
 
         <section>
+          <h3>Activity tracking</h3>
+          <label className="check">
+            <input type="checkbox" checked={form.trackingEnabled} onChange={(ev) => set('trackingEnabled', ev.target.checked)} /> Track the active task
+            and machine activity (lock, idle, sleep)
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={form.trackFocus} disabled={!form.trackingEnabled} onChange={(ev) => set('trackFocus', ev.target.checked)} /> Record the
+            focused window (app and title)
+          </label>
+          <div className="field-grid">
+            <label htmlFor="idle">Pause the task after idle (minutes, 0 = never)</label>
+            <input id="idle" type="number" min={0} max={240} value={form.idleMinutes} onChange={(ev) => set('idleMinutes', Number(ev.target.value))} />
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Store the activity log in the devlog
+            repository (synced; window titles included) instead of locally
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from page repositories
+            as read-only notes
+          </label>
+          <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
+        </section>
+
+        <section>
           <h3>Commit author</h3>
           <p className="hint">Optional. Overrides the git config for this app only; leave blank to use your global git identity.</p>
           <div className="field-grid">

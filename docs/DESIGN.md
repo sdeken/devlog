@@ -111,25 +111,71 @@ oldest first with day dividers, and older days load on scroll or via "Show
 earlier notes" while preserving the scroll position. Search runs across all
 pages and each hit links to its page and day.
 
+### Active task and the activity log
+
+The model is deliberately small: **one active task at a time, and the task
+is a page**. Posting a user note on any page but the journal makes that page
+the active task (`task` event). Stop (status bar, menu, tray) records
+`task` with no page. The task survives restarts (persisted in user data and
+re-announced with a `start` event) but time only accrues while Devlog is
+running, which is why the window closes to the tray when tracking is on.
+
+Signals come from Electron's `powerMonitor`: `lock-screen`/`unlock-screen`,
+`suspend`/`resume`, and a 15-second poll of `getSystemIdleState` for idle.
+Each is written as an event. Foreground windows come from a long-running
+helper process per platform (`src/main/activity/foreground.ts`): PowerShell
+with `GetForegroundWindow` on Windows, an `osascript` loop on macOS, `xdotool`
+on Linux. They emit only on change; the tracker writes a `focus` event with
+process name and title. There are no native modules.
+
+Events go to `ActivityLog`: JSON lines, one file per local day, under
+`activity/` in user data or, by setting, in the repository. Writes never
+trigger the sync debounce (they would cause a commit every 30 s); the
+interval sync picks them up when they live in the repo. A `heartbeat` every
+five minutes is the liveness signal: segment building treats a gap of more
+than two heartbeats as "the app was not running", so a crash cannot inflate a
+task by a weekend.
+
+`src/shared/activity.ts` is pure and replays the stream into **task
+segments** (task → next task/stop/pause, resumed on unpause) and **focus
+segments** (focus → next focus/pause/stop). Explicit durations are applied
+afterwards: `[2h]` on a note means "the last two hours were this page", so
+tracked segments overlapping that window are cut and an `explicit` segment is
+inserted. Notes carrying a marker do not switch the task; they describe the
+past. Segments are split at local midnight before rolling up.
+
+Commit capture (`commits.ts`) watches `.git/logs/HEAD` of every repository
+mapped to a page (via `fs.watch` on the directory plus a 15 s poll), reads
+only bytes appended since the watch began, filters reflog lines to commits,
+resolves each hash with `git show` and emits it. The main process turns it
+into a `kind=commit` note with `repo`/`hash`/`branch`/`author` attributes in
+the marker; the store refuses `updateEntry` on such notes and de-duplicates
+by hash. The devlog repository itself is excluded so auto-sync commits do not
+feed back into the log.
+
 ### Weekly review
 
 `src/shared/review.ts` is pure and unit-tested: `weekStart` (Monday),
-`estimateMinutes`, and `buildReviewRows`. The main process only supplies
-`getRange(from, to)`: every day file across every page in the range. Notes
-are attributed to the local date of their timestamp, not the file they sit
-in, so a reply written on Wednesday under Monday's thread counts for
-Wednesday.
+`computeWeekTime`, and `buildReviewRows`. The main process supplies
+`getRange(from, to)` (every day file across every page) and the activity log
+for the same range. Notes are attributed to the local date of their
+timestamp, not the file they sit in, so a reply written on Wednesday under
+Monday's thread counts for Wednesday.
 
-The time estimate is a stated heuristic rather than a tracker: sort the
-day's notes across all pages, give each the gap to the next one capped at N
-minutes (default 60, user-adjustable), and give the last note of the day a
-fixed 15 minutes. It rewards the habit the app already encourages (write a
-line when you switch) and is honest about what it is; the UI labels every
-figure with `~`.
+Minutes per page per day come from task segments (tracked and explicit). A
+day with no events and no markers falls back to the old timestamp heuristic
+(each note owns the gap to the next, capped) and is marked `~` in the grid so
+the two are never confused.
 
 Rows are a tree: category rows for each path prefix, page rows as leaves,
 totals summed upward, journal last, siblings ordered by time. The same tree
-drives the per-day detail below the grid.
+drives the per-day detail, which also lists the day's task segments and its
+screen time by app kind (`classifyApp`: a small rule table over process names
+and titles) and by app with the top titles on hover.
+
+The **Timeline** view merges notes, system events and focus runs for one day
+into a single list; consecutive focus events for the same app collapse into
+one row that expands to the individual titles.
 
 ## Editor
 

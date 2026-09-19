@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { buildReviewRows, estimateMinutes, formatMinutes, noteKey, weekDates, weekStart, type ReviewNote } from '../src/shared/review'
+import { buildReviewRows, computeWeekTime, estimateMinutes, formatMinutes, noteKey, weekDates, weekStart, type ReviewNote } from '../src/shared/review'
+import type { ActivityEvent } from '../src/shared/types'
 import type { PageMeta } from '../src/shared/types'
 
-const page = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '' })
+const page = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '', repos: [] })
 const note = (pageId: string, date: string, time: string, id = `${pageId}-${time}`): ReviewNote => ({
   pageId,
   date,
@@ -47,8 +48,11 @@ describe('review rows', () => {
       note('globex-web', '2026-09-14', '10:00'),
       note('journal', '2026-09-16', '09:00')
     ]
-    const minutes = new Map(notes.map((n) => [noteKey(n), 30]))
-    const rows = buildReviewRows(pages, notes, minutes)
+    const byPageDay = new Map<string, Map<string, number>>([
+      ['2026-09-14', new Map([['acme-web', 60], ['globex-web', 30]])],
+      ['2026-09-15', new Map([['acme-general', 30]])]
+    ])
+    const rows = buildReviewRows(pages, notes, byPageDay)
     expect(rows.map((r) => r.label)).toEqual(['Acme Corp', 'Globex', 'Journal'])
     const acme = rows[0]
     expect(acme.kind).toBe('category')
@@ -61,6 +65,34 @@ describe('review rows', () => {
     expect(web.children.map((r) => `${r.kind}:${r.label}@${r.depth}`)).toEqual(['page:Website@2'])
     // Same project name under another client is a separate branch.
     expect(rows[1].children[0].children[0].pageId).toBe('globex-web')
-    expect(rows[2]).toMatchObject({ kind: 'page', pageId: 'journal', depth: 0, totalNotes: 1 })
+    expect(rows[2]).toMatchObject({ kind: 'page', pageId: 'journal', depth: 0, totalNotes: 1, totalMinutes: 0 })
+  })
+})
+
+describe('computeWeekTime', () => {
+  const dates = weekDates('2026-09-14')
+  const T = (day: number, h: number, m = 0): string => new Date(2026, 8, day, h, m).toISOString()
+
+  it('uses tracked segments when there is activity data and explicit markers when present', () => {
+    const events: ActivityEvent[] = [
+      { t: T(14, 9), type: 'task', pageId: 'acme-web' },
+      { t: T(14, 11), type: 'lock' },
+      { t: T(14, 12), type: 'unlock' },
+      { t: T(14, 13), type: 'stop' }
+    ]
+    const notes: ReviewNote[] = [
+      { pageId: 'acme-web', date: '2026-09-14', entry: { id: 'a', createdAt: T(14, 9), markdown: 'start' } },
+      { pageId: 'globex-web', date: '2026-09-14', entry: { id: 'b', createdAt: T(14, 12, 30), markdown: '[30m] Globex call' } },
+      { pageId: 'journal', date: '2026-09-16', entry: { id: 'c', createdAt: T(16, 9), markdown: 'untracked day' } }
+    ]
+    const time = computeWeekTime(notes, events, { dates, now: T(20, 0), heartbeatMs: 24 * 60 * 60_000 })
+    expect(time.method.get('2026-09-14')).toBe('tracked')
+    expect(time.method.get('2026-09-15')).toBe('none')
+    expect(time.method.get('2026-09-16')).toBe('estimated')
+    const mon = time.byPageDay.get('2026-09-14')!
+    expect(mon.get('acme-web')).toBe(120 + 30) // 9–11, then 12–12:30 (12:30–13 overridden)
+    expect(mon.get('globex-web')).toBe(30)
+    expect(time.explicitByNote.get('globex-web/2026-09-14/b')).toBe(30)
+    expect(time.byPageDay.get('2026-09-16')?.get('journal')).toBe(15) // fallback: last note allowance
   })
 })

@@ -1,9 +1,15 @@
-import { app, BrowserWindow, dialog, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, shell } from 'electron'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { IPC, type MenuCommand } from '@shared/ipc'
-import type { AttachedImage, RepoInfo, Settings, SyncStatus } from '@shared/types'
+import type { AttachedImage, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
+import { JOURNAL_PAGE_ID } from '@shared/pages'
+import { localDate, parseDurationMarker } from '@shared/entries'
 import { DevlogStore } from './devlog/store'
+import { ActivityLog } from './activity/log'
+import { Tracker } from './activity/tracker'
+import { CommitWatcher, commitMarkdown, type CommitInfo } from './activity/commits'
+import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { SyncManager, type SyncOptions } from './devlog/sync'
 import { SettingsStore } from './settings'
 import { installAssetHandler, registerAssetScheme } from './protocol'
@@ -28,7 +34,15 @@ const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.
 let mainWindow: BrowserWindow | null = null
 let store: DevlogStore | null = null
 let sync: SyncManager | null = null
+let tracker: Tracker | null = null
+let commits: CommitWatcher | null = null
+let tray: Tray | null = null
 let quitting = false
+
+const activityLog = new ActivityLog(() => {
+  const s = settings.get()
+  return s.activityInRepo && store ? store.root : app.getPath('userData')
+})
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
 
@@ -59,6 +73,16 @@ function syncOptionsFrom(s: Settings): SyncOptions {
 }
 
 export async function closeRepo(): Promise<void> {
+  if (tracker) {
+    await tracker.stop()
+    tracker.removeAllListeners()
+    tracker = null
+  }
+  if (commits) {
+    commits.stop()
+    commits.removeAllListeners()
+    commits = null
+  }
   if (sync) {
     sync.stop()
     await sync.idle()
@@ -97,9 +121,104 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   await settings.set({ repoPath: root })
   await nextSync.start()
 
+  // Activity tracking and commit capture live alongside the open repo.
+  const nextTracker = new Tracker(activityLog, path.join(app.getPath('userData'), 'tracker-state.json'), settings.get())
+  nextTracker.on('status', (st: TrackerStatus) => {
+    send(IPC.evTrackerStatus, st)
+    updateTray(st)
+  })
+  tracker = nextTracker
+  await nextTracker.start()
+
+  const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
+  nextCommits.on('commit', (pageId: string, info: CommitInfo) => void onCommit(pageId, info))
+  commits = nextCommits
+  await refreshCommitWatchers()
+
   const info = await repoInfo()
   send(IPC.evRepoChanged, info)
   return info!
+}
+
+async function refreshCommitWatchers(): Promise<void> {
+  if (!store || !commits) return
+  if (!settings.get().captureCommits) {
+    await commits.setRepos([])
+    return
+  }
+  const pages = await store.listPages()
+  const list: Array<{ pageId: string; path: string }> = []
+  for (const p of pages) for (const r of p.repos) list.push({ pageId: p.id, path: r })
+  await commits.setRepos(list)
+}
+
+/** A commit landed in a page's repository: add it as a read-only note. */
+async function onCommit(pageId: string, info: CommitInfo): Promise<void> {
+  if (!store) return
+  try {
+    const { date } = await store.addEntry(
+      pageId,
+      commitMarkdown(info),
+      { date: localDate(new Date()) },
+      new Date(),
+      { kind: 'commit', meta: { repo: info.repoPath, hash: info.hash, branch: info.branch ?? '', author: info.author } }
+    )
+    send(IPC.evEntriesChanged, { pageId, date })
+  } catch (err) {
+    console.error('failed to record commit', err)
+  }
+}
+
+/** A user note was posted: pages other than the journal become the active task. */
+async function onEntryAdded(pageId: string, entry: Entry): Promise<void> {
+  if (!tracker) return
+  if (pageId === JOURNAL_PAGE_ID) return
+  if (entry.kind && entry.kind !== 'note') return
+  // A note with an explicit duration records the past; it does not start a task.
+  if (parseDurationMarker(entry.markdown) !== null) return
+  await tracker.setTask(pageId, entry.id)
+}
+
+function updateTray(st: TrackerStatus | null): void {
+  if (!tray) return
+  const label = !st || !st.tracking ? 'Devlog' : st.activePageId ? `Devlog · ${st.activePageId}${st.paused ? ' (paused)' : ''}` : 'Devlog · no active task'
+  tray.setToolTip(label)
+  tray.setContextMenu(
+    Menu.buildFromTemplate([
+      { label: label, enabled: false },
+      { type: 'separator' },
+      { label: 'Open Devlog', click: () => showWindow() },
+      { label: 'Stop Active Task', enabled: !!st?.activePageId, click: () => void tracker?.setTask(null) },
+      { label: 'Sync Now', click: () => void sync?.syncNow('manual') },
+      { type: 'separator' },
+      { label: 'Quit Devlog', click: () => quitApp() }
+    ])
+  )
+}
+
+function showWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) mainWindow = createWindow()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function quitApp(): void {
+  quitting = true
+  app.quit()
+}
+
+function createTray(): void {
+  if (tray) return
+  try {
+    const icon = nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`)
+    tray = new Tray(process.platform === 'darwin' ? icon.resize({ width: 16, height: 16 }) : icon)
+    tray.on('click', () => showWindow())
+    tray.on('double-click', () => showWindow())
+    updateTray(tracker?.getStatus() ?? null)
+  } catch (err) {
+    console.error('tray unavailable', err)
+  }
 }
 
 export async function repoInfo(): Promise<RepoInfo | null> {
@@ -146,6 +265,12 @@ function createWindow(): BrowserWindow {
   } else {
     void win.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
+  // Closing the window keeps tracking in the tray; quitting is explicit.
+  win.on('close', (event) => {
+    if (quitting || !settings.get().trackingEnabled || !tray) return
+    event.preventDefault()
+    win.hide()
+  })
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null
   })
@@ -183,7 +308,18 @@ if (!gotLock) {
         const res = mainWindow ? await dialog.showOpenDialog(mainWindow, opts) : await dialog.showOpenDialog(opts)
         return res.canceled || res.filePaths.length === 0 ? null : res.filePaths[0]
       },
-      onSettingsChanged: (s) => sync?.updateOptions(syncOptionsFrom(s))
+      onSettingsChanged: (s) => {
+        sync?.updateOptions(syncOptionsFrom(s))
+        void tracker?.updateSettings(s)
+        void refreshCommitWatchers()
+      },
+      onEntryAdded,
+      onPagesChanged: refreshCommitWatchers,
+      activityRange: (from, to) => activityLog.read(from, to),
+      trackerStatus: () => tracker?.getStatus() ?? null,
+      trackerSetTask: async (pageId) => {
+        await tracker?.setTask(pageId)
+      }
     })
 
     const menuCmd = (cmd: MenuCommand) => () => send(IPC.evMenu, cmd)
@@ -205,6 +341,9 @@ if (!gotLock) {
       search: menuCmd('search'),
       newPage: menuCmd('newPage'),
       review: menuCmd('review'),
+      timeline: menuCmd('timeline'),
+      stopTask: () => void tracker?.setTask(null),
+      quit: quitApp,
       attachImage: async () => {
         const opts: Electron.OpenDialogOptions = {
           title: 'Attach image',
@@ -225,6 +364,7 @@ if (!gotLock) {
     })
 
     mainWindow = createWindow()
+    createTray()
 
     const s = settings.get()
     if (s.repoPath) {
@@ -237,23 +377,29 @@ if (!gotLock) {
       }
     }
 
-    app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) mainWindow = createWindow()
-    })
   })
 
   app.on('window-all-closed', () => {
-    if (process.platform !== 'darwin') app.quit()
+    // With a tray the app lives on to keep tracking; without one, quit as usual.
+    if (process.platform !== 'darwin' && !tray) app.quit()
   })
 
+  app.on('activate', () => showWindow())
+
   // Commit (and push) any pending changes before the process exits.
+  let quitHandled = false
   app.on('before-quit', (event) => {
-    if (quitting) return
-    if (!sync || !settings.get().commitOnQuit) return
-    event.preventDefault()
     quitting = true
+    if (quitHandled) return
+    quitHandled = true
+    event.preventDefault()
+    const work = (async () => {
+      await tracker?.stop().catch(() => undefined)
+      commits?.stop()
+      if (sync && settings.get().commitOnQuit) await sync.syncNow('quit')
+    })()
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, 20_000))
-    Promise.race([sync.syncNow('quit').then(() => undefined), timeout])
+    Promise.race([work.then(() => undefined), timeout])
       .catch(() => undefined)
       .finally(() => app.quit())
   })

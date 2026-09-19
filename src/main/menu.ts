@@ -9,6 +9,9 @@ export interface MenuActions {
   attachImage: () => void
   newPage: () => void
   review: () => void
+  timeline: () => void
+  stopTask: () => void
+  quit: () => void
 }
 
 export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions): void {
@@ -41,13 +44,14 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
       { label: 'Open Devlog Repository…', accelerator: 'CmdOrCtrl+O', click: actions.openRepo },
       { type: 'separator' },
       { label: 'Sync Now', accelerator: 'CmdOrCtrl+Shift+S', click: actions.syncNow },
+      { label: 'Stop Active Task', accelerator: 'CmdOrCtrl+Shift+.', click: actions.stopTask },
       { type: 'separator' },
       ...(isMac
         ? [{ role: 'close' } as MenuItemConstructorOptions]
         : [
             { label: 'Settings…', accelerator: 'Ctrl+,', click: actions.openSettings },
             { type: 'separator' } as MenuItemConstructorOptions,
-            { role: 'quit' } as MenuItemConstructorOptions
+            { label: 'Quit Devlog', accelerator: 'Ctrl+Q', click: actions.quit }
           ])
     ]
   })
@@ -73,6 +77,7 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
     label: 'View',
     submenu: [
       { label: 'Weekly Review', accelerator: 'CmdOrCtrl+Shift+R', click: actions.review },
+      { label: 'Day Timeline', accelerator: 'CmdOrCtrl+Shift+T', click: actions.timeline },
       { type: 'separator' },
       { role: 'reload' },
       { role: 'toggleDevTools' },

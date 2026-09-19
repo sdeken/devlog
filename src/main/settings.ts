@@ -40,7 +40,12 @@ function sanitize(s: Settings): Settings {
     pullOnStart: Boolean(s.pullOnStart),
     commitOnQuit: Boolean(s.commitOnQuit),
     authorName: String(s.authorName ?? '').trim(),
-    authorEmail: String(s.authorEmail ?? '').trim()
+    authorEmail: String(s.authorEmail ?? '').trim(),
+    trackingEnabled: s.trackingEnabled !== false,
+    trackFocus: s.trackFocus !== false,
+    idleMinutes: clamp(Number.isFinite(Number(s.idleMinutes)) ? Number(s.idleMinutes) : DEFAULT_SETTINGS.idleMinutes, 0, 240),
+    activityInRepo: Boolean(s.activityInRepo),
+    captureCommits: s.captureCommits !== false
   }
 }
 
