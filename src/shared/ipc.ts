@@ -28,7 +28,8 @@ export const IPC = {
   evSyncStatus: 'ev:syncStatus',
   evEntriesChanged: 'ev:entriesChanged',
   evRepoChanged: 'ev:repoChanged',
-  evMenu: 'ev:menu'
+  evMenu: 'ev:menu',
+  evAttachImages: 'ev:attachImages'
 } as const
 
 export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow'

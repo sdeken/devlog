@@ -4,10 +4,15 @@ A desktop app for keeping a running developer log. Posts are written in a
 Slack-style WYSIWYG Markdown composer, stored as plain Markdown files in a git
 repository, and committed and pushed automatically.
 
-- **WYSIWYG Markdown.** Bold, italic, strikethrough, inline code, code blocks,
-  lists, quotes, headings and links render as you type, with the usual
-  shortcuts (`**bold**`, `- ` for a list, ``` for a code block, ⌘B / ⌘I / ⌘K…).
+- **WYSIWYG Markdown, no chrome.** Bold, italic, strikethrough, inline code,
+  syntax-highlighted code blocks, lists, quotes, headings and links render as
+  you type, with the usual shortcuts (`**bold**`, `- ` for a list, ```` ```ts ````
+  for a code block, ⌘B / ⌘I / ⌘K…). The composer is a bare input: the only
+  formatting UI is a small bubble menu that appears when you select text.
   Enter posts, Shift+Enter starts a new line.
+- **Every note is a node.** Reply to a note to start a thread, hover between
+  two notes and press **+** to insert one there, double-click a note (or press
+  ↑ in the empty composer) to edit it. Notes on past days work the same way.
 - **Pasted images just work.** Paste or drop an image into the composer and it
   is saved into the repository next to the day's entry and linked relatively,
   so the log also renders on GitHub.
@@ -58,14 +63,21 @@ Started on the git sync. Pull before push, rebase on conflicts.
 
 ![shot](assets/2026-09-19-143201-a1b2.png)
 
+<!-- devlog:entry id=p0q1r2s3 parent=k3j9d2ab created=2026-09-19T15:02:00.000Z -->
+#### ↳ 15:02
+
+A reply in the thread under the first note.
+
 <!-- devlog:entry id=q8v1m0zz created=2026-09-19T17:45:00.000Z updated=2026-09-19T17:50:12.000Z -->
 ### 17:45
 
 Done. **Ship it.**
 ```
 
-The HTML comment carries each post's id and timestamps and is invisible when
-rendered; the `###` time heading is regenerated from the timestamp.
+The HTML comment carries each note's id, optional `parent`, and timestamps,
+and is invisible when rendered; the time heading is regenerated from the
+timestamp (`↳` and a deeper heading level mark replies). File order is display
+order, so inserted notes stay where you put them.
 
 ## Sync behaviour
 
@@ -102,5 +114,6 @@ Code map:
 | `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |
 | `src/main/ipc.ts`, `src/preload/` | IPC surface exposed to the renderer as `window.devlog`         |
-| `src/renderer/src/components/`    | React UI: sidebar, feed, composer (TipTap), settings, status   |
+| `src/renderer/src/components/`    | React UI: sidebar, threaded feed, composer (TipTap), settings  |
+| `src/renderer/src/editor/`        | TipTap extensions: highlighted code, asset images, Slack keys  |
 | `docs/DESIGN.md`                  | Design notes and rationale                                     |

@@ -1,6 +1,17 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import { IPC, type MenuCommand } from '../shared/ipc'
-import type { Day, DaySummary, Entry, RepoInfo, SavedAsset, SearchHit, Settings, SyncStatus } from '../shared/types'
+import type {
+  AttachedImage,
+  Day,
+  DaySummary,
+  Entry,
+  EntryPosition,
+  RepoInfo,
+  SavedAsset,
+  SearchHit,
+  Settings,
+  SyncStatus
+} from '../shared/types'
 
 type Unsubscribe = () => void
 
@@ -28,10 +39,11 @@ const api = {
   entries: {
     listDays: (): Promise<DaySummary[]> => ipcRenderer.invoke(IPC.daysList),
     getDay: (date: string): Promise<Day> => ipcRenderer.invoke(IPC.dayGet, date),
-    add: (markdown: string): Promise<{ date: string; entry: Entry }> => ipcRenderer.invoke(IPC.entryAdd, markdown),
+    add: (markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry }> =>
+      ipcRenderer.invoke(IPC.entryAdd, markdown, position),
     update: (date: string, id: string, markdown: string): Promise<Entry> =>
       ipcRenderer.invoke(IPC.entryUpdate, date, id, markdown),
-    remove: (date: string, id: string): Promise<void> => ipcRenderer.invoke(IPC.entryDelete, date, id),
+    remove: (date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, date, id),
     search: (query: string): Promise<SearchHit[]> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
@@ -48,6 +60,7 @@ const api = {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.openExternal, url)
   },
   onMenu: (cb: (cmd: MenuCommand) => void): Unsubscribe => on(IPC.evMenu, cb),
+  onAttachImages: (cb: (images: AttachedImage[]) => void): Unsubscribe => on(IPC.evAttachImages, cb),
   platform: process.platform
 }
 

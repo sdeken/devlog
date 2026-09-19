@@ -39,7 +39,8 @@ outside the open repository.
 - `entries/YYYY/MM/YYYY-MM-DD.md` – one file per local calendar day.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
 
-Each post is delimited by `<!-- devlog:entry id=… created=… [updated=…] -->`.
+Each note is delimited by
+`<!-- devlog:entry id=… [parent=…] created=… [updated=…] -->`.
 Reasons for this over alternatives:
 
 - **One file per day, not per post.** Reads naturally on GitHub and in an
@@ -55,8 +56,26 @@ Reasons for this over alternatives:
   an image pasted at 23:59 still resolves when the post lands in the next
   day's file (`../09/assets/x.png`).
 - Parsing tolerates hand edits: missing ids get generated, missing time
-  headings are fine, CRLF is fine, and anything before the first marker is
-  ignored rather than destroyed.
+  headings are fine, CRLF is fine, dangling `parent` links become top-level
+  notes, and anything before the first marker is ignored rather than
+  destroyed.
+
+### Notes as nodes
+
+Notes form a tree: a flat, ordered list where a reply carries `parentId`.
+File order is display order; nothing is sorted by time. The helpers in
+`src/shared/entries.ts` (`insertEntry`, `removeSubtree`, `buildTree`) are the
+only code that reasons about positions:
+
+- **Reply** → appended after the last descendant of the parent, so a thread
+  stays contiguous in the file.
+- **Insert after X** → placed after X's whole thread, as X's sibling.
+- **Insert before X** → placed directly before X, inheriting X's parent.
+- **Delete** removes the note and its whole thread (the UI says how many).
+
+A reply written on a later day is stored in the parent's day file, so a
+thread never splits across files. Replies render with `↳` and a deeper
+heading level so GitHub shows the nesting without breaking Markdown.
 
 ## Editor
 
@@ -65,11 +84,21 @@ Markdown in/out, and two custom extensions:
 
 - `DevlogImage` keeps `src` as the repo-relative path (which is what gets
   serialised) but renders through `devlog://asset/…`.
+- `DevlogCodeBlock` is `CodeBlockLowlight` with lowlight's common grammars;
+  the feed highlights the same languages with highlight.js inside `marked`.
+  Both use one `.hljs-*` theme with light and dark tokens.
 - `SubmitKeymap` implements the Slack contract: Enter posts unless the caret
-  is in a code block or a list; Shift+Enter starts a new paragraph (so `- `,
+  is in a code block, a list, or on a ```` ``` ```` fence line (which must fall
+  through to the input rule); Shift+Enter starts a new paragraph (so `- `,
   `1. `, `>` and ``` shortcuts work on every line), a hard break inside a list
   item, or a newline inside a code block; Mod+Enter always posts; Escape
-  cancels an edit.
+  cancels; ↑ in an empty composer edits the previous note.
+
+There is deliberately no toolbar. Formatting is discoverable through the
+placeholder hint, the markdown shortcuts, and a bubble menu (bold, italic,
+strike, code, link) that only appears over a text selection. The same
+`Composer` component is reused for new notes, edits, replies and inserts;
+the Attach Image menu item routes to whichever composer was focused last.
 
 Paste and drop are intercepted in `editorProps`: image files are sent to
 the main process as bytes, saved, and inserted as image nodes at the cursor
@@ -115,3 +144,4 @@ timeout kills a stalled network call.
 - Multiple devlogs open at once (switching is supported).
 - Conflict resolution UI; git's own tooling is the fallback.
 - Tags/categories. Search is full-text over all entries.
+- Drag-to-reorder or re-parenting notes; insert/reply cover the common cases.

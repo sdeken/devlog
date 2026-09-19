@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, shell } from 'electron'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { IPC, type MenuCommand } from '@shared/ipc'
-import type { RepoInfo, Settings, SyncStatus } from '@shared/types'
+import type { AttachedImage, RepoInfo, Settings, SyncStatus } from '@shared/types'
 import { DevlogStore } from './devlog/store'
 import { SyncManager, type SyncOptions } from './devlog/sync'
 import { SettingsStore } from './settings'
@@ -31,6 +31,17 @@ let sync: SyncManager | null = null
 let quitting = false
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
+
+const MIME_BY_EXT: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  svg: 'image/svg+xml',
+  bmp: 'image/bmp',
+  avif: 'image/avif'
+}
 
 function send(channel: string, payload?: unknown): void {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
@@ -191,7 +202,24 @@ if (!gotLock) {
       },
       openSettings: menuCmd('openSettings'),
       focusComposer: menuCmd('focusComposer'),
-      search: menuCmd('search')
+      search: menuCmd('search'),
+      attachImage: async () => {
+        const opts: Electron.OpenDialogOptions = {
+          title: 'Attach image',
+          properties: ['openFile', 'multiSelections'],
+          filters: [{ name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'avif'] }]
+        }
+        const res = mainWindow ? await dialog.showOpenDialog(mainWindow, opts) : await dialog.showOpenDialog(opts)
+        if (res.canceled || res.filePaths.length === 0) return
+        const images: AttachedImage[] = []
+        for (const file of res.filePaths) {
+          const ext = path.extname(file).slice(1).toLowerCase()
+          const mime = MIME_BY_EXT[ext]
+          if (!mime) continue
+          images.push({ name: path.basename(file), mime, bytes: new Uint8Array(await fs.readFile(file)) })
+        }
+        if (images.length) send(IPC.evAttachImages, images)
+      }
     })
 
     mainWindow = createWindow()

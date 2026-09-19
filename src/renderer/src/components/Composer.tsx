@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { EditorContent, useEditor, type Editor } from '@tiptap/react'
+import { BubbleMenu } from '@tiptap/react/menus'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Markdown } from '@tiptap/markdown'
 import type { EditorView } from '@tiptap/pm/view'
 import { isBlankMarkdown, localDate } from '@shared/entries'
 import { api } from '@renderer/api'
-import { DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
+import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
+import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
+
+export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert'
 
 export interface ComposerProps {
-  mode: 'new' | 'edit'
+  mode: ComposerMode
   initialMarkdown?: string
   placeholder?: string
   autoFocus?: boolean
@@ -18,30 +22,19 @@ export interface ComposerProps {
   /** Called with markdown when the user posts. Resolve to clear the editor. */
   onSubmit: (markdown: string) => Promise<void>
   onCancel?: () => void
+  /** Up arrow in an empty composer (new mode only). */
+  onEditLast?: () => void
   /** Persist draft under this key in localStorage (new mode). */
   draftKey?: string
   focusToken?: number
 }
 
-interface ToolButton {
-  label: string
-  title: string
-  isActive?: (e: Editor) => boolean
-  run: (e: Editor) => void
-  className?: string
+const PLACEHOLDER: Record<ComposerMode, string> = {
+  new: 'Write a note…  Enter posts, Shift+Enter new line, ⇧⌘I or paste for images',
+  edit: 'Edit note…  Enter saves, Esc cancels',
+  reply: 'Reply…  Enter posts, Esc cancels',
+  insert: 'New note here…  Enter posts, Esc cancels'
 }
-
-const TOOLS: ToolButton[] = [
-  { label: 'B', title: 'Bold (⌘B)', className: 'tb-bold', isActive: (e) => e.isActive('bold'), run: (e) => e.chain().focus().toggleBold().run() },
-  { label: 'I', title: 'Italic (⌘I)', className: 'tb-italic', isActive: (e) => e.isActive('italic'), run: (e) => e.chain().focus().toggleItalic().run() },
-  { label: 'S', title: 'Strikethrough (⌘⇧X)', className: 'tb-strike', isActive: (e) => e.isActive('strike'), run: (e) => e.chain().focus().toggleStrike().run() },
-  { label: '<>', title: 'Inline code (⌘E)', className: 'tb-code', isActive: (e) => e.isActive('code'), run: (e) => e.chain().focus().toggleCode().run() },
-  { label: '•', title: 'Bulleted list (⌘⇧8)', isActive: (e) => e.isActive('bulletList'), run: (e) => e.chain().focus().toggleBulletList().run() },
-  { label: '1.', title: 'Numbered list (⌘⇧7)', isActive: (e) => e.isActive('orderedList'), run: (e) => e.chain().focus().toggleOrderedList().run() },
-  { label: '❝', title: 'Quote (⌘⇧B)', isActive: (e) => e.isActive('blockquote'), run: (e) => e.chain().focus().toggleBlockquote().run() },
-  { label: '{ }', title: 'Code block (⌘⌥C)', isActive: (e) => e.isActive('codeBlock'), run: (e) => e.chain().focus().toggleCodeBlock().run() },
-  { label: 'H', title: 'Heading (⌘⌥2)', isActive: (e) => e.isActive('heading'), run: (e) => e.chain().focus().toggleHeading({ level: 2 }).run() }
-]
 
 function isImageFile(f: File): boolean {
   return f.type.startsWith('image/')
@@ -70,23 +63,25 @@ function hasContent(editor: Editor): boolean {
 export function Composer({
   mode,
   initialMarkdown = '',
-  placeholder = 'Write a devlog entry… (Enter to post, Shift+Enter for a new line)',
+  placeholder,
   autoFocus = false,
   assetDate,
   onSubmit,
   onCancel,
+  onEditLast,
   draftKey,
   focusToken
 }: ComposerProps): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [uploading, setUploading] = useState(0)
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
-  const [uploading, setUploading] = useState(0)
   const [, forceRender] = useState(0)
   const submitRef = useRef<() => boolean>(() => false)
   const cancelRef = useRef<() => boolean>(() => false)
-  const fileInput = useRef<HTMLInputElement>(null)
+  const editLastRef = useRef<(() => void) | undefined>(onEditLast)
+  editLastRef.current = onEditLast
   const editorRef = useRef<Editor | null>(null)
 
   const startContent = useMemo(() => {
@@ -131,20 +126,29 @@ export function Composer({
     },
     [assetDate]
   )
+  const sinkRef = useRef<(files: File[]) => void>(() => undefined)
+  sinkRef.current = (files) => void uploadImages(files)
+  const sink = useMemo(() => (files: File[]) => sinkRef.current(files), [])
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3] },
         link: { openOnClick: false, autolink: true, linkOnPaste: true, defaultProtocol: 'https' },
-        codeBlock: { exitOnTripleEnter: true, exitOnArrowDown: true }
+        codeBlock: false
       }),
+      DevlogCodeBlock,
       Markdown,
       DevlogImage,
-      Placeholder.configure({ placeholder }),
+      Placeholder.configure({ placeholder: placeholder ?? PLACEHOLDER[mode] }),
       SubmitKeymap.configure({
         onSubmit: () => submitRef.current(),
-        onCancel: () => cancelRef.current()
+        onCancel: () => cancelRef.current(),
+        onEditLast: () => {
+          if (mode !== 'new' || !editLastRef.current) return false
+          editLastRef.current()
+          return true
+        }
       })
     ],
     content: startContent,
@@ -168,6 +172,7 @@ export function Composer({
         return true
       }
     },
+    onFocus: () => setActiveComposer(sink),
     onTransaction: () => forceRender((n) => n + 1),
     onUpdate: ({ editor: e }) => {
       if (!draftKey) return
@@ -181,6 +186,12 @@ export function Composer({
     }
   })
   editorRef.current = editor
+
+  // Any composer that mounts with focus (edit/reply/insert) becomes the image target.
+  useEffect(() => {
+    if (autoFocus) setActiveComposer(sink)
+    return () => clearActiveComposer(sink)
+  }, [autoFocus, sink])
 
   const submit = useCallback((): boolean => {
     const e = editorRef.current
@@ -199,7 +210,7 @@ export function Composer({
     onSubmit(markdown)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : String(err))
-        if (mode === 'new' && isBlankMarkdown(e.getText()) && !hasContent(e)) e.commands.setContent(snapshot)
+        if (mode === 'new' && !hasContent(e)) e.commands.setContent(snapshot)
       })
       .finally(() => setBusy(false))
     return true
@@ -226,134 +237,90 @@ export function Composer({
 
   const openLink = (): void => {
     if (!editor) return
-    const existing = (editor.getAttributes('link').href as string | undefined) ?? ''
-    setLinkUrl(existing)
+    setLinkUrl((editor.getAttributes('link').href as string | undefined) ?? '')
     setLinkOpen(true)
   }
 
   const applyLink = (): void => {
     if (!editor) return
     const url = linkUrl.trim()
-    if (!url) {
-      editor.chain().focus().extendMarkRange('link').unsetLink().run()
-    } else {
+    if (!url) editor.chain().focus().extendMarkRange('link').unsetLink().run()
+    else {
       const href = /^[a-z][a-z0-9+.-]*:/i.test(url) ? url : `https://${url}`
-      if (editor.state.selection.empty && !editor.isActive('link')) {
-        editor.chain().focus().insertContent({ type: 'text', text: href, marks: [{ type: 'link', attrs: { href } }] }).run()
-      } else {
-        editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
-      }
+      editor.chain().focus().extendMarkRange('link').setLink({ href }).run()
     }
     setLinkOpen(false)
   }
 
-  const canPost = !!editor && !busy && uploading === 0 && hasContent(editor)
+  const marks: Array<{ key: string; label: string; title: string; cls?: string; active: boolean; run: () => void }> = editor
+    ? [
+        { key: 'bold', label: 'B', title: 'Bold ⌘B', cls: 'bm-bold', active: editor.isActive('bold'), run: () => editor.chain().focus().toggleBold().run() },
+        { key: 'italic', label: 'I', title: 'Italic ⌘I', cls: 'bm-italic', active: editor.isActive('italic'), run: () => editor.chain().focus().toggleItalic().run() },
+        { key: 'strike', label: 'S', title: 'Strikethrough ⌘⇧X', cls: 'bm-strike', active: editor.isActive('strike'), run: () => editor.chain().focus().toggleStrike().run() },
+        { key: 'code', label: '</>', title: 'Code ⌘E', cls: 'bm-code', active: editor.isActive('code'), run: () => editor.chain().focus().toggleCode().run() },
+        { key: 'link', label: '🔗', title: 'Link ⌘K', active: editor.isActive('link'), run: openLink }
+      ]
+    : []
+
+  const status = uploading > 0 ? `Saving ${uploading} image${uploading > 1 ? 's' : ''}…` : error
 
   return (
     <div className={`composer composer-${mode}${busy ? ' is-busy' : ''}`}>
-      <div className="composer-toolbar" role="toolbar" aria-label="Formatting">
-        {TOOLS.map((t) => (
-          <button
-            key={t.title}
-            type="button"
-            className={`tb${t.className ? ` ${t.className}` : ''}${editor && t.isActive?.(editor) ? ' is-active' : ''}`}
-            title={t.title}
-            disabled={!editor}
-            onMouseDown={(ev) => ev.preventDefault()}
-            onClick={() => editor && t.run(editor)}
-          >
-            {t.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          className={`tb${editor?.isActive('link') ? ' is-active' : ''}`}
-          title="Link (⌘K)"
-          disabled={!editor}
-          onMouseDown={(ev) => ev.preventDefault()}
-          onClick={openLink}
-        >
-          🔗
-        </button>
-        {linkOpen && (
-          <form
-            className="link-form"
-            onSubmit={(ev) => {
-              ev.preventDefault()
-              applyLink()
-            }}
-          >
-            <input
-              autoFocus
-              type="text"
-              placeholder="https://…"
-              value={linkUrl}
-              onChange={(ev) => setLinkUrl(ev.target.value)}
-              onKeyDown={(ev) => {
-                if (ev.key === 'Escape') {
-                  ev.preventDefault()
-                  setLinkOpen(false)
-                  editor?.commands.focus()
-                }
-              }}
-            />
-            <button type="submit">Apply</button>
-            <button type="button" onClick={() => setLinkOpen(false)}>
-              Cancel
-            </button>
-          </form>
-        )}
-      </div>
-
-      <EditorContent editor={editor} className="composer-content" />
-
-      <div className="composer-footer">
-        <input
-          ref={fileInput}
-          type="file"
-          accept="image/*"
-          multiple
-          hidden
-          onChange={(ev) => {
-            const files = Array.from(ev.target.files ?? []).filter(isImageFile)
-            ev.target.value = ''
-            void uploadImages(files)
+      {editor && (
+        <BubbleMenu
+          editor={editor}
+          className="bubble-menu"
+          options={{ placement: 'top', offset: 6 }}
+          shouldShow={({ editor: e, from, to }) => {
+            if (linkOpen) return true
+            if (from === to) return false
+            return !e.isActive('codeBlock') && !e.isActive('image')
           }}
-        />
-        <button
-          type="button"
-          className="tb tb-attach"
-          title="Attach image (or paste / drop one)"
-          onMouseDown={(ev) => ev.preventDefault()}
-          onClick={() => fileInput.current?.click()}
         >
-          ＋ Image
-        </button>
-        <span className="composer-hint">
-          {uploading > 0
-            ? `Saving ${uploading} image${uploading > 1 ? 's' : ''}…`
-            : error
-              ? <span className="composer-error">{error}</span>
-              : mode === 'edit'
-                ? 'Enter to save · Esc to cancel'
-                : 'Enter to post · Shift+Enter for a new line'}
-        </span>
-        <span className="spacer" />
-        {mode === 'edit' && (
-          <button type="button" className="btn btn-quiet" onClick={onCancel}>
-            Cancel
-          </button>
-        )}
-        <button
-          type="button"
-          className="btn btn-primary"
-          disabled={!canPost}
-          onMouseDown={(ev) => ev.preventDefault()}
-          onClick={() => submit()}
-        >
-          {busy ? (mode === 'edit' ? 'Saving…' : 'Posting…') : mode === 'edit' ? 'Save' : 'Post'}
-        </button>
-      </div>
+          {linkOpen ? (
+            <form
+              className="bubble-link"
+              onSubmit={(ev) => {
+                ev.preventDefault()
+                applyLink()
+              }}
+            >
+              <input
+                autoFocus
+                type="text"
+                placeholder="https://…"
+                value={linkUrl}
+                onChange={(ev) => setLinkUrl(ev.target.value)}
+                onKeyDown={(ev) => {
+                  if (ev.key === 'Escape') {
+                    ev.preventDefault()
+                    setLinkOpen(false)
+                    editor.commands.focus()
+                  }
+                }}
+              />
+              <button type="submit" title="Apply">
+                ↵
+              </button>
+            </form>
+          ) : (
+            marks.map((m) => (
+              <button
+                key={m.key}
+                type="button"
+                className={`bm${m.cls ? ` ${m.cls}` : ''}${m.active ? ' is-active' : ''}`}
+                title={m.title}
+                onMouseDown={(ev) => ev.preventDefault()}
+                onClick={m.run}
+              >
+                {m.label}
+              </button>
+            ))
+          )}
+        </BubbleMenu>
+      )}
+      <EditorContent editor={editor} className="composer-content" />
+      {status && <div className={`composer-status${error ? ' is-error' : ''}`}>{status}</div>}
     </div>
   )
 }

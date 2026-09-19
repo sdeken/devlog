@@ -6,6 +6,7 @@ export interface MenuActions {
   openSettings: () => void
   focusComposer: () => void
   search: () => void
+  attachImage: () => void
 }
 
 export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions): void {
@@ -60,7 +61,8 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
       { role: 'selectAll' },
       { type: 'separator' },
       { label: 'Find…', accelerator: 'CmdOrCtrl+F', click: actions.search },
-      { label: 'Focus Composer', accelerator: 'CmdOrCtrl+L', click: actions.focusComposer }
+      { label: 'Focus Composer', accelerator: 'CmdOrCtrl+L', click: actions.focusComposer },
+      { label: 'Attach Image…', accelerator: 'CmdOrCtrl+Shift+I', click: actions.attachImage }
     ]
   })
 

@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { RepoInfo, Settings } from '@shared/types'
+import type { EntryPosition, RepoInfo, Settings } from '@shared/types'
 import type { DevlogStore } from './devlog/store'
 import type { SyncManager } from './devlog/sync'
 import type { SettingsStore } from './settings'
@@ -65,7 +65,9 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(IPC.daysList, () => requireStore(deps).listDays())
   ipcMain.handle(IPC.dayGet, (_e, date: string) => requireStore(deps).readDay(date))
-  ipcMain.handle(IPC.entryAdd, (_e, markdown: string) => requireStore(deps).addEntry(markdown))
+  ipcMain.handle(IPC.entryAdd, (_e, markdown: string, position?: EntryPosition) =>
+    requireStore(deps).addEntry(markdown, position ?? {})
+  )
   ipcMain.handle(IPC.entryUpdate, (_e, date: string, id: string, markdown: string) =>
     requireStore(deps).updateEntry(date, id, markdown)
   )

@@ -12,18 +12,23 @@
  *
  *   Post body in markdown…
  *
+ *   <!-- devlog:entry id=p0q1r2s3 parent=k3j9d2ab created=2026-09-19T15:02:00.000Z -->
+ *   #### ↳ 15:02
+ *
+ *   A threaded reply. Replies follow their parent; file order is display order.
+ *
  * Image references inside a file are relative to that file (so they render on
  * GitHub); in memory they are normalised to repo-root-relative paths so the
  * renderer and asset server can resolve them without knowing which day they
  * belong to.
  */
-import type { Day, Entry } from './types'
+import type { Day, Entry, EntryPosition } from './types'
 
 export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'
 
 const MARKER_RE = /^<!--\s*devlog:entry\s+([^>]*?)\s*-->\s*$/
-const TIME_HEADING_RE = /^###\s+\d{1,2}:\d{2}(?::\d{2})?\s*$/
+const TIME_HEADING_RE = /^#{3,6}\s+(?:↳\s+)?\d{1,2}:\d{2}(?::\d{2})?\s*$/
 const TITLE_RE = /^#\s+\d{4}-\d{2}-\d{2}\s*$/
 
 // ---------------------------------------------------------------------------
@@ -201,6 +206,7 @@ export function parseDayFile(date: string, text: string): Day {
       createdAt,
       markdown: toRootRelative(body.join('\n'), date)
     }
+    if (current.attrs.parent) entry.parentId = current.attrs.parent
     if (current.attrs.updated) entry.updatedAt = current.attrs.updated
     entries.push(entry)
     current = null
@@ -218,19 +224,24 @@ export function parseDayFile(date: string, text: string): Day {
   }
   flush()
 
-  entries.sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+  // Drop dangling parent links (hand edits, deleted parents) so they render as top-level notes.
+  const ids = new Set(entries.map((e) => e.id))
+  for (const e of entries) if (e.parentId && !ids.has(e.parentId)) delete e.parentId
   return { date, entries }
 }
 
 /** Serialise a day to markdown. Image paths are written relative to the day file. */
 export function serializeDayFile(day: Day): string {
   const parts: string[] = [`# ${day.date}`, '']
-  const sorted = [...day.entries].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
-  for (const e of sorted) {
-    const attrs = [`id=${e.id}`, `created=${e.createdAt}`]
+  for (const e of day.entries) {
+    const depth = depthOf(day.entries, e.id)
+    const attrs = [`id=${e.id}`]
+    if (e.parentId) attrs.push(`parent=${e.parentId}`)
+    attrs.push(`created=${e.createdAt}`)
     if (e.updatedAt) attrs.push(`updated=${e.updatedAt}`)
     parts.push(`<!-- devlog:entry ${attrs.join(' ')} -->`)
-    parts.push(`### ${localTime(new Date(e.createdAt))}`)
+    const level = '#'.repeat(Math.min(3 + depth, 6))
+    parts.push(`${level} ${depth > 0 ? '↳ ' : ''}${localTime(new Date(e.createdAt))}`)
     parts.push('')
     const body = toDayRelative(e.markdown, day.date).replace(/\s+$/, '')
     if (body) {
@@ -239,6 +250,115 @@ export function serializeDayFile(day: Day): string {
     }
   }
   return parts.join('\n')
+}
+
+// ---------------------------------------------------------------------------
+// Tree helpers. Entries are a flat, ordered list; replies point at a parent.
+// ---------------------------------------------------------------------------
+
+export interface EntryNode {
+  entry: Entry
+  depth: number
+  children: EntryNode[]
+}
+
+/** Nesting depth of an entry (0 for top-level). Cycles and unknown parents stop the walk. */
+export function depthOf(entries: Entry[], id: string): number {
+  const byId = new Map(entries.map((e) => [e.id, e]))
+  let depth = 0
+  const seen = new Set<string>([id])
+  let cur = byId.get(id)
+  while (cur?.parentId && byId.has(cur.parentId) && !seen.has(cur.parentId)) {
+    seen.add(cur.parentId)
+    cur = byId.get(cur.parentId)
+    depth++
+  }
+  return depth
+}
+
+/** Ids of every reply below `id`, transitively. */
+export function descendantIds(entries: Entry[], id: string): Set<string> {
+  const out = new Set<string>()
+  let grew = true
+  while (grew) {
+    grew = false
+    for (const e of entries) {
+      if (e.parentId && !out.has(e.id) && (e.parentId === id || out.has(e.parentId))) {
+        out.add(e.id)
+        grew = true
+      }
+    }
+  }
+  return out
+}
+
+/** Index of the last entry belonging to `id`'s thread (itself or any descendant). */
+export function subtreeEndIndex(entries: Entry[], id: string): number {
+  const ids = descendantIds(entries, id)
+  ids.add(id)
+  let last = -1
+  entries.forEach((e, i) => {
+    if (ids.has(e.id)) last = i
+  })
+  return last
+}
+
+/** Return a new list with `entry` inserted according to `position`. Sets `entry.parentId`. */
+export function insertEntry(entries: Entry[], entry: Entry, position: EntryPosition = {}): Entry[] {
+  const find = (id: string): Entry => {
+    const e = entries.find((x) => x.id === id)
+    if (!e) throw new Error(`Entry ${id} not found`)
+    return e
+  }
+  const next = [...entries]
+  delete entry.parentId
+  if (position.parentId) {
+    find(position.parentId)
+    entry.parentId = position.parentId
+    next.splice(subtreeEndIndex(entries, position.parentId) + 1, 0, entry)
+  } else if (position.afterId) {
+    const anchor = find(position.afterId)
+    if (anchor.parentId) entry.parentId = anchor.parentId
+    next.splice(subtreeEndIndex(entries, position.afterId) + 1, 0, entry)
+  } else if (position.beforeId) {
+    const anchor = find(position.beforeId)
+    if (anchor.parentId) entry.parentId = anchor.parentId
+    next.splice(entries.indexOf(anchor), 0, entry)
+  } else {
+    next.push(entry)
+  }
+  return next
+}
+
+/** Return a new list without `id` and all of its replies. */
+export function removeSubtree(entries: Entry[], id: string): Entry[] {
+  const ids = descendantIds(entries, id)
+  ids.add(id)
+  return entries.filter((e) => !ids.has(e.id))
+}
+
+/** Nest a flat entry list into threads, preserving order. */
+export function buildTree(entries: Entry[]): EntryNode[] {
+  const ids = new Set(entries.map((e) => e.id))
+  const nodes = new Map<string, EntryNode>()
+  const roots: EntryNode[] = []
+  for (const entry of entries) nodes.set(entry.id, { entry, depth: 0, children: [] })
+  for (const entry of entries) {
+    const node = nodes.get(entry.id)!
+    const parent = entry.parentId && ids.has(entry.parentId) ? nodes.get(entry.parentId) : undefined
+    if (parent && parent !== node) parent.children.push(node)
+    else roots.push(node)
+  }
+  const setDepth = (list: EntryNode[], depth: number, seen: Set<string>): void => {
+    for (const n of list) {
+      if (seen.has(n.entry.id)) continue
+      seen.add(n.entry.id)
+      n.depth = depth
+      setDepth(n.children, depth + 1, seen)
+    }
+  }
+  setDepth(roots, 0, new Set())
+  return roots
 }
 
 /** True if a markdown string has no meaningful content. */

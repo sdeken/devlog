@@ -1,6 +1,8 @@
 /** A single devlog post. Markdown image sources are repo-root-relative (e.g. `entries/2026/09/assets/x.png`). */
 export interface Entry {
   id: string
+  /** Id of the note this one replies to; absent for top-level notes. */
+  parentId?: string
   /** ISO-8601 timestamp of creation (UTC). */
   createdAt: string
   /** ISO-8601 timestamp of the last edit (UTC), if any. */
@@ -8,11 +10,33 @@ export interface Entry {
   markdown: string
 }
 
-/** One day's worth of entries, stored in a single markdown file. */
+/**
+ * One day's worth of entries, stored in a single markdown file. `entries` is
+ * in display order (file order); replies carry `parentId` and normally follow
+ * their parent.
+ */
 export interface Day {
   /** Local calendar date, `YYYY-MM-DD`. */
   date: string
   entries: Entry[]
+}
+
+/** Where a new note goes. All ids refer to entries in the same day file. */
+export interface EntryPosition {
+  /** Day file to write into. Defaults to today. */
+  date?: string
+  /** Make the new note a reply to this one (appended at the end of its thread). */
+  parentId?: string
+  /** Insert as a sibling right after this note's thread. */
+  afterId?: string
+  /** Insert as a sibling right before this note. */
+  beforeId?: string
+}
+
+export interface AttachedImage {
+  name: string
+  mime: string
+  bytes: Uint8Array
 }
 
 export interface DaySummary {

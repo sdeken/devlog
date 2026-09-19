@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildTree,
   collectImageSrcs,
   dayFilePath,
+  depthOf,
+  descendantIds,
+  insertEntry,
+  removeSubtree,
+  subtreeEndIndex,
   localDate,
   parseDayFile,
   previewText,
@@ -11,7 +17,7 @@ import {
   toDayRelative,
   toRootRelative
 } from '../src/shared/entries'
-import type { Day } from '../src/shared/types'
+import type { Day, Entry } from '../src/shared/types'
 
 describe('paths', () => {
   it('maps a date to its day file', () => {
@@ -92,13 +98,13 @@ describe('day file format', () => {
       '<!-- devlog:entry id=yyyyyyyy created=2026-09-19T00:30:00.000Z -->',
       '### 00:30',
       '',
-      'earlier entry, sorted first',
+      'earlier entry, kept in file order',
       ''
     ].join('\n')
     const parsed = parseDayFile('2026-09-19', text)
-    expect(parsed.entries.map((e) => e.id)).toEqual(['yyyyyyyy', 'zzzzzzzz'])
-    expect(parsed.entries[1].markdown).toBe('No heading here\n\n### 03:00\n\na user heading that looks like a time, kept because it is not first')
-    expect(parsed.entries[0].markdown).toBe('earlier entry, sorted first')
+    expect(parsed.entries.map((e) => e.id)).toEqual(['zzzzzzzz', 'yyyyyyyy'])
+    expect(parsed.entries[0].markdown).toBe('No heading here\n\n### 03:00\n\na user heading that looks like a time, kept because it is not first')
+    expect(parsed.entries[1].markdown).toBe('earlier entry, kept in file order')
   })
 
   it('handles CRLF files', () => {
@@ -117,5 +123,79 @@ describe('previewText', () => {
     expect(previewText('# Title\n\nSome **bold** and ![img](x.png) and `code` [link](http://x)')).toBe(
       'Title Some bold and [image] and code link'
     )
+  })
+})
+
+describe('threads and ordering', () => {
+  const e = (id: string, parentId?: string): Entry => ({ id, createdAt: `2026-09-19T0${id.length}:00:00.000Z`, markdown: id, ...(parentId ? { parentId } : {}) })
+  const base: Entry[] = [e('a'), e('aa', 'a'), e('aaa', 'aa'), e('b'), e('bb', 'b'), e('c')]
+
+  it('builds a tree in file order', () => {
+    const roots = buildTree(base)
+    expect(roots.map((r) => r.entry.id)).toEqual(['a', 'b', 'c'])
+    expect(roots[0].children.map((c) => c.entry.id)).toEqual(['aa'])
+    expect(roots[0].children[0].children[0].entry.id).toBe('aaa')
+    expect(roots[0].children[0].children[0].depth).toBe(2)
+  })
+
+  it('computes depth and descendants', () => {
+    expect(depthOf(base, 'aaa')).toBe(2)
+    expect(depthOf(base, 'c')).toBe(0)
+    expect([...descendantIds(base, 'a')].sort()).toEqual(['aa', 'aaa'])
+    expect(subtreeEndIndex(base, 'a')).toBe(2)
+    expect(subtreeEndIndex(base, 'c')).toBe(5)
+  })
+
+  it('appends a reply at the end of its thread', () => {
+    const out = insertEntry(base, e('x'), { parentId: 'a' })
+    expect(out.map((x) => x.id)).toEqual(['a', 'aa', 'aaa', 'x', 'b', 'bb', 'c'])
+    expect(out[3].parentId).toBe('a')
+  })
+
+  it('inserts a sibling after a whole thread', () => {
+    const out = insertEntry(base, e('x'), { afterId: 'a' })
+    expect(out.map((x) => x.id)).toEqual(['a', 'aa', 'aaa', 'x', 'b', 'bb', 'c'])
+    expect(out[3].parentId).toBeUndefined()
+  })
+
+  it('inserts before a note, inheriting its parent', () => {
+    expect(insertEntry(base, e('x'), { beforeId: 'a' }).map((x) => x.id)[0]).toBe('x')
+    const out = insertEntry(base, e('x'), { beforeId: 'bb' })
+    expect(out.map((x) => x.id)).toEqual(['a', 'aa', 'aaa', 'b', 'x', 'bb', 'c'])
+    expect(out[4].parentId).toBe('b')
+  })
+
+  it('appends to the end by default and rejects unknown anchors', () => {
+    expect(insertEntry(base, e('x')).map((x) => x.id).at(-1)).toBe('x')
+    expect(() => insertEntry(base, e('x'), { afterId: 'nope' })).toThrow(/not found/)
+  })
+
+  it('removes a subtree', () => {
+    expect(removeSubtree(base, 'a').map((x) => x.id)).toEqual(['b', 'bb', 'c'])
+    expect(removeSubtree(base, 'bb').map((x) => x.id)).toEqual(['a', 'aa', 'aaa', 'b', 'c'])
+  })
+
+  it('serialises replies with nested headings and parses them back in order', () => {
+    const day: Day = { date: '2026-09-19', entries: base }
+    const text = serializeDayFile(day)
+    expect(text).toContain('<!-- devlog:entry id=aa parent=a created=')
+    expect(text).toMatch(/#### ↳ \d{1,2}:\d{2}\n\naa/)
+    expect(text).toMatch(/##### ↳ \d{1,2}:\d{2}\n\naaa/)
+    const parsed = parseDayFile('2026-09-19', text)
+    expect(parsed.entries).toEqual(base)
+  })
+
+  it('keeps file order rather than sorting by time', () => {
+    const later = e('late')
+    later.createdAt = '2026-09-19T23:00:00.000Z'
+    const early = e('early')
+    early.createdAt = '2026-09-19T01:00:00.000Z'
+    const parsed = parseDayFile('2026-09-19', serializeDayFile({ date: '2026-09-19', entries: [later, early] }))
+    expect(parsed.entries.map((x) => x.id)).toEqual(['late', 'early'])
+  })
+
+  it('drops dangling parent links', () => {
+    const parsed = parseDayFile('2026-09-19', '<!-- devlog:entry id=zz parent=gone created=2026-09-19T01:00:00.000Z -->\nhi\n')
+    expect(parsed.entries[0].parentId).toBeUndefined()
   })
 })

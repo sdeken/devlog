@@ -92,14 +92,14 @@ describe('SyncManager', () => {
     const other = path.join(tmp, 'other')
     await simpleGit().clone(bare, other)
     const otherStore = new DevlogStore(other)
-    await otherStore.addEntry('from laptop', new Date(2026, 0, 2, 9))
+    await otherStore.addEntry('from laptop', {}, new Date(2026, 0, 2, 9))
     const og = simpleGit({ baseDir: other, config: ['user.name=Other', 'user.email=o@example.com'] })
     await og.add('-A')
     await og.commit('laptop entry')
     await og.push('origin', 'main')
 
     // First machine writes something else, then syncs.
-    await store.addEntry('from desktop', new Date(2026, 0, 3, 9))
+    await store.addEntry('from desktop', {}, new Date(2026, 0, 3, 9))
     let remoteChanges = false
     sync.on('remote-changes', () => (remoteChanges = true))
     const res = await sync.syncNow('manual')

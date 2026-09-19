@@ -1,6 +1,18 @@
 import { Extension, mergeAttributes } from '@tiptap/core'
 import Image from '@tiptap/extension-image'
+import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight'
+import { common, createLowlight } from 'lowlight'
 import { fromAssetUrl, toAssetUrl } from '@renderer/assets'
+
+export const lowlight = createLowlight(common)
+
+/** Fenced code blocks with syntax highlighting; markdown in/out keeps the language tag. */
+export const DevlogCodeBlock = CodeBlockLowlight.configure({
+  lowlight,
+  defaultLanguage: null,
+  exitOnTripleEnter: true,
+  exitOnArrowDown: true
+})
 
 /**
  * Image node whose `src` attribute is a repo-root-relative path (what gets
@@ -30,6 +42,8 @@ export const DevlogImage = Image.extend({
 export interface SubmitKeymapOptions {
   onSubmit: () => boolean
   onCancel: () => boolean
+  /** Up arrow in an empty editor: edit the previous note (Slack behaviour). */
+  onEditLast: () => boolean
 }
 
 /**
@@ -45,31 +59,39 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
   priority: 1000,
 
   addOptions() {
-    return { onSubmit: () => false, onCancel: () => false }
+    return { onSubmit: () => false, onCancel: () => false, onEditLast: () => false }
   },
 
   addKeyboardShortcuts() {
+    const inside = (names: string[]): boolean => {
+      const { $from } = this.editor.state.selection
+      for (let depth = $from.depth; depth > 0; depth--) {
+        if (names.includes($from.node(depth).type.name)) return true
+      }
+      return false
+    }
     return {
       Enter: () => {
         const { $from } = this.editor.state.selection
         if ($from.parent.type.name === 'codeBlock') return false
-        for (let depth = $from.depth; depth > 0; depth--) {
-          const name = $from.node(depth).type.name
-          if (name === 'listItem' || name === 'taskItem') return false
-        }
+        if (inside(['listItem', 'taskItem'])) return false
+        // "```lang" + Enter must open a code block (TipTap's input rules run on Enter after us).
+        if (/^(```|~~~)[a-z0-9+#-]*$/i.test($from.parent.textContent.trim())) return false
         return this.options.onSubmit()
       },
       'Shift-Enter': () => {
-        const { $from } = this.editor.state.selection
-        if ($from.parent.type.name === 'codeBlock') return this.editor.commands.insertContent('\n')
-        for (let depth = $from.depth; depth > 0; depth--) {
-          const name = $from.node(depth).type.name
-          if (name === 'listItem' || name === 'taskItem') return false // hard break inside the item
+        if (this.editor.state.selection.$from.parent.type.name === 'codeBlock') {
+          return this.editor.commands.insertContent('\n')
         }
+        if (inside(['listItem', 'taskItem'])) return false // hard break inside the item
         return this.editor.commands.splitBlock()
       },
       'Mod-Enter': () => this.options.onSubmit(),
-      Escape: () => this.options.onCancel()
+      Escape: () => this.options.onCancel(),
+      ArrowUp: () => {
+        if (this.editor.isEmpty) return this.options.onEditLast()
+        return false
+      }
     }
   }
 })

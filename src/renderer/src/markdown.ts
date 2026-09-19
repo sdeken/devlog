@@ -1,10 +1,25 @@
-import { marked } from 'marked'
+import { marked, type Tokens } from 'marked'
 import DOMPurify from 'dompurify'
+import hljs from 'highlight.js/lib/common'
 import { toAssetUrl } from '@renderer/assets'
 
-const renderer = new marked.Renderer()
+const escapeHtml = (s: string): string =>
+  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
-marked.use({ gfm: true, breaks: true, renderer })
+marked.use({
+  gfm: true,
+  breaks: true,
+  renderer: {
+    code({ text, lang }: Tokens.Code): string {
+      const language = (lang ?? '').trim().split(/\s+/)[0].toLowerCase()
+      if (language && hljs.getLanguage(language)) {
+        const html = hljs.highlight(text, { language, ignoreIllegals: true }).value
+        return `<pre><code class="hljs language-${escapeHtml(language)}">${html}</code></pre>\n`
+      }
+      return `<pre><code class="hljs">${escapeHtml(text)}</code></pre>\n`
+    }
+  }
+})
 
 /** Render entry markdown to sanitized HTML with image sources resolved through the asset scheme. */
 export function renderMarkdown(markdown: string): string {

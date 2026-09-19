@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { localDate } from '@shared/entries'
-import type { Day, DaySummary, RepoInfo, SearchHit, Settings, SyncStatus } from '@shared/types'
+import type { Day, DaySummary, EntryPosition, RepoInfo, SearchHit, Settings, SyncStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
@@ -8,6 +8,7 @@ import { Sidebar } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Welcome } from './components/Welcome'
+import { getActiveComposer } from './editor/active'
 
 export function App(): React.JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null)
@@ -23,6 +24,7 @@ export function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [focusToken, setFocusToken] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
+  const [editRequest, setEditRequest] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
 
   const refreshDays = useCallback(async () => {
@@ -55,10 +57,16 @@ export function App(): React.JSX.Element {
       if (cmd === 'search') searchRef.current?.focus()
       if (cmd === 'syncNow') void api.sync.now()
     })
+    const offAttach = api.onAttachImages((images) => {
+      const sink = getActiveComposer()
+      if (!sink) return
+      sink(images.map((im) => new File([im.bytes as BlobPart], im.name, { type: im.mime })))
+    })
     return () => {
       offRepo()
       offSync()
       offMenu()
+      offAttach()
     }
   }, [])
 
@@ -100,14 +108,24 @@ export function App(): React.JSX.Element {
   }, [search, repo])
 
   const addEntry = useCallback(
-    async (markdown: string) => {
-      const { date } = await api.entries.add(markdown)
-      if (date !== today) setToday(date)
-      setSelected(date)
-      await Promise.all([loadDay(date), refreshDays()])
+    async (markdown: string, position?: EntryPosition) => {
+      const { date } = await api.entries.add(markdown, position)
+      if (!position) {
+        if (date !== today) setToday(date)
+        setSelected(date)
+      }
+      await Promise.all([date === selected || !position ? loadDay(date) : Promise.resolve(), refreshDays()])
     },
-    [today, loadDay, refreshDays]
+    [today, selected, loadDay, refreshDays]
   )
+
+  const editLast = useCallback(() => {
+    if (selected !== today || !day || day.entries.length === 0) return
+    const last = day.entries[day.entries.length - 1]
+    setEditRequest(last.id)
+    // Clear on the next tick so the same note can be requested again later.
+    setTimeout(() => setEditRequest(null), 0)
+  }, [selected, today, day])
 
   const updateEntry = useCallback(
     async (date: string, id: string, markdown: string) => {
@@ -153,6 +171,8 @@ export function App(): React.JSX.Element {
           search={search}
           hits={hits}
           loading={loadingDay}
+          editRequest={editRequest}
+          onAdd={addEntry}
           onUpdate={updateEntry}
           onDelete={deleteEntry}
           onJumpToDay={(d) => {
@@ -169,7 +189,14 @@ export function App(): React.JSX.Element {
               </button>
             </div>
           )}
-          <Composer mode="new" draftKey={`devlog:draft:${repo.path}`} autoFocus onSubmit={addEntry} focusToken={focusToken} />
+          <Composer
+            mode="new"
+            draftKey={`devlog:draft:${repo.path}`}
+            autoFocus
+            onSubmit={(md) => addEntry(md)}
+            onEditLast={editLast}
+            focusToken={focusToken}
+          />
         </div>
         <StatusBar status={sync} onSyncNow={() => void api.sync.now()} onOpenSettings={() => setSettingsOpen(true)} />
       </main>

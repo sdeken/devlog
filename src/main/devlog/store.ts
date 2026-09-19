@@ -11,14 +11,17 @@ import {
   assetDir,
   dateFromFilePath,
   dayFilePath,
+  descendantIds,
+  insertEntry,
   isBlankMarkdown,
   isValidDate,
   localDate,
   newEntryId,
   parseDayFile,
+  removeSubtree,
   serializeDayFile
 } from '@shared/entries'
-import type { Day, DaySummary, Entry, SavedAsset, SearchHit } from '@shared/types'
+import type { Day, DaySummary, Entry, EntryPosition, SavedAsset, SearchHit } from '@shared/types'
 
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png',
@@ -121,16 +124,24 @@ export class DevlogStore extends EventEmitter {
   // Writing
   // -------------------------------------------------------------------------
 
-  async addEntry(markdown: string, now: Date = new Date()): Promise<{ date: string; entry: Entry }> {
+  /**
+   * Add a note. With no position it is appended to today; a position can
+   * target another day, make it a reply, or slot it between two notes.
+   */
+  async addEntry(
+    markdown: string,
+    position: EntryPosition = {},
+    now: Date = new Date()
+  ): Promise<{ date: string; entry: Entry }> {
     if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty entry')
-    const date = localDate(now)
+    const date = position.date ?? localDate(now)
     const day = await this.readDay(date)
     const entry: Entry = {
       id: uniqueId(day.entries),
       createdAt: now.toISOString(),
       markdown: markdown.trim()
     }
-    day.entries.push(entry)
+    day.entries = insertEntry(day.entries, entry, position)
     await this.writeDay(day)
     return { date, entry }
   }
@@ -145,12 +156,14 @@ export class DevlogStore extends EventEmitter {
     return entry
   }
 
-  async deleteEntry(date: string, id: string): Promise<void> {
+  /** Delete a note and every reply beneath it. Returns the number removed. */
+  async deleteEntry(date: string, id: string): Promise<number> {
     const day = await this.readDay(date)
-    const before = day.entries.length
-    day.entries = day.entries.filter((e) => e.id !== id)
-    if (day.entries.length === before) throw new Error(`Entry ${id} not found on ${date}`)
+    if (!day.entries.some((e) => e.id === id)) throw new Error(`Entry ${id} not found on ${date}`)
+    const removed = descendantIds(day.entries, id).size + 1
+    day.entries = removeSubtree(day.entries, id)
     await this.writeDay(day)
+    return removed
   }
 
   /** Persist an image for `date`; returns its repo-root-relative path. */

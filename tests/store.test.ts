@@ -26,8 +26,8 @@ describe('DevlogStore', () => {
   it('adds, lists, updates and deletes entries', async () => {
     const t1 = new Date(2026, 8, 19, 9, 5)
     const t2 = new Date(2026, 8, 19, 17, 45)
-    const a = await store.addEntry('Morning: started on the git sync', t1)
-    const b = await store.addEntry('Evening: **done**', t2)
+    const a = await store.addEntry('Morning: started on the git sync', {}, t1)
+    const b = await store.addEntry('Evening: **done**', {}, t2)
     expect(a.date).toBe('2026-09-19')
     expect(b.date).toBe('2026-09-19')
 
@@ -51,9 +51,41 @@ describe('DevlogStore', () => {
     await expect(fs.stat(path.join(root, 'entries/2026/09/2026-09-19.md'))).rejects.toThrow()
   })
 
+  it('supports replies, inserts between notes, and deletes whole threads', async () => {
+    const d = (h: number, m = 0): Date => new Date(2026, 8, 19, h, m)
+    const a = await store.addEntry('A', {}, d(9))
+    const b = await store.addEntry('B', {}, d(10))
+    // Reply to A, written on a later day but stored with its parent.
+    const r1 = await store.addEntry('reply to A', { date: '2026-09-19', parentId: a.entry.id }, new Date(2026, 8, 20, 8))
+    const r2 = await store.addEntry('reply to reply', { date: '2026-09-19', parentId: r1.entry.id }, d(11))
+    const between = await store.addEntry('between', { date: '2026-09-19', afterId: a.entry.id }, d(12))
+    const first = await store.addEntry('first', { date: '2026-09-19', beforeId: a.entry.id }, d(13))
+    expect(r1.date).toBe('2026-09-19')
+
+    const day = await store.readDay('2026-09-19')
+    expect(day.entries.map((e) => e.markdown)).toEqual(['first', 'A', 'reply to A', 'reply to reply', 'between', 'B'])
+    expect(day.entries[2].parentId).toBe(a.entry.id)
+    expect(day.entries[3].parentId).toBe(r1.entry.id)
+    expect(day.entries[4].parentId).toBeUndefined()
+    expect(day.entries[0].id).toBe(first.entry.id)
+    expect(day.entries[4].id).toBe(between.entry.id)
+    expect(await store.listDays()).toEqual([{ date: '2026-09-19', count: 6 }])
+
+    const file = await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')
+    expect(file).toContain(`parent=${a.entry.id}`)
+    expect(file).toContain('#### ↳ 08:00')
+    expect(file).toContain('##### ↳ 11:00')
+
+    expect(await store.deleteEntry('2026-09-19', a.entry.id)).toBe(3)
+    expect((await store.readDay('2026-09-19')).entries.map((e) => e.markdown)).toEqual(['first', 'between', 'B'])
+    expect(await store.deleteEntry('2026-09-19', b.entry.id)).toBe(1)
+    expect(r2.entry.parentId).toBe(r1.entry.id)
+  })
+
   it('rejects empty entries and unknown ids', async () => {
     await expect(store.addEntry('   \n ')).rejects.toThrow(/empty/i)
     await expect(store.updateEntry('2026-09-19', 'nope', 'x')).rejects.toThrow(/not found/)
+    await expect(store.addEntry('x', { date: '2026-09-19', parentId: 'nope' })).rejects.toThrow(/not found/)
     await expect(store.deleteEntry('2026-09-19', 'nope')).rejects.toThrow(/not found/)
     await expect(store.readDay('2026-13-40')).rejects.toThrow(/Invalid date/)
   })
@@ -66,7 +98,7 @@ describe('DevlogStore', () => {
     expect(saved.size).toBe(7)
     expect(await fs.readFile(path.join(root, saved.src))).toEqual(Buffer.from(png))
 
-    await store.addEntry(`Look:\n\n![shot](${saved.src})`, when)
+    await store.addEntry(`Look:\n\n![shot](${saved.src})`, {}, when)
     const file = await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')
     expect(file).toContain('![shot](assets/2026-09-19-143201-')
     const day = await store.readDay('2026-09-19')
@@ -76,15 +108,15 @@ describe('DevlogStore', () => {
   it('keeps cross-day image references valid', async () => {
     const png = new Uint8Array([1, 2, 3])
     const saved = await store.saveAsset('2026-09-30', png, 'image/png', undefined, new Date(2026, 8, 30, 23, 59))
-    await store.addEntry(`![late](${saved.src})`, new Date(2026, 9, 1, 0, 1))
+    await store.addEntry(`![late](${saved.src})`, {}, new Date(2026, 9, 1, 0, 1))
     const file = await fs.readFile(path.join(root, 'entries/2026/10/2026-10-01.md'), 'utf8')
     expect(file).toContain('![late](../09/assets/2026-09-30-235900-')
   })
 
   it('searches across days, newest first', async () => {
-    await store.addEntry('alpha one', new Date(2026, 8, 18, 9))
-    await store.addEntry('beta', new Date(2026, 8, 19, 9))
-    await store.addEntry('ALPHA two', new Date(2026, 8, 19, 10))
+    await store.addEntry('alpha one', {}, new Date(2026, 8, 18, 9))
+    await store.addEntry('beta', {}, new Date(2026, 8, 19, 9))
+    await store.addEntry('ALPHA two', {}, new Date(2026, 8, 19, 10))
     const hits = await store.search('alpha')
     expect(hits.map((h) => h.entry.markdown)).toEqual(['ALPHA two', 'alpha one'])
   })
