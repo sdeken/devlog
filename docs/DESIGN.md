@@ -140,7 +140,6 @@ timeout kills a stalled network call.
 
 ## Things intentionally left out (for now)
 
-- Syntax highlighting in code blocks.
 - Multiple devlogs open at once (switching is supported).
 - Conflict resolution UI; git's own tooling is the fallback.
 - Tags/categories. Search is full-text over all entries.
