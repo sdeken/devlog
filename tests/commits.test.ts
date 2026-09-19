@@ -39,10 +39,12 @@ describe('CommitWatcher', () => {
     expect(seen).toHaveLength(0) // the initial commit predates the watch
 
     const git = simpleGit({ baseDir: repo, config: ['user.name=T', 'user.email=t@e.com'] })
+    await git.checkout(['-b', 'feature']) // reflog line that is not a commit
+    await watcher.checkAll()
+    expect(seen).toHaveLength(0)
     await fs.writeFile(path.join(repo, 'a.txt'), '2')
     await git.add('-A')
     await git.commit('Fix the thing\n\nLonger explanation here.')
-    await git.checkout(['-b', 'feature']) // reflog line that is not a commit
     await watcher.checkAll()
     expect(seen).toHaveLength(1)
     const [pageId, info] = seen[0]
