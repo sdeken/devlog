@@ -36,6 +36,91 @@ export function pageFilePath(pageId: string): string {
   return `${PAGES_DIR}/${pageId}/${PAGE_FILE}`
 }
 
+/** Split a category string like "Acme Corp / Website" into trimmed segments. */
+export function categoryPath(category: string): string[] {
+  return category
+    .split('/')
+    .map((s) => s.trim())
+    .filter(Boolean)
+}
+
+export function formatCategory(segments: string[]): string {
+  return segments.join(' / ')
+}
+
+/** Normalise a user-typed category to the canonical "A / B" form. */
+export function normalizeCategory(category: string): string {
+  return formatCategory(categoryPath(category))
+}
+
+export interface CategoryNode {
+  /** Last segment, e.g. "Website". */
+  name: string
+  /** Full path segments, e.g. ["Acme Corp", "Website"]. */
+  path: string[]
+  pages: PageMeta[]
+  children: CategoryNode[]
+}
+
+/**
+ * Nest pages by their category path. The journal is never included. Pages
+ * without a category are returned separately as `uncategorised`.
+ */
+export function buildCategoryTree(pages: PageMeta[]): { roots: CategoryNode[]; uncategorised: PageMeta[] } {
+  const rootMap = new Map<string, CategoryNode>()
+  const uncategorised: PageMeta[] = []
+  const byTitle = (a: PageMeta, b: PageMeta): number => a.title.localeCompare(b.title)
+  for (const page of pages) {
+    if (page.id === JOURNAL_PAGE_ID) continue
+    const segments = categoryPath(page.category)
+    if (segments.length === 0) {
+      uncategorised.push(page)
+      continue
+    }
+    let level = rootMap
+    let node: CategoryNode | undefined
+    const path: string[] = []
+    for (const seg of segments) {
+      path.push(seg)
+      const key = seg.toLowerCase()
+      let next = level.get(key)
+      if (!next) {
+        next = { name: seg, path: [...path], pages: [], children: [] }
+        level.set(key, next)
+        if (node) node.children.push(next)
+      }
+      node = next
+      level = childMap(next)
+    }
+    node!.pages.push(page)
+  }
+  const finish = (nodes: CategoryNode[]): CategoryNode[] =>
+    nodes
+      .map((n) => ({ ...n, pages: [...n.pages].sort(byTitle), children: finish(n.children) }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  return { roots: finish([...rootMap.values()]), uncategorised: uncategorised.sort(byTitle) }
+}
+
+const childMaps = new WeakMap<CategoryNode, Map<string, CategoryNode>>()
+function childMap(node: CategoryNode): Map<string, CategoryNode> {
+  let m = childMaps.get(node)
+  if (!m) {
+    m = new Map()
+    childMaps.set(node, m)
+  }
+  return m
+}
+
+/** Every distinct category path and prefix in use, for suggestions. */
+export function categorySuggestions(pages: PageMeta[]): string[] {
+  const out = new Set<string>()
+  for (const p of pages) {
+    const segs = categoryPath(p.category)
+    for (let i = 1; i <= segs.length; i++) out.add(formatCategory(segs.slice(0, i)))
+  }
+  return [...out].sort((a, b) => a.localeCompare(b))
+}
+
 export function slugify(title: string): string {
   const slug = title
     .normalize('NFKD')
@@ -92,20 +177,4 @@ export function serializePageFile(meta: PageMeta): string {
   lines.push(`created: ${meta.createdAt}`, '---', '')
   if (meta.description.trim()) lines.push(meta.description.trim(), '')
   return lines.join('\n')
-}
-
-/** Group pages by category for display; the journal is never included. */
-export function groupPages(pages: PageMeta[]): Array<{ category: string; pages: PageMeta[] }> {
-  const groups = new Map<string, PageMeta[]>()
-  for (const p of pages) {
-    if (p.id === JOURNAL_PAGE_ID) continue
-    const key = p.category.trim()
-    if (!groups.has(key)) groups.set(key, [])
-    groups.get(key)!.push(p)
-  }
-  const sorted = [...groups.entries()].sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : a.localeCompare(b)))
-  return sorted.map(([category, list]) => ({
-    category,
-    pages: [...list].sort((a, b) => a.title.localeCompare(b.title))
-  }))
 }

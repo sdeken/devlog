@@ -8,6 +8,7 @@ export interface MenuActions {
   search: () => void
   attachImage: () => void
   newPage: () => void
+  review: () => void
 }
 
 export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions): void {
@@ -71,6 +72,8 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
   template.push({
     label: 'View',
     submenu: [
+      { label: 'Weekly Review', accelerator: 'CmdOrCtrl+Shift+R', click: actions.review },
+      { type: 'separator' },
       { role: 'reload' },
       { role: 'toggleDevTools' },
       { type: 'separator' },

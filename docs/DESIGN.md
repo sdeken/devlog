@@ -88,11 +88,13 @@ unique. `page.md` holds a tiny `key: value` front matter (title, category,
 created) and a markdown description rendered at the top of the page. No
 YAML library: the parser accepts `key: value` lines and quoted values only.
 
-Categories are just a string on the page. The sidebar groups pages by it
-(uncategorised last), and the page dialog offers existing categories as
-suggestions, so a new category costs nothing and an empty one disappears.
-This keeps "how to slice things up" entirely in the user's hands: clients,
-projects, areas, people, whatever.
+A category is a path string on the page, `Acme Corp / Web`, normalised on
+save. The sidebar nests pages by path (clients → projects → pages), and the
+page dialog offers every existing path and prefix as a suggestion, so a new
+level costs nothing and an empty one disappears. Because the hierarchy is a
+path, "Website" under Acme and "Website" under Globex are different nodes by
+construction; the page folder is slugged from path plus title
+(`acme-corp-web-website`) so the repository reads the same way.
 
 Every store operation takes a page id; the helpers in `entries.ts` take the
 page's entries base so day files and image links are computed the same way
@@ -108,6 +110,26 @@ The feed is a continuous timeline per page: the newest ten non-empty days,
 oldest first with day dividers, and older days load on scroll or via "Show
 earlier notes" while preserving the scroll position. Search runs across all
 pages and each hit links to its page and day.
+
+### Weekly review
+
+`src/shared/review.ts` is pure and unit-tested: `weekStart` (Monday),
+`estimateMinutes`, and `buildReviewRows`. The main process only supplies
+`getRange(from, to)`: every day file across every page in the range. Notes
+are attributed to the local date of their timestamp, not the file they sit
+in, so a reply written on Wednesday under Monday's thread counts for
+Wednesday.
+
+The time estimate is a stated heuristic rather than a tracker: sort the
+day's notes across all pages, give each the gap to the next one capped at N
+minutes (default 60, user-adjustable), and give the last note of the day a
+fixed 15 minutes. It rewards the habit the app already encourages (write a
+line when you switch) and is honest about what it is; the UI labels every
+figure with `~`.
+
+Rows are a tree: category rows for each path prefix, page rows as leaves,
+totals summed upward, journal last, siblings ordered by time. The same tree
+drives the per-day detail below the grid.
 
 ## Editor
 

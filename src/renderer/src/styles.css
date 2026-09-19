@@ -1179,3 +1179,252 @@ body[data-platform='darwin'] .sidebar-head {
 .hljs-strong {
   font-weight: 700;
 }
+
+/* ---------------------------------------------------------- sidebar tree */
+
+.sidebar-tree,
+.category-node > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-tree {
+  margin-top: 8px;
+}
+
+.category-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--sidebar-muted);
+  margin: 12px 8px 3px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.category-label.depth-1,
+.category-label.depth-2,
+.category-label.depth-3 {
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 12px;
+  margin-top: 4px;
+  color: var(--sidebar-fg);
+  opacity: 0.75;
+}
+
+/* ---------------------------------------------------------------- review */
+
+.week-nav {
+  display: flex;
+  gap: 2px;
+}
+
+.review-table-wrap {
+  overflow-x: auto;
+  margin: 12px 0 6px;
+}
+
+.review-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.review-table th,
+.review-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.review-table thead th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-strong);
+  text-align: center;
+}
+
+.review-corner {
+  text-align: left !important;
+}
+
+.review-day-name {
+  display: block;
+}
+
+.review-day-num {
+  display: block;
+  font-weight: 400;
+}
+
+.review-day.is-today .review-day-num {
+  color: var(--link);
+  font-weight: 700;
+}
+
+.review-cell {
+  text-align: center !important;
+  min-width: 64px;
+  color: var(--fg-muted);
+}
+
+.review-cell.has-notes {
+  color: var(--fg);
+}
+
+.review-cell.is-today {
+  background: color-mix(in srgb, var(--link) 6%, transparent);
+}
+
+.cell-minutes {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+
+.cell-notes {
+  display: block;
+  font-size: 10px;
+  color: var(--fg-muted);
+}
+
+.review-total {
+  border-left: 1px solid var(--border-strong);
+  font-weight: 600;
+}
+
+.review-category th {
+  font-weight: 700;
+}
+
+.review-category.depth-1 th,
+.review-category.depth-2 th,
+.review-category.depth-3 th {
+  font-weight: 600;
+}
+
+.review-page th {
+  font-weight: 400;
+  color: var(--fg-muted);
+}
+
+.review-page th .link {
+  color: var(--fg);
+  font: inherit;
+}
+
+.review-page th .link:hover {
+  color: var(--link);
+  text-decoration: underline;
+}
+
+.review-category.depth-0 th,
+.review-category.depth-0 td {
+  border-top: 1px solid var(--border-strong);
+}
+
+.review-sum th,
+.review-sum td {
+  border-top: 2px solid var(--border-strong);
+  border-bottom: 0;
+  font-weight: 700;
+}
+
+.review-note {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 4px 0 18px;
+}
+
+.review-day-section {
+  margin: 12px 0 18px;
+}
+
+.review-day-section h3 {
+  font-size: 15px;
+  margin: 0 0 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.review-group {
+  margin: 6px 0 12px;
+}
+
+.review-group-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-weight: 700;
+  font-size: 13px;
+}
+
+.review-group-minutes {
+  font-weight: 400;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.review-sub {
+  margin-left: 14px;
+}
+
+.review-sub-head {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+  margin-top: 4px;
+}
+
+.review-notes {
+  list-style: none;
+  margin: 2px 0 4px;
+  padding: 0;
+}
+
+.review-note-link {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.review-note-link:hover {
+  background: var(--bg-2);
+}
+
+.review-note-link time {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  width: 64px;
+  flex: none;
+}
+
+.review-note-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-note-minutes {
+  color: var(--fg-muted);
+  font-size: 12px;
+  flex: none;
+}

@@ -20,6 +20,7 @@ export const IPC = {
   daysList: 'days:list',
   dayGet: 'day:get',
   timelineGet: 'timeline:get',
+  rangeGet: 'range:get',
   entryAdd: 'entry:add',
   entryUpdate: 'entry:update',
   entryDelete: 'entry:delete',
@@ -39,4 +40,4 @@ export const IPC = {
   evAttachImages: 'ev:attachImages'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage' | 'review'

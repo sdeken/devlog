@@ -87,7 +87,7 @@ export function PageDialog({ page, categories, onClose, onSaved, onDeleted }: Pr
             type="text"
             list="page-categories"
             value={category}
-            placeholder="Clients, Projects, … (optional)"
+            placeholder="Acme Corp / Website  (client / project, optional)"
             onChange={(ev) => setCategory(ev.target.value)}
           />
           <datalist id="page-categories">
@@ -95,7 +95,10 @@ export function PageDialog({ page, categories, onClose, onSaved, onDeleted }: Pr
               <option key={c} value={c} />
             ))}
           </datalist>
-          <p className="hint">Pages with the same category are grouped together in the sidebar. Type a new one to create it.</p>
+          <p className="hint">
+            Use <code>/</code> to nest: <code>Acme Corp / Website</code> puts this page under the Website project of the Acme Corp client.
+            The same project name under two clients is two different projects.
+          </p>
         </div>
         <div className="field">
           <label htmlFor="pageDescription">Description</label>

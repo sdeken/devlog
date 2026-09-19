@@ -73,6 +73,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.timelineGet, (_e, pageId: string, opts?: { beforeDate?: string; days?: number }) =>
     requireStore(deps).getTimeline(pageId, opts ?? {})
   )
+  ipcMain.handle(IPC.rangeGet, (_e, fromDate: string, toDate: string) => requireStore(deps).getRange(fromDate, toDate))
   ipcMain.handle(IPC.entryAdd, (_e, pageId: string, markdown: string, position?: EntryPosition) =>
     requireStore(deps).addEntry(pageId, markdown, position ?? {})
   )

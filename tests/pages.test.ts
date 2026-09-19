@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupPages, isValidPageId, pageEntriesBase, parsePageFile, serializePageFile, slugify } from '../src/shared/pages'
+import { buildCategoryTree, categoryPath, categorySuggestions, isValidPageId, normalizeCategory, pageEntriesBase, parsePageFile, serializePageFile, slugify } from '../src/shared/pages'
 import type { PageMeta } from '../src/shared/types'
 
 describe('pages', () => {
@@ -36,11 +36,29 @@ describe('pages', () => {
     expect(parsePageFile('x', '---\ntitle: Hi\n---\n')).toMatchObject({ title: 'Hi', description: '' })
   })
 
-  it('groups pages by category with uncategorised last', () => {
-    const p = (id: string, category: string): PageMeta => ({ id, title: id.toUpperCase(), category, description: '', createdAt: '' })
-    const groups = groupPages([p('journal', ''), p('zed', ''), p('acme', 'Clients'), p('app', 'Projects'), p('beta', 'Clients')])
-    expect(groups.map((g) => g.category)).toEqual(['Clients', 'Projects', ''])
-    expect(groups[0].pages.map((x) => x.id)).toEqual(['acme', 'beta'])
-    expect(groups[2].pages.map((x) => x.id)).toEqual(['zed'])
+  it('parses and normalises category paths', () => {
+    expect(categoryPath(' Acme Corp /Website/ ')).toEqual(['Acme Corp', 'Website'])
+    expect(categoryPath('')).toEqual([])
+    expect(normalizeCategory('acme//web /')).toBe('acme / web')
+  })
+
+  it('builds a category tree with nested projects and uncategorised pages last', () => {
+    const p = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '' })
+    const tree = buildCategoryTree([
+      p('journal', 'Journal', ''),
+      p('zed', 'Zed', ''),
+      p('acme-web', 'Website', 'Acme Corp / Web'),
+      p('acme-app', 'App', 'Acme Corp / Mobile'),
+      p('acme-general', 'General', 'Acme Corp'),
+      p('globex-web', 'Website', 'Globex / Web')
+    ])
+    expect(tree.roots.map((r) => r.name)).toEqual(['Acme Corp', 'Globex'])
+    const acme = tree.roots[0]
+    expect(acme.pages.map((x) => x.id)).toEqual(['acme-general'])
+    expect(acme.children.map((c) => c.path.join('/'))).toEqual(['Acme Corp/Mobile', 'Acme Corp/Web'])
+    expect(acme.children[1].pages[0].id).toBe('acme-web')
+    expect(tree.roots[1].children[0].pages[0].id).toBe('globex-web')
+    expect(tree.uncategorised.map((x) => x.id)).toEqual(['zed'])
+    expect(categorySuggestions([p('a', 'A', 'Acme Corp / Web'), p('b', 'B', 'Globex')])).toEqual(['Acme Corp', 'Acme Corp / Web', 'Globex'])
   })
 })

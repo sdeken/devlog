@@ -29,7 +29,9 @@ import {
   JOURNAL_PAGE,
   JOURNAL_PAGE_ID,
   PAGES_DIR,
+  categoryPath,
   isValidPageId,
+  normalizeCategory,
   pageEntriesBase,
   pageFilePath,
   parsePageFile,
@@ -126,14 +128,17 @@ export class DevlogStore extends EventEmitter {
     const title = input.title.trim()
     if (!title) throw new Error('A page needs a title')
     const existing = new Set((await this.listPages()).map((p) => p.id))
-    let id = slugify(title)
+    const category = normalizeCategory(input.category ?? '')
+    // "Website" under "Acme Corp" becomes acme-corp-website, so two clients'
+    // "Website" projects get distinct, readable folders.
+    let id = slugify([...categoryPath(category), title].join(' '))
     if (id === JOURNAL_PAGE_ID) id = `${id}-page`
     const base = id
     for (let n = 2; existing.has(id); n++) id = `${base}-${n}`
     const meta: PageMeta = {
       id,
       title,
-      category: (input.category ?? '').trim(),
+      category,
       description: (input.description ?? '').trim(),
       createdAt: now.toISOString()
     }
@@ -150,7 +155,7 @@ export class DevlogStore extends EventEmitter {
       if (!title) throw new Error('A page needs a title')
       meta.title = title
     }
-    if (patch.category !== undefined) meta.category = patch.category.trim()
+    if (patch.category !== undefined) meta.category = normalizeCategory(patch.category)
     if (patch.description !== undefined) meta.description = patch.description.trim()
     if (!meta.createdAt) meta.createdAt = new Date().toISOString()
     await this.writePage(meta)
@@ -221,6 +226,21 @@ export class DevlogStore extends EventEmitter {
     }
     days.reverse()
     return { pageId, days, hasMore: i < dates.length }
+  }
+
+  /** Every day file across all pages within [fromDate, toDate], inclusive. */
+  async getRange(fromDate: string, toDate: string): Promise<Array<{ pageId: string; day: Day }>> {
+    assertDate(fromDate)
+    assertDate(toDate)
+    const out: Array<{ pageId: string; day: Day }> = []
+    for (const page of await this.listPages()) {
+      const dates = (await this.listDayFiles(page.id)).filter((d) => d >= fromDate && d <= toDate).sort()
+      for (const date of dates) {
+        const day = await this.readDay(page.id, date)
+        if (day.entries.length > 0) out.push({ pageId: page.id, day })
+      }
+    }
+    return out
   }
 
   async search(query: string, limit = 200): Promise<SearchHit[]> {

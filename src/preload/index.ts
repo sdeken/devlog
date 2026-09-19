@@ -50,6 +50,8 @@ const api = {
     getDay: (pageId: string, date: string): Promise<Day> => ipcRenderer.invoke(IPC.dayGet, pageId, date),
     timeline: (pageId: string, opts?: { beforeDate?: string; days?: number }): Promise<Timeline> =>
       ipcRenderer.invoke(IPC.timelineGet, pageId, opts),
+    range: (fromDate: string, toDate: string): Promise<Array<{ pageId: string; day: Day }>> =>
+      ipcRenderer.invoke(IPC.rangeGet, fromDate, toDate),
     add: (pageId: string, markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry }> =>
       ipcRenderer.invoke(IPC.entryAdd, pageId, markdown, position),
     update: (pageId: string, date: string, id: string, markdown: string): Promise<Entry> =>

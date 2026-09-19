@@ -13,10 +13,15 @@ repository, and committed and pushed automatically.
 - **Every note is a node.** Reply to a note to start a thread, hover between
   two notes and press **+** to insert one there, double-click a note (or press
   ↑ in the empty composer) to edit it. Notes on past days work the same way.
-- **Pages and categories.** Besides the journal, create a page per client,
-  project, or whatever you want to slice by, and group pages under free-form
-  categories in the sidebar. Each page is its own stream with a description
-  at the top; notes can be moved between pages, and search covers all of them.
+- **Pages in a client / project hierarchy.** Besides the journal, create a
+  page per client, project, task, or whatever you want to slice by. A page's
+  category is a path like `Acme Corp / Website`, so the sidebar nests projects
+  under clients (and a "Website" under two clients is two different projects).
+  Each page is its own stream with a description at the top; notes can be
+  moved between pages, and search covers all of them.
+- **Weekly review.** One view rolls the week up by day and by client →
+  project → page, with a rough time estimate derived from your note
+  timestamps, plus a per-day breakdown of what you wrote. Made for Friday.
 - **Pasted images just work.** Paste or drop an image into the composer and it
   is saved into the repository next to the day's entry and linked relatively,
   so the log also renders on GitHub.
@@ -54,8 +59,8 @@ entries/                          ← the journal
       assets/
         2026-09-19-143201-a1b2.png
 pages/
-  acme-corp/                      ← a page (client, project, …)
-    page.md                       ← title, category, description
+  acme-corp-web-website/          ← a page; folder name = category path + title
+    page.md                       ← title, category path, description
     entries/2026/09/2026-09-19.md ← same day-file format
 ```
 
@@ -63,13 +68,27 @@ pages/
 
 ```markdown
 ---
-title: Acme Corp
-category: Clients
+title: Website
+category: Acme Corp / Web
 created: 2026-09-19T10:00:00.000Z
 ---
 
-Retainer client. Weekly sync on Tuesdays.
+Marketing site rebuild. Weekly sync on Tuesdays.
 ```
+
+## Weekly review
+
+**Weekly review** in the sidebar (⌘⇧R) shows a Monday–Sunday grid: one row
+per top-level category (client), nested rows for sub-categories (projects) and
+pages, one column per day, and a week total. Each cell shows an estimated
+duration and the number of notes. Below the grid, every day is broken down by
+client → project → page with the notes you wrote, so a Friday look-back takes a
+minute.
+
+The estimate is deliberately simple: a note counts from its timestamp until the
+next note that day on any page, capped (default 1 h, adjustable in the view);
+the last note of a day counts 15 minutes. Logging a short note whenever you
+switch tasks is enough to make it useful.
 
 A day file looks like this:
 
@@ -130,7 +149,8 @@ Code map:
 | Path                              | Purpose                                                        |
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/shared/entries.ts`           | Day-file format: parse/serialize, path helpers, image rewriting |
-| `src/shared/pages.ts`             | Page metadata (`page.md`), slugs, category grouping             |
+| `src/shared/pages.ts`             | Page metadata (`page.md`), slugs, category paths and tree      |
+| `src/shared/review.ts`            | Weekly roll-up: week math, time estimate, category matrix      |
 | `src/main/devlog/store.ts`        | Reads/writes entries and assets inside the repo                |
 | `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |

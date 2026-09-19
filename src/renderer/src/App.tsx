@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@shared/entries'
-import { JOURNAL_PAGE, JOURNAL_PAGE_ID } from '@shared/pages'
+import { JOURNAL_PAGE, JOURNAL_PAGE_ID, categorySuggestions } from '@shared/pages'
 import type { Day, EntryPosition, PageMeta, RepoInfo, SearchHit, Settings, SyncStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { PageDialog } from './components/PageDialog'
-import { Sidebar } from './components/Sidebar'
+import { Review } from './components/Review'
+import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Welcome } from './components/Welcome'
@@ -27,6 +28,7 @@ export function App(): React.JSX.Element {
   const [today, setToday] = useState(localDate(new Date()))
   const [pages, setPages] = useState<PageMeta[]>([JOURNAL_PAGE])
   const [pageId, setPageId] = useState<string>(JOURNAL_PAGE_ID)
+  const [view, setView] = useState<'page' | 'review'>('page')
   const [days, setDays] = useState<Day[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -43,7 +45,7 @@ export function App(): React.JSX.Element {
   pageIdRef.current = pageId
 
   const page = useMemo(() => pages.find((p) => p.id === pageId) ?? JOURNAL_PAGE, [pages, pageId])
-  const categories = useMemo(() => [...new Set(pages.map((p) => p.category).filter(Boolean))].sort(), [pages])
+  const categories = useMemo(() => categorySuggestions(pages), [pages])
 
   const refreshPages = useCallback(async () => {
     const list = await api.pages.list()
@@ -100,6 +102,7 @@ export function App(): React.JSX.Element {
       if (cmd === 'search') searchRef.current?.focus()
       if (cmd === 'syncNow') void api.sync.now()
       if (cmd === 'newPage') setPageDialog({ page: null })
+      if (cmd === 'review') setView('review')
     })
     const offAttach = api.onAttachImages((images) => {
       const sink = getActiveComposer()
@@ -192,6 +195,7 @@ export function App(): React.JSX.Element {
 
   const jumpTo = useCallback((id: string, date: string) => {
     setSearch('')
+    setView('page')
     setPageId(id)
     // Scroll the day into view once the timeline has rendered.
     setTimeout(() => document.querySelector(`.day-group[data-date="${date}"]`)?.scrollIntoView({ block: 'start' }), 250)
@@ -217,17 +221,23 @@ export function App(): React.JSX.Element {
     <div className="app">
       <Sidebar
         pages={pages}
-        currentPageId={pageId}
+        selection={view === 'review' ? { kind: 'review' } : { kind: 'page', pageId }}
         search={search}
         onSearch={setSearch}
-        onSelectPage={(id) => {
+        onSelect={(sel: SidebarSelection) => {
           setSearch('')
-          setPageId(id)
+          if (sel.kind === 'review') setView('review')
+          else {
+            setView('page')
+            setPageId(sel.pageId)
+          }
         }}
         onNewPage={() => setPageDialog({ page: null })}
         searchRef={searchRef}
       />
       <main className="main">
+        {view === 'review' && !search && <Review pages={pages} today={today} onJumpTo={jumpTo} />}
+        {(view === 'page' || search) && (
         <Feed
           page={page}
           pages={pages}
@@ -246,6 +256,8 @@ export function App(): React.JSX.Element {
           onEditPage={() => setPageDialog({ page })}
           onJumpTo={jumpTo}
         />
+        )}
+        {view === 'page' && (
         <div className="composer-dock">
           <Composer
             key={pageId}
@@ -263,6 +275,7 @@ export function App(): React.JSX.Element {
             focusToken={focusToken}
           />
         </div>
+        )}
         <StatusBar status={sync} onSyncNow={() => void api.sync.now()} onOpenSettings={() => setSettingsOpen(true)} />
       </main>
       {settingsOpen && (
@@ -282,6 +295,7 @@ export function App(): React.JSX.Element {
           onSaved={async (saved) => {
             await refreshPages()
             setSearch('')
+            setView('page')
             setPageId(saved.id)
           }}
           onDeleted={async () => {

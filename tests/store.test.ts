@@ -139,8 +139,8 @@ describe('DevlogStore', () => {
 describe('pages in the store', () => {
   it('creates, lists, updates and deletes pages', async () => {
     expect((await store.listPages()).map((p) => p.id)).toEqual(['journal'])
-    const acme = await store.createPage({ title: 'Acme Corp', category: 'Clients', description: 'Retainer client' }, new Date(2026, 8, 19))
-    expect(acme).toMatchObject({ id: 'acme-corp', title: 'Acme Corp', category: 'Clients', description: 'Retainer client' })
+    const acme = await store.createPage({ title: 'Acme Corp', category: '', description: 'Retainer client' }, new Date(2026, 8, 19))
+    expect(acme).toMatchObject({ id: 'acme-corp', title: 'Acme Corp', category: '', description: 'Retainer client' })
     const dup = await store.createPage({ title: 'Acme Corp' })
     expect(dup.id).toBe('acme-corp-2')
     const j = await store.createPage({ title: 'Journal' })
@@ -161,6 +161,24 @@ describe('pages in the store', () => {
     expect((await store.listPages()).map((p) => p.id)).toEqual(['journal', 'acme-corp-2', 'journal-page'])
     await expect(store.readPage('acme-corp')).rejects.toThrow(/not found/)
     await expect(store.deletePage('journal')).rejects.toThrow(/journal/)
+  })
+
+  it('slugs nested pages by their category path so same-named projects stay distinct', async () => {
+    const a = await store.createPage({ title: 'Website', category: ' Acme Corp / Web ' })
+    const g = await store.createPage({ title: 'Website', category: 'Globex / Web' })
+    expect(a.id).toBe('acme-corp-web-website')
+    expect(a.category).toBe('Acme Corp / Web')
+    expect(g.id).toBe('globex-web-website')
+    expect((await store.updatePage(a.id, { category: 'acme corp/mobile' })).category).toBe('acme corp / mobile')
+  })
+
+  it('returns every page day within a range', async () => {
+    await store.createPage({ title: 'Acme' })
+    await store.addEntry('journal', 'j1', {}, new Date(2026, 8, 14, 9))
+    await store.addEntry('acme', 'a1', {}, new Date(2026, 8, 15, 9))
+    await store.addEntry('acme', 'a2', {}, new Date(2026, 8, 25, 9))
+    const range = await store.getRange('2026-09-14', '2026-09-20')
+    expect(range.map((r) => `${r.pageId}:${r.day.date}`)).toEqual(['journal:2026-09-14', 'acme:2026-09-15'])
   })
 
   it('keeps page notes and assets under pages/<id>/ with relative links', async () => {
