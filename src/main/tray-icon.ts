@@ -1,3 +1,3 @@
-/** 32×32 tray icon (PNG, base64) generated at build time by scripts; kept inline to avoid resource packaging. */
+/** 32×32 tray icon (PNG, base64): the app tile with three log lines. Inline to avoid resource packaging. */
 export const TRAY_ICON_PNG_BASE64 =
-  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAdklEQVR42u3XwQ3AIAxDUSboSnT/pdoLSD02zk+jSrbE/R1CDGM4K/M4ry+PAQb8B/BMO4BEyAAKEZqBCkR4CGmEdAtIhHwNKURqDxCI9CLKIpBNmEFgq1hFoF2gIPAyiiJK2jCCKKvjdsDbCveLyAAD/BneuQFQG3Fss3HQWQAAAABJRU5ErkJggg=='
+  'iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAABS0lEQVR42u2Xu04CQRSGeQLuPIxyv3uvMFmtsMDCzgTDkiXERit9BI0SjS8AvSErlRrlJWh4hv11ChMyzMDZWXbXgj/5yvOfL9nJZiYQWIeQamIfKjhaWknsYZX4utyWRDm+CzfxdflSiVJ8B15gS8AcjKAaNksWKMa2wWMcX8JpWIeomyTQyJw5FmAdJIFCbAsiWocGnm5flGCzsl6ygFvMCeSjVXgJWeD++hHfo7GUj9dPtLWuc4FctAKe84ML0kGbTqYQzS/i/wlkI2WIuLt6wNfbWMr77yfQtQ5k8zLIAm4xJ5CJlOAlZIFmTUfv5plMs9ZWE0iHi+CpJxtKv9+T1ClEfbOQBFqaoSSgH3XsC7CkwgXwDPsmLMsiMxyYEPXMIr0PLBtcFVKBZCgPL1h4L/R1+V82Qzm4ga23ga/L+WwEs1Bh/ail5AcG4anXienIhgAAAABJRU5ErkJggg=='
