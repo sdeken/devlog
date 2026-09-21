@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CommitWatcher, commitMarkdown, reflogPath, type CommitInfo } from '../src/main/activity/commits'
+import { CommitWatcher, commitMarkdown, reflogPath, type CommitInfo, type GitEventInfo } from '../src/main/activity/commits'
 
 let tmp: string
 let repo: string
@@ -38,10 +38,16 @@ describe('CommitWatcher', () => {
     await watcher.checkAll()
     expect(seen).toHaveLength(0) // the initial commit predates the watch
 
+    const events: GitEventInfo[] = []
+    watcher.on('event', (_pageId: string, info: GitEventInfo) => events.push(info))
     const git = simpleGit({ baseDir: repo, config: ['user.name=T', 'user.email=t@e.com'] })
-    await git.checkout(['-b', 'feature']) // reflog line that is not a commit
+    await git.checkout(['-b', 'feature']) // branch created + checkout, but no commit
     await watcher.checkAll()
     expect(seen).toHaveLength(0)
+    expect(events.map((e) => [e.action, e.branch, e.from])).toEqual([
+      ['checkout', 'feature', 'main'],
+      ['branch', 'feature', undefined]
+    ])
     await fs.writeFile(path.join(repo, 'a.txt'), '2')
     await git.add('-A')
     await git.commit('Fix the thing\n\nLonger explanation here.')
@@ -55,6 +61,16 @@ describe('CommitWatcher', () => {
 
     await watcher.checkAll() // no duplicates
     expect(seen).toHaveLength(1)
+
+    // Push to a bare remote: the remote-tracking reflog records "update by push".
+    const bare = path.join(tmp, 'remote.git')
+    await simpleGit().init(true, [bare])
+    await git.addRemote('origin', bare)
+    await git.push(['-u', 'origin', 'feature'])
+    await git.checkout('main')
+    await watcher.checkAll()
+    // Both land in one poll; the order across reflog files is not significant.
+    expect(events.slice(2).map((e) => `${e.action} ${e.branch}`).sort()).toEqual(['checkout main', 'push feature'])
   })
 
   it('skips excluded repositories', async () => {

@@ -124,6 +124,20 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             <label htmlFor="idle">Pause the task after idle (minutes, 0 = never)</label>
             <input id="idle" type="number" min={0} max={240} value={form.idleMinutes} onChange={(ev) => set('idleMinutes', Number(ev.target.value))} />
           </div>
+          <div className="field-grid">
+            <label htmlFor="focusMin" title="Alt-tab flips shorter than this are folded into the surrounding window. Raw data is always kept.">
+              Ignore window switches shorter than (seconds)
+            </label>
+            <input
+              id="focusMin"
+              type="number"
+              min={0}
+              max={120}
+              value={form.focusMinSeconds}
+              disabled={!form.trackingEnabled || !form.trackFocus}
+              onChange={(ev) => set('focusMinSeconds', Number(ev.target.value))}
+            />
+          </div>
           <label className="check">
             <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Store the activity log in the devlog
             repository (synced; window titles included) instead of locally

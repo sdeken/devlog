@@ -140,6 +140,8 @@ export interface Settings {
   captureCommits: boolean
   /** Download releases in the background and restart into them at a quiet moment. */
   autoUpdate: boolean
+  /** Foreground windows held for less than this many seconds are folded into their neighbour in views. */
+  focusMinSeconds: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -156,7 +158,8 @@ export const DEFAULT_SETTINGS: Settings = {
   idleMinutes: 10,
   activityInRepo: false,
   captureCommits: true,
-  autoUpdate: true
+  autoUpdate: true,
+  focusMinSeconds: 5
 }
 
 export type SyncState =
@@ -217,6 +220,9 @@ export type ActivityEventType =
   | 'resume'
   | 'task' // active task changed (pageId, or null = stopped)
   | 'focus' // foreground window changed
+  | 'git' // something happened in a watched repository
+
+export type GitAction = 'commit' | 'branch' | 'checkout' | 'push' | 'merge' | 'rebase' | 'pull' | 'stash' | 'reset'
 
 export interface ActivityEvent {
   /** ISO timestamp. */
@@ -226,6 +232,12 @@ export interface ActivityEvent {
   entryId?: string
   app?: string
   title?: string
+  /** git events */
+  repo?: string
+  action?: GitAction
+  branch?: string
+  from?: string
+  detail?: string
 }
 
 export interface TrackerStatus {

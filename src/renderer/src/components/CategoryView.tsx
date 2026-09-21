@@ -3,6 +3,8 @@ import { categoryPath, formatCategory, pathStartsWith, samePath } from '@shared/
 import type { PageMeta, Wiki } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './Composer'
+import { Lightbox } from './Lightbox'
+import { renderMarkdown } from '@renderer/markdown'
 
 interface Props {
   path: string[]
@@ -19,6 +21,8 @@ export function CategoryView({ path, pages, onSelectCategory, onSelectPage, onNe
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<'archive' | 'unarchive' | null>(null)
   const [busy, setBusy] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const key = formatCategory(path)
   const lastSaved = useRef<string>('')
 
@@ -30,6 +34,7 @@ export function CategoryView({ path, pages, onSelectCategory, onSelectPage, onNe
       if (cancelled) return
       lastSaved.current = w.markdown
       setWiki(w)
+      setEditing(!w.markdown.trim()) // an empty wiki opens ready to type
     })
     return () => {
       cancelled = true
@@ -97,6 +102,14 @@ export function CategoryView({ path, pages, onSelectCategory, onSelectPage, onNe
           <span className={`save-state save-${saveState}`}>
             {saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Not saved' : ''}
           </span>
+          <button
+            type="button"
+            className={`btn btn-xs ${editing ? 'btn-primary' : 'btn-quiet'}`}
+            onClick={() => setEditing((e) => !e)}
+            title={editing ? 'Back to reading (links open)' : 'Edit the wiki'}
+          >
+            {editing ? 'Done' : 'Edit'}
+          </button>
           <button type="button" className="btn btn-quiet btn-xs" onClick={() => onNewPage(formatCategory(path))}>
             + Page here
           </button>
@@ -129,7 +142,7 @@ export function CategoryView({ path, pages, onSelectCategory, onSelectPage, onNe
 
       {wiki === null ? (
         <p className="feed-empty">Loading…</p>
-      ) : (
+      ) : editing ? (
         <div className="wiki">
           <Composer
             key={key}
@@ -138,11 +151,39 @@ export function CategoryView({ path, pages, onSelectCategory, onSelectPage, onNe
             placeholder="A blank canvas for this category: links to the issue tracker, environments, contacts, credentials, how-tos… Markdown, images, anything. Saves as you type."
             saveImage={(bytes, mime, name) => api.wiki.saveAsset(path, bytes, mime, name)}
             onSubmit={async () => undefined}
-            onChange={save}
+            onChange={async (md) => {
+              await save(md)
+              setWiki((w) => (w ? { ...w, markdown: md } : w))
+            }}
           />
           {error && <p className="form-error">{error}</p>}
         </div>
+      ) : (
+        <div
+          className="wiki wiki-read markdown-body"
+          onDoubleClick={(ev) => {
+            if ((ev.target as HTMLElement).closest('a, img')) return
+            setEditing(true)
+          }}
+          onClick={(ev) => {
+            const el = ev.target as HTMLElement
+            const img = el.closest('img')
+            if (img?.getAttribute('data-lightbox')) {
+              ev.preventDefault()
+              setLightbox({ src: img.getAttribute('src') ?? '', alt: img.getAttribute('alt') ?? '' })
+              return
+            }
+            const a = el.closest('a')
+            const href = a?.getAttribute('href')
+            if (href) {
+              ev.preventDefault()
+              void api.shell.openExternal(href)
+            }
+          }}
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(lastSaved.current || wiki.markdown) }}
+        />
       )}
+      {lightbox && <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
 
       {(active.length > 0 || archived.length > 0) && (
         <section className="category-pages">

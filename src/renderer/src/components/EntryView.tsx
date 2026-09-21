@@ -5,6 +5,7 @@ import { parseDurationMarker } from '@shared/entries'
 import { formatMinutes } from '@shared/review'
 import { api } from '@renderer/api'
 import { Composer } from './Composer'
+import { Lightbox } from './Lightbox'
 
 interface Props {
   pageId: string
@@ -33,8 +34,15 @@ const dateTimeFmt = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit'
 })
 
-function handleContentClick(ev: React.MouseEvent<HTMLDivElement>): void {
-  const target = (ev.target as HTMLElement).closest('a')
+function handleContentClick(ev: React.MouseEvent<HTMLDivElement>, openImage: (src: string, alt: string) => void): void {
+  const el = ev.target as HTMLElement
+  const img = el.closest('img')
+  if (img && img.getAttribute('data-lightbox')) {
+    ev.preventDefault()
+    openImage(img.getAttribute('src') ?? '', img.getAttribute('alt') ?? '')
+    return
+  }
+  const target = el.closest('a')
   if (!target) return
   const href = target.getAttribute('href')
   if (!href) return
@@ -58,6 +66,7 @@ export const EntryView = memo(function EntryView({
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [moving, setMoving] = useState(false)
+  const [lightbox, setLightbox] = useState<{ src: string; alt: string } | null>(null)
   const html = useMemo(() => renderMarkdown(entry.markdown), [entry.markdown])
   const created = new Date(entry.createdAt)
 
@@ -195,7 +204,8 @@ export const EntryView = memo(function EntryView({
           )}
         </div>
       </header>
-      <div className="entry-body markdown-body" onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: html }} />
+      <div className="entry-body markdown-body" onClick={(ev) => handleContentClick(ev, (src, alt) => setLightbox({ src, alt }))} dangerouslySetInnerHTML={{ __html: html }} />
+      {lightbox && <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </article>
   )
 })

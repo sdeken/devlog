@@ -1,12 +1,15 @@
 /**
- * CommitWatcher: watches the git reflog (`.git/logs/HEAD`) of every
- * repository mapped to a page and reports new commits so they can be added
- * to the page as read-only notes.
+ * CommitWatcher: watches the reflogs (`.git/logs/**`) of every repository
+ * mapped to a page. New commits are reported so they can be added to the
+ * page as read-only notes; branch creation, checkouts, pushes, merges,
+ * rebases, pulls and stashes are reported as lightweight git events for the
+ * activity log.
  */
 import { EventEmitter } from 'node:events'
 import { promises as fs, watch, type FSWatcher } from 'node:fs'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
+import type { GitAction } from '@shared/types'
 
 export interface CommitInfo {
   repoPath: string
@@ -21,6 +24,15 @@ export interface CommitInfo {
   time: string
 }
 
+export interface GitEventInfo {
+  repoPath: string
+  repoName: string
+  action: GitAction
+  branch?: string
+  from?: string
+  detail?: string
+}
+
 export interface WatchedRepo {
   pageId: string
   path: string
@@ -29,13 +41,14 @@ export interface WatchedRepo {
 interface RepoState {
   pageId: string
   root: string
-  logFile: string
-  size: number
+  logsDir: string
+  /** Byte offset read so far, per reflog file. */
+  sizes: Map<string, number>
   watcher: FSWatcher | null
   seen: Set<string>
 }
 
-const REFLOG_COMMIT_RE = /^([0-9a-f]{40}) ([0-9a-f]{40}) .*?\t(commit(?: \([^)]*\))?|merge [^:]*|rebase[^:]*|cherry-pick[^:]*): (.*)$/
+const REFLOG_LINE_RE = /^([0-9a-f]{40}) ([0-9a-f]{40}) .*?\t([^:]*)(?:: (.*))?$/
 
 export class CommitWatcher extends EventEmitter {
   private repos = new Map<string, RepoState>()
@@ -66,8 +79,9 @@ export class CommitWatcher extends EventEmitter {
       if (this.repos.has(root)) continue
       const logFile = await reflogPath(root)
       if (!logFile) continue
-      const size = await fileSize(logFile)
-      const state: RepoState = { pageId: r.pageId, root, logFile, size, watcher: null, seen: new Set() }
+      const logsDir = path.dirname(logFile)
+      const state: RepoState = { pageId: r.pageId, root, logsDir, sizes: new Map(), watcher: null, seen: new Set() }
+      for (const f of await listLogFiles(logsDir)) state.sizes.set(f, await fileSize(f))
       this.repos.set(root, state)
       this.attach(state)
     }
@@ -91,7 +105,7 @@ export class CommitWatcher extends EventEmitter {
 
   private attach(state: RepoState): void {
     try {
-      state.watcher = watch(path.dirname(state.logFile), { persistent: false }, () => void this.check(state))
+      state.watcher = watch(state.logsDir, { persistent: false, recursive: true }, () => void this.check(state))
       state.watcher.on('error', () => {
         state.watcher?.close()
         state.watcher = null
@@ -103,36 +117,82 @@ export class CommitWatcher extends EventEmitter {
 
   private check(state: RepoState): Promise<void> {
     const run = this.queue.then(async () => {
-      const size = await fileSize(state.logFile)
-      if (size === state.size) return
-      if (size < state.size) {
-        // Reflog rewritten (gc / expire): resync without replaying history.
-        state.size = size
-        return
-      }
-      const handle = await fs.open(state.logFile, 'r')
-      let text: string
-      try {
-        const buf = Buffer.alloc(size - state.size)
-        await handle.read(buf, 0, buf.length, state.size)
-        text = buf.toString('utf8')
-      } finally {
-        await handle.close()
-      }
-      state.size = size
-      for (const line of text.split('\n')) {
-        const m = REFLOG_COMMIT_RE.exec(line.trim())
-        if (!m) continue
-        const [, , hash, action] = m
-        if (!action.startsWith('commit') && !action.startsWith('cherry-pick')) continue
-        if (state.seen.has(hash)) continue
-        state.seen.add(hash)
-        const info = await this.describe(state.root, hash)
-        if (info) this.emit('commit', state.pageId, info)
+      for (const file of await listLogFiles(state.logsDir)) {
+        const size = await fileSize(file)
+        const known = state.sizes.get(file)
+        if (known === undefined) {
+          // New reflog file: a branch was created (or first fetched). Read it from the start.
+          state.sizes.set(file, 0)
+        } else if (size === known) continue
+        else if (size < known) {
+          state.sizes.set(file, size) // rewritten by gc/expire: resync without replaying
+          continue
+        }
+        const offset = state.sizes.get(file)!
+        const handle = await fs.open(file, 'r')
+        let text: string
+        try {
+          const buf = Buffer.alloc(size - offset)
+          await handle.read(buf, 0, buf.length, offset)
+          text = buf.toString('utf8')
+        } finally {
+          await handle.close()
+        }
+        state.sizes.set(file, size)
+        const ref = path.relative(state.logsDir, file).split(path.sep).join('/')
+        for (const line of text.split('\n')) await this.handleLine(state, ref, line.trim())
       }
     })
     this.queue = run.catch((err) => console.error('commit watcher', err))
     return this.queue as Promise<void>
+  }
+
+  /** Interpret one reflog line from `ref` (e.g. `HEAD`, `refs/heads/x`, `refs/remotes/origin/x`). */
+  private async handleLine(state: RepoState, ref: string, line: string): Promise<void> {
+    const m = REFLOG_LINE_RE.exec(line)
+    if (!m) return
+    const [, oldHash, newHash, action, message = ''] = m
+    const name = path.basename(state.root)
+    const event = (info: Omit<GitEventInfo, 'repoPath' | 'repoName'>): void => {
+      this.emit('event', state.pageId, { repoPath: state.root, repoName: name, ...info } satisfies GitEventInfo)
+    }
+    if (ref === 'HEAD') {
+      if (action.startsWith('commit') || action.startsWith('cherry-pick')) {
+        if (state.seen.has(newHash)) return
+        state.seen.add(newHash)
+        const info = await this.describe(state.root, newHash)
+        if (info) this.emit('commit', state.pageId, info)
+        return
+      }
+      if (action === 'checkout') {
+        const mv = /^moving from (.+) to (.+)$/.exec(message)
+        if (mv) event({ action: 'checkout', from: mv[1], branch: mv[2] })
+        return
+      }
+      if (action.startsWith('merge')) return event({ action: 'merge', detail: `${action.replace(/^merge\s*/, '')}${message ? `: ${message}` : ''}`.trim() })
+      if (action.startsWith('rebase')) {
+        if (/finish|abort/.test(action) || /^rebase \(finish\)/.test(action)) event({ action: 'rebase', detail: message })
+        return
+      }
+      if (action.startsWith('pull')) return event({ action: 'pull', detail: message })
+      if (action.startsWith('reset')) return event({ action: 'reset', detail: message })
+      return
+    }
+    if (ref.startsWith('refs/heads/')) {
+      const branch = ref.slice('refs/heads/'.length)
+      if (action.startsWith('branch') && /created/i.test(message)) event({ action: 'branch', branch, detail: message })
+      return
+    }
+    if (ref.startsWith('refs/remotes/')) {
+      const rest = ref.slice('refs/remotes/'.length)
+      const slash = rest.indexOf('/')
+      const branch = slash >= 0 ? rest.slice(slash + 1) : rest
+      if (action === 'update by push' && oldHash !== newHash) event({ action: 'push', branch })
+      return
+    }
+    if (ref === 'refs/stash') {
+      if (oldHash !== newHash) event({ action: 'stash', detail: message })
+    }
   }
 
   private async describe(root: string, hash: string): Promise<CommitInfo | null> {
@@ -181,6 +241,26 @@ export async function reflogPath(root: string): Promise<string | null> {
   } catch {
     return null
   }
+}
+
+/** Every reflog file under `.git/logs`, recursively. */
+async function listLogFiles(dir: string): Promise<string[]> {
+  const out: string[] = []
+  const walk = async (d: string): Promise<void> => {
+    let entries: import('node:fs').Dirent[]
+    try {
+      entries = await fs.readdir(d, { withFileTypes: true })
+    } catch {
+      return
+    }
+    for (const e of entries) {
+      const p = path.join(d, e.name)
+      if (e.isDirectory()) await walk(p)
+      else if (e.isFile()) out.push(p)
+    }
+  }
+  await walk(dir)
+  return out.sort()
 }
 
 async function fileSize(file: string): Promise<number> {

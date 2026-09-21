@@ -56,4 +56,4 @@ export const IPC = {
   evUpdateStatus: 'ev:updateStatus'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage' | 'review' | 'timeline' | 'stopTask'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask'

@@ -46,7 +46,8 @@ function sanitize(s: Settings): Settings {
     idleMinutes: clamp(Number.isFinite(Number(s.idleMinutes)) ? Number(s.idleMinutes) : DEFAULT_SETTINGS.idleMinutes, 0, 240),
     activityInRepo: Boolean(s.activityInRepo),
     captureCommits: s.captureCommits !== false,
-    autoUpdate: s.autoUpdate !== false
+    autoUpdate: s.autoUpdate !== false,
+    focusMinSeconds: clamp(Number.isFinite(Number(s.focusMinSeconds)) ? Number(s.focusMinSeconds) : DEFAULT_SETTINGS.focusMinSeconds, 0, 120)
   }
 }
 

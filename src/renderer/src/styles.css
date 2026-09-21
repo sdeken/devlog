@@ -2298,3 +2298,344 @@ body[data-platform='darwin'] .sidebar-head {
   padding: 6px 0;
   border-top: 1px dashed var(--border);
 }
+
+/* ---- Composer footer: page picker + status ---- */
+.composer-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px 6px;
+  min-height: 22px;
+}
+
+.composer-target {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--fg-muted);
+  max-width: 60%;
+}
+
+.composer-target-icon {
+  font-weight: 600;
+}
+
+.composer-target select {
+  font: inherit;
+  font-size: 12px;
+  color: var(--fg-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 4px;
+  max-width: 100%;
+  cursor: pointer;
+}
+
+.composer-target select:hover,
+.composer-target select:focus {
+  color: var(--fg);
+  border-color: var(--border);
+  background: var(--bg-2);
+  outline: none;
+}
+
+.composer-foot .composer-status {
+  padding: 0;
+  margin-left: auto;
+}
+
+/* ---- Wiki read mode ---- */
+.wiki-read {
+  padding: 14px 16px;
+  font-size: 15px;
+  line-height: 1.55;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  min-height: 20vh;
+  cursor: default;
+}
+
+.wiki-read:hover {
+  border-color: var(--border);
+}
+
+.wiki-read a {
+  cursor: pointer;
+}
+
+.wiki-read img[data-lightbox] {
+  cursor: zoom-in;
+}
+
+.entry-body img[data-lightbox] {
+  cursor: zoom-in;
+}
+
+/* ---- Lightbox ---- */
+.lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.82);
+  cursor: zoom-out;
+}
+
+.lightbox img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- Quick switcher ---- */
+.switcher-backdrop {
+  align-items: start;
+  padding-top: 12vh;
+  background: rgba(0, 0, 0, 0.3);
+  z-index: 30;
+}
+
+.switcher {
+  width: min(560px, 92vw);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+.switcher input {
+  width: 100%;
+  padding: 12px 16px;
+  font: inherit;
+  font-size: 16px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  outline: none;
+}
+
+.switcher ul {
+  list-style: none;
+  margin: 0;
+  padding: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.switcher-item.is-active {
+  background: var(--bg-3);
+}
+
+.switcher-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-hint,
+.switcher-empty {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.switcher-empty {
+  padding: 8px 10px;
+}
+
+/* ---- Summary ---- */
+.sum-list,
+.sum-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sum-list {
+  margin: 8px 0 16px;
+}
+
+.sum-row {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sum-top,
+.sum-child {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 160px) 70px 70px 64px;
+  align-items: center;
+  gap: 8px;
+}
+
+.sum-child {
+  grid-template-columns: minmax(0, 1fr) 70px 70px 64px;
+  padding: 3px 0 3px 30px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.sum-child .sum-children .sum-child {
+  padding-left: 0;
+}
+
+.sum-child > .sum-children {
+  grid-column: 1 / -1;
+}
+
+.sum-children {
+  margin-top: 4px;
+}
+
+.sum-toggle {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sum-toggle:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.sum-toggle:not(:disabled):hover {
+  background: var(--bg-3);
+}
+
+.sum-label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sum-child .sum-label {
+  font-weight: 400;
+}
+
+.sum-bar {
+  height: 8px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sum-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.sum-notes,
+.sum-exact {
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sum-hours {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sum-child .sum-hours {
+  font-weight: 500;
+}
+
+.sum-total {
+  border-bottom: 0;
+  border-top: 2px solid var(--border-strong);
+}
+
+.sum-total .sum-bar {
+  background: transparent;
+}
+
+.sum-gran {
+  width: 52px;
+  margin: 0 4px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.sum-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.sum-custom input {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* ---- Timeline: git events ---- */
+.tlb-git {
+  list-style: none;
+  margin: 4px 0 0 132px;
+  padding: 0;
+}
+
+.tlb-git li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 2px 6px;
+}
+
+.tlb-git time {
+  width: 60px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+
+.tlb-git-icon {
+  color: var(--accent);
+}

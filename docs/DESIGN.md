@@ -164,14 +164,30 @@ tracked segments overlapping that window are cut and an `explicit` segment is
 inserted. Notes carrying a marker do not switch the task; they describe the
 past. Segments are split at local midnight before rolling up.
 
-Commit capture (`commits.ts`) watches `.git/logs/HEAD` of every repository
-mapped to a page (via `fs.watch` on the directory plus a 15 s poll), reads
-only bytes appended since the watch began, filters reflog lines to commits,
-resolves each hash with `git show` and emits it. The main process turns it
-into a `kind=commit` note with `repo`/`hash`/`branch`/`author` attributes in
-the marker; the store refuses `updateEntry` on such notes and de-duplicates
-by hash. The devlog repository itself is excluded so auto-sync commits do not
-feed back into the log.
+Focus streams are noisy when the user alt-tabs a lot: a flip through the
+task switcher produces three focus events in under a second. The raw log is
+kept verbatim (it is the evidence); `cleanFocusSegments` is applied when
+building views. It drops shell windows outright (`isIgnoredFocus`: task
+switcher, Task View, Start, search, lock screen, the desktop, and their macOS
+equivalents) by extending the previous segment over them, folds any segment
+shorter than `focusMinSeconds` (a setting, default 5 s) into its predecessor,
+and merges adjacent segments with the same app and title. Task segments are
+untouched: a task is a deliberate act, a focus flip is not.
+
+Git capture (`commits.ts`) watches `.git/logs/` of every repository mapped to
+a page, recursively (via `fs.watch` on the directory plus a 15 s poll), and
+reads only bytes appended to each reflog since the watch began. Lines are
+classified by which log they came from and their message: a commit or
+cherry-pick on `HEAD` is resolved with `git show` and emitted as a commit;
+`checkout: moving from A to B` on `HEAD`, `branch: Created` under
+`refs/heads/`, `update by push` under `refs/remotes/`, and merge, rebase,
+pull, reset and stash messages are emitted as events with a `GitAction`.
+The main process turns commits into `kind=commit` notes with
+`repo`/`hash`/`branch`/`author` attributes in the marker (the store refuses
+`updateEntry` on such notes and de-duplicates by hash) and everything else
+into `type: 'git'` activity events tagged with the page, so they show on the
+timeline without becoming notes. The devlog repository itself is excluded so
+auto-sync commits do not feed back into the log.
 
 ### Weekly review
 
@@ -193,9 +209,15 @@ drives the per-day detail, which also lists the day's task segments and its
 screen time by app kind (`classifyApp`: a small rule table over process names
 and titles) and by app with the top titles on hover.
 
+The **Summary** view reuses `computeWeekTime` and `buildReviewRows` over an
+arbitrary date range and shows only the totals column, rounded with
+`roundMinutes` to a granularity the user picks (default 15 minutes). Rounding
+is per row and the exact minutes sit beside the rounded hours, so the number
+on the invoice and the number that produced it are both visible.
+
 The **Timeline** view slices one day into fixed intervals (`bucketizeDay` in
-`activity.ts`): per bucket, the overlap of every task and focus segment, the
-notes written, and the system events. Overlap rather than "event inside
+`activity.ts`): per bucket, the overlap of every task and (cleaned) focus
+segment, the notes written, the git events, and the system events. Overlap rather than "event inside
 bucket" is what keeps a 3-hour Code session visible as 12 rows of "Code 15m"
 rather than one row at its start. Empty buckets are dropped and rendered as
 a gap line, so a lunch break is one line, not four empty ones.
@@ -246,8 +268,20 @@ the Attach Image menu item routes to whichever composer was focused last.
 
 Paste and drop are intercepted in `editorProps`: image files are sent to
 the main process as bytes, saved, and inserted as image nodes at the cursor
-(or drop point). Non-image pastes fall through to TipTap, which understands
+(or drop point). Plain-text pastes go through `detectCodePaste`
+(`editor/smartPaste.ts`), a small set of shape rules for stack traces, .NET
+and Python exceptions, diffs, shell transcripts, timestamped logs and JSON;
+a match is inserted as a code block (with a language when one is obvious)
+so the evidence survives verbatim instead of being re-flowed into
+paragraphs. Everything else falls through to TipTap, which understands
 pasted Markdown.
+
+The composer is docked under every view, not just the page feed, with a
+picker for the target page: the point of the app is to jot as things happen,
+and the thing that happened is rarely on the page you are looking at. The
+target follows the page you open and stays put while you look at the
+timeline or summary. ⌘P / ⌘K opens a quick switcher over pages, categories
+and views.
 
 Posting clears the editor optimistically before the write completes, so
 keystrokes typed immediately after Enter are kept; the draft is restored if

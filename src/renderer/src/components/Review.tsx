@@ -20,6 +20,7 @@ import { api } from '@renderer/api'
 interface Props {
   pages: PageMeta[]
   today: string
+  focusMinSeconds: number
   onJumpTo: (pageId: string, date: string) => void
   onOpenTimeline: (date: string) => void
 }
@@ -37,7 +38,7 @@ function parseLocal(date: string): Date {
 
 const KIND_ORDER: AppKind[] = ['coding', 'terminal', 'meeting', 'comms', 'browser', 'devlog', 'other']
 
-export function Review({ pages, today, onJumpTo, onOpenTimeline }: Props): React.JSX.Element {
+export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline }: Props): React.JSX.Element {
   const [start, setStart] = useState(() => weekStart(today))
   const [notes, setNotes] = useState<ReviewNote[] | null>(null)
   const [events, setEvents] = useState<ActivityEvent[]>([])
@@ -65,7 +66,7 @@ export function Review({ pages, today, onJumpTo, onOpenTimeline }: Props): React
     }
   }, [start, end])
 
-  const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates, estimate: DEFAULT_ESTIMATE }), [notes, events, dates])
+  const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates, estimate: DEFAULT_ESTIMATE, focusMinSeconds }), [notes, events, dates, focusMinSeconds])
   const rows = useMemo(() => buildReviewRows(pages, notes ?? [], time.byPageDay), [pages, notes, time])
   const pageById = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages])
   const pageLabel = (id: string): string => {

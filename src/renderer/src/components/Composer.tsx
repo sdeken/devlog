@@ -10,6 +10,9 @@ import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
 import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
 import { kbd } from '@renderer/keys'
+import { detectCodePaste } from '@renderer/editor/smartPaste'
+import type { PageMeta } from '@shared/types'
+import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
 
 export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
@@ -34,6 +37,10 @@ export interface ComposerProps {
   /** Persist draft under this key in localStorage (new mode). */
   draftKey?: string
   focusToken?: number
+  /** New mode: offer a page picker so a note can be posted anywhere from here. */
+  pages?: PageMeta[]
+  targetPageId?: string
+  onTargetChange?: (pageId: string) => void
 }
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
@@ -81,7 +88,10 @@ export function Composer({
   onCancel,
   onEditLast,
   draftKey,
-  focusToken
+  focusToken,
+  pages,
+  targetPageId,
+  onTargetChange
 }: ComposerProps): React.JSX.Element {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -189,10 +199,33 @@ export function Composer({
       attributes: { class: 'composer-editor', spellcheck: 'true' },
       handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile)
-        if (files.length === 0) return false
-        event.preventDefault()
-        void uploadImages(files, view)
-        return true
+        if (files.length > 0) {
+          event.preventDefault()
+          void uploadImages(files, view)
+          return true
+        }
+        // Plain-text evidence (stack traces, logs, diffs) goes into a code block as-is.
+        const html = event.clipboardData?.getData('text/html') ?? ''
+        const text = event.clipboardData?.getData('text/plain') ?? ''
+        if (text && (!html || /<pre|<code/i.test(html))) {
+          const code = detectCodePaste(text)
+          if (code) {
+            event.preventDefault()
+            const e = editorRef.current
+            if (!e) return false
+            const content = text.replace(/\r\n?/g, '\n').replace(/\s+$/, '')
+            const inCode = e.isActive('codeBlock')
+            if (inCode) e.chain().focus().insertContent(content).run()
+            else {
+              e.chain()
+                .focus()
+                .insertContent({ type: 'codeBlock', attrs: { language: code.language || null }, content: [{ type: 'text', text: content }] })
+                .run()
+            }
+            return true
+          }
+        }
+        return false
       },
       handleDrop: (view, event, _slice, moved) => {
         if (moved) return false
@@ -398,7 +431,27 @@ export function Composer({
         </BubbleMenu>
       )}
       <EditorContent editor={editor} className="composer-content" />
-      {status && <div className={`composer-status${error ? ' is-error' : ''}`}>{status}</div>}
+      {(status || (mode === 'new' && pages && onTargetChange)) && (
+        <div className="composer-foot">
+          {mode === 'new' && pages && onTargetChange && (
+            <label className="composer-target" title="Which page this note posts to">
+              <span className="composer-target-icon">#</span>
+              <select value={targetPageId ?? JOURNAL_PAGE_ID} onChange={(ev) => onTargetChange(ev.target.value)}>
+                <option value={JOURNAL_PAGE_ID}>Journal</option>
+                {pages
+                  .filter((p) => p.id !== JOURNAL_PAGE_ID && !p.archived)
+                  .sort((a, b) => [...categoryPath(a.category), a.title].join('/').localeCompare([...categoryPath(b.category), b.title].join('/')))
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {[...categoryPath(p.category), p.title].join(' / ')}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          )}
+          {status && <span className={`composer-status${error ? ' is-error' : ''}`}>{status}</span>}
+        </div>
+      )}
     </div>
   )
 }

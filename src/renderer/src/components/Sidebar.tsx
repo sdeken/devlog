@@ -6,6 +6,7 @@ import { kbd } from '@renderer/keys'
 export type SidebarSelection =
   | { kind: 'page'; pageId: string }
   | { kind: 'review' }
+  | { kind: 'summary' }
   | { kind: 'timeline' }
   | { kind: 'category'; path: string[] }
 
@@ -125,6 +126,17 @@ export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, o
             >
               <span className="page-icon">▦</span>
               <span className="page-name">Weekly review</span>
+            </button>
+          </li>
+          <li>
+            <button
+              type="button"
+              className={`page-link page-summary${!search && selection.kind === 'summary' ? ' is-selected' : ''}`}
+              onClick={() => onSelect({ kind: 'summary' })}
+              title={`Hours per client / project (${kbd('mod', 'shift', 'H')})`}
+            >
+              <span className="page-icon">Σ</span>
+              <span className="page-name">Summary</span>
             </button>
           </li>
           <li>

@@ -21,8 +21,9 @@ repository, and committed and pushed automatically.
   moved between pages, and search covers all of them.
 - **A wiki per category.** Click a client or project in the sidebar to open
   its wiki: a blank canvas that is not a task, for links to the issue tracker,
-  environments, contacts, credentials, how-tos. It saves as you type and lives
-  in the repo as `categories/<path>/wiki.md`.
+  environments, contacts, credentials, how-tos. It opens read-only so links
+  just work; **Edit** (or a double-click) turns it into the editor, which
+  saves as you type. It lives in the repo as `categories/<path>/wiki.md`.
 - **Archive what you're done with.** Archive a page, or a whole category with
   everything beneath it, to get it out of the sidebar. Archived things stay
   readable and searchable, and one click brings them back.
@@ -36,15 +37,26 @@ repository, and committed and pushed automatically.
   or a Teams call shows up). A per-day **Timeline** view lays it all out next
   to your notes; the weekly review adds screen time by kind (coding, meetings,
   browser…).
-- **Commits become notes.** Map a page to the git repositories you use for
-  it and every commit you make there is added to the page as a read-only note
-  you can reply to, move or delete.
-- **Weekly review.** One view rolls the week up by day and by client →
-  project → page with tracked time, plus a per-day breakdown of what you
-  wrote, task time and screen time. Made for Friday.
-- **Pasted images just work.** Paste or drop an image into the composer and it
-  is saved into the repository next to the day's entry and linked relatively,
-  so the log also renders on GitHub.
+- **Commits become notes, branches become events.** Map a page to the git
+  repositories you use for it and every commit you make there is added to the
+  page as a read-only note you can reply to, move or delete. Creating or
+  switching branches, pushing, merging, rebasing and stashing show up on the
+  timeline without cluttering the page.
+- **Weekly review and summary.** The review rolls the week up by day and by
+  client → project → page with tracked time, plus a per-day breakdown of what
+  you wrote, task time and screen time. The **Summary** view answers the
+  timesheet question directly: hours per client for any range, rounded to
+  the nearest 15 minutes (or whatever you set), with projects and pages one
+  click away. Made for Friday.
+- **Pasted evidence just works.** Paste or drop an image into the composer
+  and it is saved into the repository next to the day's entry and linked
+  relatively, so the log also renders on GitHub; click an image in the feed to
+  see it full size. Paste a stack trace, a diff, a log excerpt or a shell
+  session and it lands in a code block instead of being mangled into
+  paragraphs.
+- **Jot from anywhere.** The composer stays at the bottom of every view, with
+  a picker for which page the note goes to, and ⌘P / ⌘K opens a quick switcher
+  that jumps to any page, client, project or view by fuzzy name.
 - **Updates itself.** Releases are checked for in the background, downloaded
   silently, and installed by restarting at a quiet moment (screen locked,
   window hidden, or input idle), never mid-edit and never with a dialog.
@@ -108,10 +120,13 @@ Marketing site rebuild. Weekly sync on Tuesdays.
 
 Every category node (a client, a project) has a wiki. Open it by clicking the
 category name in the sidebar, the category chip on a page, or a breadcrumb. It
-is a full-height editor with the same Markdown and image support as notes,
-but no posting: Enter is just a new line and every change is saved a moment
-later (the header says "Saved"). Below the canvas the view lists the pages in
-that category, including archived ones with an Unarchive button, and offers
+opens as a rendered page: links open in the browser, images open full size.
+**Edit** in the header (or double-clicking the text) switches to a
+full-height editor with the same Markdown and image support as notes, but no
+posting: Enter is just a new line and every change is saved a moment later
+(the header says "Saved"); **Done** switches back. An empty wiki opens
+straight into the editor. Below the canvas the view lists the pages in that
+category, including archived ones with an Unarchive button, and offers
 "+ Page here" to create a page pre-filled with the category.
 
 Wikis are searched along with notes. Like everything else in the repository,
@@ -144,22 +159,39 @@ or `[45m] code review` counts exactly that much for the note's page, ending at
 the note's time, and replaces whatever was tracked in that window. Such notes
 do not switch the active task.
 
+Window tracking records every focus change, and if you alt-tab a lot that is
+a lot of sub-second flips. The raw log keeps all of them; the views clean
+them up: the Windows task switcher, Start menu, search box, lock screen and
+the like are dropped outright, and any focus shorter than a threshold
+(**Settings → Ignore window switches shorter than**, default 5 seconds) is
+folded into the window you were actually working in. So a 20-minute Outlook
+session that you alt-tabbed out of and back into five times shows as 20
+minutes of Outlook.
+
 Everything the tracker sees goes to an append-only activity log, one JSON
 file per day (`activity/YYYY/MM/YYYY-MM-DD.jsonl`). By default it lives in the
 app's data folder; Settings can move it into the devlog repository so it syncs
 (window titles included, so consider what they contain). Recorded events:
 task switches, lock/unlock, idle/active, sleep/wake, app start/stop, a
-heartbeat, and foreground-window changes (process name and window title, which
-for browsers is the active tab). Focus tracking uses a small PowerShell helper
+heartbeat, foreground-window changes (process name and window title, which
+for browsers is the active tab), and git events from watched repositories. Focus tracking uses a small PowerShell helper
 on Windows, `osascript` on macOS (window titles need the Accessibility
 permission) and `xdotool` on Linux if present.
 
-## Commits as notes
+## Working copies: commits as notes, branches as events
 
-Give a page its repositories (**Edit page → Git repositories**). Devlog watches
-each repository's reflog and, on every commit, adds a read-only note to the
-page: repo, branch, short hash and message. Reply to it, move it or delete it,
-but not edit it. Commits in the devlog repository itself are ignored.
+Give a page its repositories (**Edit page → Git repositories**); these are
+the working copies you code in, not the devlog repository. Devlog watches each
+repository's reflogs and, on every commit, adds a read-only note to the page:
+repo, branch, short hash and message. Reply to it, move it or delete it, but
+not edit it.
+
+Everything else git records is captured as an activity event rather than a
+note, so the page stays readable: creating a branch, switching branches
+(with where from), pushing, merging, rebasing, pulling, resetting and
+stashing. They appear on the day's Timeline with the repo name, and count
+towards the active task like any other activity. Commits in the devlog
+repository itself are ignored.
 
 ## Weekly review
 
@@ -173,11 +205,23 @@ time by kind (coding, terminal, meetings, email & chat, browser) and by app.
 Days with no tracking data at all are marked `~` and estimated from note
 timestamps instead (each note counts until the next one, capped at an hour).
 
+## Summary
+
+**Summary** (⌘⇧H) is the timesheet view: one row per top-level category
+(client) with hours for the chosen range (this week, last week, this month,
+last month, or any two dates), a share bar, the note count and the exact
+tracked minutes. Hours are rounded to the nearest 15 minutes by default;
+change the granularity in the header and it is remembered. Expand a client to
+see its projects and pages rounded the same way, click a name to open the
+page or wiki. Rounding happens per row, so the rounded rows may not add up to
+the rounded total.
+
 ## Timeline
 
 **Timeline** (⌘⇧T) shows one day sliced into fixed intervals (5, 15, 30 or 60
 minutes, your choice). Each interval shows the task that was active, the notes
-and captured commits written in it, system events such as lock or sleep, and
+and captured commits written in it, git events from watched repositories
+(branch created, switched, pushed…), system events such as lock or sleep, and
 the apps that were in front with minutes each; click the app chips to see the
 window titles behind them. Quiet intervals are collapsed into a "nothing
 recorded" line. Click a note to open it on its page.

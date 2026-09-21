@@ -8,7 +8,7 @@ import { localDate, parseDurationMarker } from '@shared/entries'
 import { DevlogStore } from './devlog/store'
 import { ActivityLog } from './activity/log'
 import { Tracker } from './activity/tracker'
-import { CommitWatcher, commitMarkdown, type CommitInfo } from './activity/commits'
+import { CommitWatcher, commitMarkdown, type CommitInfo, type GitEventInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { Updater } from './updates'
 import { SyncManager, type SyncOptions } from './devlog/sync'
@@ -139,6 +139,12 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
 
   const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
   nextCommits.on('commit', (pageId: string, info: CommitInfo) => void onCommit(pageId, info))
+  nextCommits.on('event', (pageId: string, info: GitEventInfo) => {
+    if (!settings.get().trackingEnabled) return
+    void activityLog
+      .append({ t: new Date().toISOString(), type: 'git', pageId, repo: info.repoName, action: info.action, branch: info.branch, from: info.from, detail: info.detail })
+      .catch((err) => console.error('git event log failed', err))
+  })
   commits = nextCommits
   await refreshCommitWatchers()
 
@@ -434,6 +440,8 @@ if (!gotLock) {
       search: menuCmd('search'),
       newPage: menuCmd('newPage'),
       review: menuCmd('review'),
+      summary: menuCmd('summary'),
+      switcher: menuCmd('switcher'),
       timeline: menuCmd('timeline'),
       stopTask: () => void tracker?.setTask(null),
       quit: quitApp,

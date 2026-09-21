@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localDate, previewText } from '@shared/entries'
 import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
-import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTaskSegments, type TimelineBucket } from '@shared/activity'
+import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTaskSegments, cleanFocusSegments, type TimelineBucket } from '@shared/activity'
 import { addDays, formatMinutes } from '@shared/review'
 import type { ActivityEvent, Entry, PageMeta } from '@shared/types'
 import { api } from '@renderer/api'
@@ -10,6 +10,8 @@ interface Props {
   pages: PageMeta[]
   today: string
   date: string
+  /** Focus flips shorter than this are folded into their neighbours (alt-tab noise). */
+  focusMinSeconds: number
   onChangeDate: (date: string) => void
   onJumpTo: (pageId: string, date: string) => void
 }
@@ -33,10 +35,36 @@ const SYSTEM_LABEL: Record<string, string> = {
   resume: 'Machine woke up'
 }
 
+function gitLabel(e: ActivityEvent): string {
+  const repo = e.repo ? `${e.repo}: ` : ''
+  switch (e.action) {
+    case 'checkout':
+      return `${repo}switched to ${e.branch ?? '?'}${e.from ? ` (from ${e.from})` : ''}`
+    case 'branch':
+      return `${repo}created branch ${e.branch ?? '?'}`
+    case 'push':
+      return `${repo}pushed ${e.branch ?? ''}`.trim()
+    case 'merge':
+      return `${repo}merged ${e.detail ?? e.branch ?? ''}`.trim()
+    case 'rebase':
+      return `${repo}rebased ${e.detail ?? ''}`.trim()
+    case 'pull':
+      return `${repo}pulled ${e.detail ?? ''}`.trim()
+    case 'stash':
+      return `${repo}stashed changes`
+    case 'reset':
+      return `${repo}reset ${e.detail ?? ''}`.trim()
+    case 'commit':
+      return `${repo}committed ${e.detail ?? ''}`.trim()
+    default:
+      return `${repo}${e.action ?? 'git'}`
+  }
+}
+
 const INTERVALS = [5, 15, 30, 60]
 const INTERVAL_KEY = 'devlog:timeline:interval'
 
-export function Timeline({ pages, today, date, onChangeDate, onJumpTo }: Props): React.JSX.Element {
+export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, onJumpTo }: Props): React.JSX.Element {
   const [notes, setNotes] = useState<Array<{ pageId: string; entry: Entry }> | null>(null)
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [showApps, setShowApps] = useState(true)
@@ -81,11 +109,11 @@ export function Timeline({ pages, today, date, onChangeDate, onJumpTo }: Props):
       date,
       intervalMinutes: interval,
       taskSegments: buildTaskSegments(events),
-      focusSegments: buildFocusSegments(events),
+      focusSegments: cleanFocusSegments(buildFocusSegments(events), { minSeconds: focusMinSeconds }),
       notes,
       events
     })
-  }, [notes, events, date, interval])
+  }, [notes, events, date, interval, focusMinSeconds])
 
   const changeInterval = (v: number): void => {
     setIntervalMinutes(v)
@@ -165,6 +193,17 @@ export function Timeline({ pages, today, date, onChangeDate, onJumpTo }: Props):
                     {previewText(n.entry.markdown, 160)}
                   </span>
                 </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {b.git.length > 0 && (
+          <ul className="tlb-git">
+            {b.git.map((e, i) => (
+              <li key={`${e.t}-${i}`} title={e.repo}>
+                <time>{timeFmt.format(new Date(e.t))}</time>
+                <span className="tlb-git-icon">⎇</span>
+                <span>{gitLabel(e)}</span>
               </li>
             ))}
           </ul>

@@ -229,6 +229,76 @@ export function buildFocusSegments(events: ActivityEvent[], opts: SegmentOptions
 }
 
 // ---------------------------------------------------------------------------
+// Focus cleanup: the raw log keeps every flip; views do not have to show it.
+// ---------------------------------------------------------------------------
+
+/** Windows that are chrome around real windows, not work: task switcher, start menu, search, lock screen. */
+const IGNORED_FOCUS: Array<{ app: RegExp; title?: RegExp }> = [
+  { app: /^explorer$/i, title: /^(task switching|task view|program manager|)$/i },
+  { app: /^(searchhost|searchapp|searchui|startmenuexperiencehost|shellexperiencehost|lockapp|textinputhost|screenclippinghost|snippingtool|applicationframehost)$/i, title: /^(|search|start|windows input experience|snipping tool)$/i },
+  { app: /^(dwm|winlogon|logonui)$/i },
+  { app: /^(dock|loginwindow|screensaverengine|notificationcenter|spotlight)$/i },
+  { app: /^$/ , title: /^$/ }
+]
+
+export function isIgnoredFocus(app: string, title: string): boolean {
+  const name = app.replace(/\.exe$/i, '').trim()
+  return IGNORED_FOCUS.some((r) => r.app.test(name) && (!r.title || r.title.test(title.trim())))
+}
+
+export interface CleanOptions {
+  /** Segments shorter than this are folded into a neighbour. */
+  minSeconds: number
+}
+
+/**
+ * Tidy focus segments for display: drop the task switcher and friends, fold
+ * sub-threshold flips into the window before them (or after, at the start),
+ * then merge adjacent segments of the same window. The raw log is untouched.
+ */
+export function cleanFocusSegments(segments: FocusSegment[], opts: CleanOptions): FocusSegment[] {
+  const minMs = Math.max(0, opts.minSeconds) * 1000
+  const sorted = [...segments].sort((a, b) => a.start.localeCompare(b.start))
+  // 1. Drop chrome windows; their time goes to whoever is next to them.
+  const kept: FocusSegment[] = []
+  for (const seg of sorted) {
+    if (isIgnoredFocus(seg.app, seg.title)) {
+      const prev = kept[kept.length - 1]
+      if (prev && prev.end === seg.start) prev.end = seg.end
+      continue
+    }
+    kept.push({ ...seg })
+  }
+  // 2. Fold brief flips into the previous segment (or the next one when first).
+  const folded: FocusSegment[] = []
+  for (let i = 0; i < kept.length; i++) {
+    const seg = kept[i]
+    const dur = ms(seg.end) - ms(seg.start)
+    if (dur < minMs) {
+      const prev = folded[folded.length - 1]
+      if (prev && prev.end === seg.start) {
+        prev.end = seg.end
+        continue
+      }
+      const next = kept[i + 1]
+      if (next && next.start === seg.end) {
+        next.start = seg.start
+        continue
+      }
+    }
+    folded.push(seg)
+  }
+  // 3. Merge adjacent identical windows.
+  const merged: FocusSegment[] = []
+  for (const seg of folded) {
+    const prev = merged[merged.length - 1]
+    if (prev && prev.app === seg.app && prev.title === seg.title && prev.end === seg.start) prev.end = seg.end
+    else merged.push({ ...seg })
+  }
+  return merged
+}
+
+// ---------------------------------------------------------------------------
 // Roll-ups
 // ---------------------------------------------------------------------------
 
@@ -326,6 +396,8 @@ export interface TimelineBucket {
   notes: TimelineNote[]
   /** Lock/unlock, idle/active, sleep/wake, start/stop inside the bucket. */
   system: ActivityEvent[]
+  /** Branch, checkout, push, merge… in watched repositories. */
+  git: ActivityEvent[]
 }
 
 export interface BucketOptions {
@@ -386,7 +458,12 @@ export function bucketizeDay(opts: BucketOptions): TimelineBucket[] {
       const t = ms(e.t)
       return t >= b0 && t < b1
     })
-    if (tasks.size === 0 && apps.size === 0 && notes.length === 0 && system.length === 0) continue
+    const git = opts.events.filter((e) => {
+      if (e.type !== 'git') return false
+      const t = ms(e.t)
+      return t >= b0 && t < b1
+    })
+    if (tasks.size === 0 && apps.size === 0 && notes.length === 0 && system.length === 0 && git.length === 0) continue
     out.push({
       start: iso(b0),
       end: iso(b1),
@@ -401,7 +478,8 @@ export function bucketizeDay(opts: BucketOptions): TimelineBucket[] {
         .sort((x, y2) => y2.minutes - x.minutes),
       screenMinutes,
       notes: notes.sort((a, b) => a.entry.createdAt.localeCompare(b.entry.createdAt)),
-      system: system.sort((a, b) => a.t.localeCompare(b.t))
+      system: system.sort((a, b) => a.t.localeCompare(b.t)),
+      git: git.sort((a, b) => a.t.localeCompare(b.t))
     })
   }
   return out

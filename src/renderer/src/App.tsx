@@ -7,6 +7,8 @@ import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { PageDialog } from './components/PageDialog'
 import { Review } from './components/Review'
+import { Summary } from './components/Summary'
+import { QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
 import { CategoryView } from './components/CategoryView'
 import { Timeline } from './components/Timeline'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
@@ -39,7 +41,10 @@ export function App(): React.JSX.Element {
   const [today, setToday] = useState(localDate(new Date()))
   const [pages, setPages] = useState<PageMeta[]>([JOURNAL_PAGE])
   const [pageId, setPageId] = useState<string>(JOURNAL_PAGE_ID)
-  const [view, setView] = useState<'page' | 'review' | 'timeline' | 'category'>('page')
+  const [view, setView] = useState<'page' | 'review' | 'summary' | 'timeline' | 'category'>('page')
+  const [switcherOpen, setSwitcherOpen] = useState(false)
+  // Where the composer posts. Follows the open page but can be pointed elsewhere.
+  const [targetPageId, setTargetPageId] = useState<string>(JOURNAL_PAGE_ID)
   const [categoryPathSel, setCategoryPathSel] = useState<string[]>([])
   const [wikis, setWikis] = useState<WikiMeta[]>([])
   const [timelineDate, setTimelineDate] = useState<string>(localDate(new Date()))
@@ -60,6 +65,7 @@ export function App(): React.JSX.Element {
   pageIdRef.current = pageId
 
   const page = useMemo(() => pages.find((p) => p.id === pageId) ?? JOURNAL_PAGE, [pages, pageId])
+  const targetPage = useMemo(() => pages.find((p) => p.id === targetPageId) ?? JOURNAL_PAGE, [pages, targetPageId])
   const categories = useMemo(() => categorySuggestions(pages), [pages])
 
   const refreshPages = useCallback(async () => {
@@ -121,6 +127,8 @@ export function App(): React.JSX.Element {
       if (cmd === 'syncNow') void reported(api.sync.now())
       if (cmd === 'newPage') setPageDialog({ page: null })
       if (cmd === 'review') setView('review')
+      if (cmd === 'summary') setView('summary')
+      if (cmd === 'switcher') setSwitcherOpen((v) => !v)
       if (cmd === 'timeline') {
         setTimelineDate(localDate(new Date()))
         setView('timeline')
@@ -150,10 +158,37 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener('unhandledrejection', onRejection)
   }, [])
 
+  // Quick switcher: Ctrl/Cmd+K from anywhere outside the editor (Ctrl/Cmd+P arrives via the menu).
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.shiftKey) return
+      if (ev.key.toLowerCase() !== 'k') return
+      // Ctrl+K inside the editor is the link shortcut.
+      if ((ev.target as HTMLElement | null)?.closest('.ProseMirror')) return
+      ev.preventDefault()
+      setSwitcherOpen((v) => !v)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // The composer target follows the page being viewed.
+  useEffect(() => {
+    if (view === 'page') setTargetPageId(pageId)
+  }, [view, pageId])
+
   // Window title follows the view.
   useEffect(() => {
     const label =
-      view === 'review' ? 'Weekly review' : view === 'timeline' ? 'Timeline' : view === 'category' ? formatCategory(categoryPathSel) : pageLabelOf(pages, pageId)
+      view === 'review'
+        ? 'Weekly review'
+        : view === 'summary'
+          ? 'Summary'
+          : view === 'timeline'
+            ? 'Timeline'
+            : view === 'category'
+              ? formatCategory(categoryPathSel)
+              : pageLabelOf(pages, pageId)
     document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
   }, [view, categoryPathSel, pages, pageId, search])
 
@@ -239,6 +274,21 @@ export function App(): React.JSX.Element {
     setView('category')
   }, [])
 
+  const goTo = useCallback(
+    (target: SwitchTarget) => {
+      setSearch('')
+      if (target.kind === 'view') {
+        if (target.view === 'timeline') setTimelineDate(localDate(new Date()))
+        setView(target.view)
+      } else if (target.kind === 'category') openCategory(target.path)
+      else {
+        setView('page')
+        setPageId(target.pageId)
+      }
+    },
+    [openCategory]
+  )
+
   const jumpTo = useCallback((id: string, date: string) => {
     setSearch('')
     setView('page')
@@ -271,17 +321,20 @@ export function App(): React.JSX.Element {
         selection={
           view === 'review'
             ? { kind: 'review' }
-            : view === 'timeline'
-              ? { kind: 'timeline' }
-              : view === 'category'
-                ? { kind: 'category', path: categoryPathSel }
-                : { kind: 'page', pageId }
+            : view === 'summary'
+              ? { kind: 'summary' }
+              : view === 'timeline'
+                ? { kind: 'timeline' }
+                : view === 'category'
+                  ? { kind: 'category', path: categoryPathSel }
+                  : { kind: 'page', pageId }
         }
         search={search}
         onSearch={setSearch}
         onSelect={(sel: SidebarSelection) => {
           setSearch('')
           if (sel.kind === 'review') setView('review')
+          else if (sel.kind === 'summary') setView('summary')
           else if (sel.kind === 'timeline') setView('timeline')
           else if (sel.kind === 'category') openCategory(sel.path)
           else {
@@ -297,6 +350,7 @@ export function App(): React.JSX.Element {
           <Review
             pages={pages}
             today={today}
+            focusMinSeconds={settings.focusMinSeconds}
             onJumpTo={jumpTo}
             onOpenTimeline={(d) => {
               setTimelineDate(d)
@@ -304,7 +358,10 @@ export function App(): React.JSX.Element {
             }}
           />
         )}
-        {view === 'timeline' && !search && <Timeline pages={pages} today={today} date={timelineDate} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />}
+        {view === 'summary' && !search && <Summary pages={pages} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCategory={openCategory} onJumpTo={jumpTo} />}
+        {view === 'timeline' && !search && (
+          <Timeline pages={pages} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
+        )}
         {view === 'category' && !search && (
           <CategoryView
             key={formatCategory(categoryPathSel)}
@@ -341,24 +398,30 @@ export function App(): React.JSX.Element {
           onOpenCategory={openCategory}
         />
         )}
-        {view === 'page' && !page.archived && (
-        <div className="composer-dock">
-          <Composer
-            key={pageId}
-            mode="new"
-            placeholder={
-              page.id === JOURNAL_PAGE_ID
-                ? undefined
-                : `Write a note on ${page.title}…  Enter posts, Shift+Enter new line, paste or ${kbd('mod', 'shift', 'I')} for images`
-            }
-            assetPageId={pageId}
-            draftKey={`devlog:draft:${repo.path}:${pageId}`}
-            autoFocus
-            onSubmit={(md) => addEntry(pageId, md)}
-            onEditLast={editLast}
-            focusToken={focusToken}
-          />
-        </div>
+        {!search && !(view === 'page' && page.archived) && (
+          <div className="composer-dock">
+            <Composer
+              key={targetPageId}
+              mode="new"
+              placeholder={
+                targetPage.id === JOURNAL_PAGE_ID
+                  ? undefined
+                  : `Write a note on ${targetPage.title}…  Enter posts, Shift+Enter new line, paste or ${kbd('mod', 'shift', 'I')} for images`
+              }
+              assetPageId={targetPageId}
+              draftKey={`devlog:draft:${repo.path}:${targetPageId}`}
+              autoFocus={view === 'page'}
+              onSubmit={async (md) => {
+                await addEntry(targetPageId, md)
+                if (view !== 'page') showToast(`Posted to ${pageLabelOf(pages, targetPageId)}`)
+              }}
+              onEditLast={view === 'page' ? editLast : undefined}
+              focusToken={focusToken}
+              pages={pages}
+              targetPageId={targetPageId}
+              onTargetChange={setTargetPageId}
+            />
+          </div>
         )}
         <StatusBar
           status={sync}
@@ -374,6 +437,17 @@ export function App(): React.JSX.Element {
         />
       </main>
       <Toasts />
+      {switcherOpen && (
+        <QuickSwitcher
+          pages={pages}
+          wikis={wikis}
+          onPick={(t) => {
+            setSwitcherOpen(false)
+            goTo(t)
+          }}
+          onClose={() => setSwitcherOpen(false)}
+        />
+      )}
       {settingsOpen && (
         <SettingsDialog
           settings={settings}

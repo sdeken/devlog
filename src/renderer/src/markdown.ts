@@ -34,6 +34,7 @@ export function renderMarkdown(markdown: string): string {
     const src = img.getAttribute('src') ?? ''
     img.setAttribute('src', toAssetUrl(src))
     img.setAttribute('loading', 'lazy')
+    img.setAttribute('data-lightbox', '1')
   }
   for (const a of Array.from(doc.querySelectorAll('a'))) {
     a.setAttribute('rel', 'noopener')

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildReviewRows, computeWeekTime, estimateMinutes, formatMinutes, noteKey, weekDates, weekStart, type ReviewNote } from '../src/shared/review'
+import { buildReviewRows, computeWeekTime, estimateMinutes, formatHours, formatMinutes, noteKey, roundMinutes, weekDates, weekStart, type ReviewNote } from '../src/shared/review'
 import type { ActivityEvent } from '../src/shared/types'
 import type { PageMeta } from '../src/shared/types'
 
@@ -27,6 +27,15 @@ describe('time estimate', () => {
     expect(m.get(noteKey(notes[1]))).toBe(60) // 2h40 gap capped
     expect(m.get(noteKey(notes[2]))).toBe(15) // last of the day
     expect(m.get(noteKey(notes[3]))).toBe(15) // only note of its day
+  })
+
+  it('rounds to a granularity and formats hours', () => {
+    expect(roundMinutes(37, 15)).toBe(30)
+    expect(roundMinutes(38, 15)).toBe(45)
+    expect(roundMinutes(100, 16)).toBe(96)
+    expect(formatHours(450)).toBe('7.5 h')
+    expect(formatHours(45)).toBe('0.75 h')
+    expect(formatHours(0)).toBe('0 h')
   })
 
   it('formats minutes', () => {

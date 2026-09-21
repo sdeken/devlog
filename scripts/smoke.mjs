@@ -112,8 +112,11 @@ try {
   await page.keyboard.press('Control+Enter')
   await page.waitForFunction(() => document.querySelectorAll('.entry').length === 2, null, { timeout: 10_000 })
   check(true, 'Mod+Enter posts')
-  const feedImgOk = await page.locator('.entry .markdown-body img').first().evaluate((img) => img.complete && img.naturalWidth > 0)
-  check(feedImgOk, 'posted image renders in the feed')
+  await page.waitForFunction(() => {
+    const img = document.querySelector('.entry .markdown-body img')
+    return img && img.complete && img.naturalWidth > 0
+  }, null, { timeout: 10_000 })
+  check(true, 'posted image renders in the feed')
   const text2 = await fs.readFile(dayFile, 'utf8')
   check(/!\[shot]\(assets\/\d{4}-\d{2}-\d{2}-\d{6}-[a-z0-9]{4}\.png\)/.test(text2), 'image is linked relative to the day file')
   const assets = await fs.readdir(path.join(path.dirname(dayFile), 'assets'))
@@ -220,6 +223,14 @@ try {
   await page.locator('.entry-commit').first().hover()
   check((await page.locator('.entry-commit').first().locator('button', { hasText: 'Edit' }).count()) === 0, 'commit notes have no Edit action')
   check((await fs.readFile(acmeFile, 'utf8')).includes('kind=commit'), 'commit note stored with kind=commit')
+  // Branch work in the watched repo lands in the activity log (shown on the timeline), not as notes.
+  git(['checkout', '-q', '-b', 'feature/widget'], proj)
+  await page.waitForFunction(async () => {
+    const evs = await window.devlog.activity.range(new Date().toISOString().slice(0, 10), new Date().toISOString().slice(0, 10))
+    return evs.some((e) => e.type === 'git' && e.action === 'checkout' && e.branch === 'feature/widget')
+  }, null, { timeout: 30_000 })
+  check(true, 'switching branches in a watched repo is recorded as a git activity event')
+  check((await page.locator('.entry').count()) === 3, 'branch switch does not create a note')
   await page.screenshot({ path: path.join(shots, '02c-page.png') })
 
   await page.locator('.page-journal').click()
@@ -253,7 +264,14 @@ try {
   const wikiText = await fs.readFile(wikiFile, 'utf8')
   check(wikiText.includes('path: Acme Corp') && wikiText.includes('# Links') && wikiText.includes('issues.example.com'), 'wiki autosaves to categories/acme-corp/wiki.md')
   check((await page.locator('.category-pages .page-list li').count()) === 1, 'category view lists its pages')
+  await page.locator('.category-view button', { hasText: 'Done' }).click()
+  await page.waitForSelector('.wiki-read', { timeout: 10_000 })
+  check((await page.locator('.wiki-read a').count()) === 1, 'wiki read mode renders the link as a hyperlink')
+  check((await page.locator('.category-view .composer-editor').count()) === 0, 'wiki read mode hides the editor')
   await page.screenshot({ path: path.join(shots, '02c2-wiki.png') })
+  await page.locator('.category-view button', { hasText: 'Edit' }).click()
+  await page.waitForSelector('.category-view .composer-editor', { timeout: 10_000 })
+  check((await page.locator('.category-view .composer-editor').textContent()).includes('Links'), 'Edit reopens the wiki with its content')
 
   // 3d-archive. Archive the page: gone from the tree, still found by search, restorable.
   await page.locator('.category-pages .page-list .link').first().click()
@@ -296,15 +314,51 @@ try {
   check(tlText.includes('Website'), 'timeline bucket names the active task')
   check((await page.locator('.tlb-commit').count()) === 1, 'timeline shows the captured commit')
   check((await page.locator('.tlb-notes .tl-link').count()) >= 5, 'timeline lists the notes written in the interval')
+  const gitLines = await page.locator('.tlb-git li').allTextContents()
+  check(gitLines.some((t) => t.includes('switched to feature/widget')) && gitLines.some((t) => t.includes('created branch feature/widget')), `timeline lists branch events (${gitLines.join(' | ')})`)
+  check((await page.locator('.composer-dock .composer-target select').count()) === 1, 'composer stays available on the timeline with a page picker')
   await page.screenshot({ path: path.join(shots, '02e-timeline.png') })
   await page.locator('.tlb-notes .tl-link').last().click()
   await page.waitForSelector('.composer-new .composer-editor', { timeout: 10_000 })
   check(true, 'clicking a timeline note opens its page')
+
+  // 3g. Summary: hours per top-level item, rounded to the chosen granularity.
+  await page.locator('.page-summary').click()
+  await page.waitForSelector('.sum-list', { timeout: 10_000 })
+  const sumLabels = await page.locator('.sum-list > .sum-row > .sum-top > .sum-label').allTextContents()
+  check(sumLabels[0] === 'Acme Corp' && sumLabels.includes('Total'), `summary lists top-level items (${sumLabels.join(' | ')})`)
+  check(/^\d+(\.\d+)? h$/.test((await page.locator('.sum-list > .sum-row > .sum-top > .sum-hours').first().textContent()).trim()), 'summary shows rounded hours')
+  await page.locator('.sum-toggle').first().click()
+  check((await page.locator('.sum-children .sum-label').first().textContent()).includes('Web'), 'summary rows expand into projects')
+  await page.screenshot({ path: path.join(shots, '02f-summary.png') })
+
+  // 3h. Quick switcher jumps to a page by fuzzy name.
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('.switcher input', { timeout: 5_000 })
+  await page.keyboard.type('websit')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.page-head h2:has-text("Website")', { timeout: 10_000 })
+  check(true, 'quick switcher opens a page by fuzzy name')
+
+  // 3i. Pasting a stack trace becomes a code block without any markup.
+  const traceEditor = page.locator('.composer-new .composer-editor')
+  await traceEditor.click()
+  await page.evaluate(() => {
+    const trace = 'System.NullReferenceException: Object reference not set to an instance of an object.\n   at Acme.Web.Controllers.HomeController.Index() in C:\\src\\HomeController.cs:line 42\n   at lambda_method(Closure , Object , Object[] )'
+    const dt = new DataTransfer()
+    dt.setData('text/plain', trace)
+    document.querySelector('.composer-new .ProseMirror').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await page.waitForFunction(() => document.querySelector('.composer-new .ProseMirror pre') !== null, null, { timeout: 5_000 })
+  check(true, 'pasted stack trace lands in a code block')
+  await page.keyboard.press('Control+Enter')
+  await page.waitForFunction(() => document.querySelectorAll('.entry').length === 5, null, { timeout: 10_000 })
+  check((await page.locator('.entry pre').count()) >= 1, 'stack trace note renders as a code block')
   await page.locator('.page-journal').click()
   await page.waitForSelector('.page-head h2:has-text("Journal")')
 
   // 4. Sync runs (debounce is 2s) and pushes to the bare remote.
-  await page.waitForFunction(() => document.querySelector('.status-text')?.textContent === 'Up to date', null, { timeout: 30_000 })
+  await page.waitForFunction(() => [...document.querySelectorAll('.statusbar > .status-text')].at(-1)?.textContent === 'Up to date', null, { timeout: 30_000 })
   const remoteLog = git(['log', '--oneline', 'main'], bare)
   check(remoteLog.split('\n').length >= 1 && remoteLog.includes(`devlog: ${ymd}`), `changes pushed to the remote (${remoteLog.split('\n')[0]})`)
   check(git(['status', '--porcelain']) === '', 'working tree clean after sync')

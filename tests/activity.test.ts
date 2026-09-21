@@ -5,6 +5,8 @@ import {
   buildFocusSegments,
   buildTaskSegments,
   classifyApp,
+  cleanFocusSegments,
+  isIgnoredFocus,
   focusSummaryByDay,
   splitByLocalDay,
   taskMinutesByDay
@@ -12,7 +14,7 @@ import {
 import { normalizeDurationMarker, parseDurationMarker } from '../src/shared/entries'
 import type { ActivityEvent } from '../src/shared/types'
 
-const T = (h: number, m = 0, day = 14): string => new Date(2026, 8, day, h, m).toISOString()
+const T = (h: number, m = 0, day = 14): string => new Date(2026, 8, day, h, Math.floor(m), Math.round((m % 1) * 60)).toISOString()
 const ev = (type: ActivityEvent['type'], t: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ({ t, type, ...extra })
 const mins = (a: string, b: string): number => (new Date(b).getTime() - new Date(a).getTime()) / 60_000
 // Synthetic streams below carry no heartbeats; the real tracker emits one every 5 minutes.
@@ -172,5 +174,40 @@ describe('timeline buckets', () => {
   it('does not produce buckets in the future', () => {
     const buckets = bucketizeDay({ date: '2026-09-14', intervalMinutes: 30, taskSegments: [{ pageId: 'a', start: T(9), end: T(18), source: 'tracked' }], focusSegments: [], notes: [], events: [], now: T(10, 10) })
     expect(buckets).toHaveLength(3) // 9:00, 9:30, 10:00
+  })
+})
+
+describe('focus cleanup', () => {
+  const seg = (app: string, title: string, a: string, b: string) => ({ app, title, kind: classifyApp(app, title), start: a, end: b })
+
+  it('recognises window-manager chrome', () => {
+    expect(isIgnoredFocus('explorer', 'Task Switching')).toBe(true)
+    expect(isIgnoredFocus('explorer', '')).toBe(true)
+    expect(isIgnoredFocus('explorer', 'Downloads')).toBe(false)
+    expect(isIgnoredFocus('SearchHost', 'Search')).toBe(true)
+    expect(isIgnoredFocus('LockApp', '')).toBe(true)
+    expect(isIgnoredFocus('Code', 'a.ts')).toBe(false)
+  })
+
+  it('drops the task switcher, folds brief flips into their neighbour and merges identical windows', () => {
+    const segs = [
+      seg('Code', 'a.ts', T(9, 0), T(9, 10)),
+      seg('explorer', 'Task Switching', T(9, 10), T(9, 10.02)), // 1.2 s of alt-tab UI
+      seg('chrome', 'Docs', T(9, 10.02), T(9, 10.05)), // 1.8 s "wrong window"
+      seg('OUTLOOK', 'Inbox', T(9, 10.05), T(9, 20)),
+      seg('OUTLOOK', 'Inbox', T(9, 20), T(9, 25)),
+      seg('Code', 'b.ts', T(9, 25), T(9, 30))
+    ]
+    const out = cleanFocusSegments(segs, { minSeconds: 5 })
+    expect(out.map((s) => [s.app, s.title, mins(s.start, s.end)])).toEqual([
+      ['Code', 'a.ts', 10.05],
+      ['OUTLOOK', 'Inbox', 14.95],
+      ['Code', 'b.ts', 5]
+    ])
+  })
+
+  it('folds a brief first flip forward into the next window', () => {
+    const out = cleanFocusSegments([seg('chrome', 'x', T(9), T(9, 0.03)), seg('Code', 'a', T(9, 0.03), T(9, 5))], { minSeconds: 5 })
+    expect(out.map((s) => [s.app, mins(s.start, s.end)])).toEqual([['Code', 5]])
   })
 })

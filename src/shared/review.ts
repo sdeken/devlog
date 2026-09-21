@@ -11,6 +11,7 @@ import {
   applyExplicitDurations,
   buildFocusSegments,
   buildTaskSegments,
+  cleanFocusSegments,
   focusSummaryByDay,
   taskMinutesByDay,
   type AppSummary,
@@ -84,6 +85,18 @@ export function estimateMinutes(notes: ReviewNote[], opts: EstimateOptions = DEF
   return out
 }
 
+/** Round minutes to the nearest multiple of `granularity` (e.g. 15 for quarter hours). */
+export function roundMinutes(minutes: number, granularity: number): number {
+  const g = Math.max(1, granularity)
+  return Math.round(minutes / g) * g
+}
+
+/** "7.25 h" style, for billing-like summaries. */
+export function formatHours(minutes: number): string {
+  const h = minutes / 60
+  return `${(Math.round(h * 100) / 100).toFixed(2).replace(/\.?0+$/, '')} h`
+}
+
 export function formatMinutes(minutes: number): string {
   const m = Math.round(minutes)
   if (m <= 0) return '0m'
@@ -117,6 +130,8 @@ export interface WeekTimeOptions {
   now?: string
   /** Liveness window for segment building; defaults to the tracker's heartbeat. */
   heartbeatMs?: number
+  /** Focus flips shorter than this are folded away in screen-time figures. */
+  focusMinSeconds?: number
 }
 
 /** Turn a week's notes and activity events into minutes per page per day. */
@@ -133,7 +148,7 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
   }
   const segOpts = { now: opts.now, heartbeatMs: opts.heartbeatMs }
   const tracked = applyExplicitDurations(buildTaskSegments(events, segOpts), explicit)
-  const focusSegments = buildFocusSegments(events, segOpts)
+  const focusSegments = cleanFocusSegments(buildFocusSegments(events, segOpts), { minSeconds: opts.focusMinSeconds ?? 5 })
   const byPageDay = taskMinutesByDay(tracked)
   const method = new Map<string, DayMethod>()
   const datesWithEvents = new Set(events.map((e) => localDate(new Date(e.t))))

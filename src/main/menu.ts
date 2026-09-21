@@ -9,6 +9,8 @@ export interface MenuActions {
   attachImage: () => void
   newPage: () => void
   review: () => void
+  summary: () => void
+  switcher: () => void
   timeline: () => void
   stopTask: () => void
   quit: () => void
@@ -77,6 +79,8 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
     label: 'View',
     submenu: [
       { label: 'Weekly Review', accelerator: 'CmdOrCtrl+Shift+R', click: actions.review },
+      { label: 'Summary', accelerator: 'CmdOrCtrl+Shift+H', click: actions.summary },
+      { label: 'Go to Page…', accelerator: 'CmdOrCtrl+P', click: actions.switcher },
       { label: 'Day Timeline', accelerator: 'CmdOrCtrl+Shift+T', click: actions.timeline },
       { type: 'separator' },
       { role: 'reload' },
