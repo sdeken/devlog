@@ -193,9 +193,12 @@ drives the per-day detail, which also lists the day's task segments and its
 screen time by app kind (`classifyApp`: a small rule table over process names
 and titles) and by app with the top titles on hover.
 
-The **Timeline** view merges notes, system events and focus runs for one day
-into a single list; consecutive focus events for the same app collapse into
-one row that expands to the individual titles.
+The **Timeline** view slices one day into fixed intervals (`bucketizeDay` in
+`activity.ts`): per bucket, the overlap of every task and focus segment, the
+notes written, and the system events. Overlap rather than "event inside
+bucket" is what keeps a 3-hour Code session visible as 12 rows of "Code 15m"
+rather than one row at its start. Empty buckets are dropped and rendered as
+a gap line, so a lunch break is one line, not four empty ones.
 
 ### Auto-update
 

@@ -291,12 +291,13 @@ try {
 
   // 3f. Day timeline merges notes, task switches and commits.
   await page.locator('.page-timeline').click()
-  await page.waitForSelector('.tl-row', { timeout: 10_000 })
-  const tlText = await page.locator('.tl').textContent()
-  check(tlText.includes('Task →') && tlText.includes('Task stopped'), 'timeline shows task start and stop')
-  check((await page.locator('.tl-commit').count()) === 1, 'timeline shows the captured commit')
+  await page.waitForSelector('.tlb', { timeout: 10_000 })
+  const tlText = await page.locator('.tlb-list').textContent()
+  check(tlText.includes('Website'), 'timeline bucket names the active task')
+  check((await page.locator('.tlb-commit').count()) === 1, 'timeline shows the captured commit')
+  check((await page.locator('.tlb-notes .tl-link').count()) >= 5, 'timeline lists the notes written in the interval')
   await page.screenshot({ path: path.join(shots, '02e-timeline.png') })
-  await page.locator('.tl-note .tl-link').last().click()
+  await page.locator('.tlb-notes .tl-link').last().click()
   await page.waitForSelector('.composer-new .composer-editor', { timeout: 10_000 })
   check(true, 'clicking a timeline note opens its page')
   await page.locator('.page-journal').click()

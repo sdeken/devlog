@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   applyExplicitDurations,
+  bucketizeDay,
   buildFocusSegments,
   buildTaskSegments,
   classifyApp,
@@ -127,5 +128,49 @@ describe('focus', () => {
     expect(day.kinds.get('meeting')).toBe(15)
     expect(day.apps[0]).toMatchObject({ app: 'Code', minutes: 60 })
     expect(day.apps[0].titles.map((t) => t.title)).toEqual(['a.ts', 'b.ts'])
+  })
+})
+
+describe('timeline buckets', () => {
+  it('summarises tasks, apps, notes and system events per interval and skips empty ones', () => {
+    const events = [
+      ev('task', T(9), { pageId: 'acme' }),
+      ev('focus', T(9), { app: 'Code', title: 'a.ts' }),
+      ev('focus', T(9, 10), { app: 'chrome', title: 'Docs' }),
+      ev('lock', T(9, 20)),
+      ev('unlock', T(11)),
+      ev('focus', T(11), { app: 'Code', title: 'b.ts' }),
+      ev('task', T(11, 5), { pageId: 'globex' }),
+      ev('stop', T(11, 20))
+    ]
+    const tasks = buildTaskSegments(events, ALIVE)
+    const focus = buildFocusSegments(events, ALIVE)
+    const notes = [{ pageId: 'acme', entry: { id: 'n1', createdAt: T(9, 3), markdown: 'hi' } }]
+    const buckets = bucketizeDay({ date: '2026-09-14', intervalMinutes: 15, taskSegments: tasks, focusSegments: focus, notes, events, now: T(12) })
+    expect(buckets.map((b) => new Date(b.start).getHours() * 60 + new Date(b.start).getMinutes())).toEqual([540, 555, 660, 675])
+    const first = buckets[0]
+    expect(first.tasks).toEqual([{ pageId: 'acme', minutes: 15, source: 'tracked' }])
+    expect(first.apps.map((a) => [a.app, a.minutes])).toEqual([
+      ['Code', 10],
+      ['chrome', 5]
+    ])
+    expect(first.apps[0].titles).toEqual([{ title: 'a.ts', minutes: 10 }])
+    expect(first.screenMinutes).toBe(15)
+    expect(first.notes.map((n) => n.entry.id)).toEqual(['n1'])
+    const second = buckets[1]
+    expect(second.tasks[0].minutes).toBe(5) // 9:15–9:20, then locked
+    expect(second.system.map((e) => e.type)).toEqual(['lock'])
+    const third = buckets[2]
+    expect(third.system.map((e) => e.type)).toEqual(['unlock'])
+    expect(third.tasks.map((t) => [t.pageId, t.minutes])).toEqual([
+      ['acme', 5],
+      ['globex', 10]
+    ])
+    expect(buckets[3].system.map((e) => e.type)).toEqual(['stop'])
+  })
+
+  it('does not produce buckets in the future', () => {
+    const buckets = bucketizeDay({ date: '2026-09-14', intervalMinutes: 30, taskSegments: [{ pageId: 'a', start: T(9), end: T(18), source: 'tracked' }], focusSegments: [], notes: [], events: [], now: T(10, 10) })
+    expect(buckets).toHaveLength(3) // 9:00, 9:30, 10:00
   })
 })

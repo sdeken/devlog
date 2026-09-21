@@ -175,10 +175,12 @@ timestamps instead (each note counts until the next one, capped at an hour).
 
 ## Timeline
 
-**Timeline** (⌘⇧T) shows one day as a single chronological list: notes and
-captured commits, task starts and stops, lock/idle/sleep, and foreground
-windows grouped into runs per app that expand to show each window title with
-its duration. Click a note to open it on its page.
+**Timeline** (⌘⇧T) shows one day sliced into fixed intervals (5, 15, 30 or 60
+minutes, your choice). Each interval shows the task that was active, the notes
+and captured commits written in it, system events such as lock or sleep, and
+the apps that were in front with minutes each; click the app chips to see the
+window titles behind them. Quiet intervals are collapsed into a "nothing
+recorded" line. Click a note to open it on its page.
 
 A day file looks like this:
 

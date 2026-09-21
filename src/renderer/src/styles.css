@@ -2123,3 +2123,178 @@ body[data-platform='darwin'] .sidebar-head {
   background: rgba(255, 255, 255, 0.2);
   background-clip: padding-box;
 }
+
+/* The grid row must never grow past the window, or nothing inside can scroll. */
+.app {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.main,
+.sidebar {
+  min-height: 0;
+  height: auto;
+}
+
+/* ------------------------------------------------------ bucketed timeline */
+
+.tlb-list {
+  list-style: none;
+  margin: 8px 0 24px;
+  padding: 0;
+}
+
+.tlb {
+  border-top: 1px solid var(--border);
+  padding: 8px 0 8px;
+}
+
+.tlb-idle .tlb-task {
+  color: var(--fg-muted);
+}
+
+.tlb-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.tlb-head time {
+  flex: none;
+  width: 132px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+}
+
+.tlb-dash {
+  margin: 0 4px;
+}
+
+.tlb-task {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tlb-notask {
+  font-weight: 400;
+  font-style: italic;
+}
+
+.tlb-kinds {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.tlb-screen {
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tlb-notes,
+.tlb-system {
+  list-style: none;
+  margin: 4px 0 0 132px;
+  padding: 0;
+}
+
+.tlb-notes .tl-link {
+  padding: 3px 6px;
+}
+
+.tlb-notes .tl-link time {
+  width: 60px;
+  flex: none;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.tlb-commit .tl-page::before {
+  content: '⎇ ';
+  color: var(--accent);
+}
+
+.tlb-system li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  font-size: 12px;
+  color: var(--fg-muted);
+  font-style: italic;
+  padding: 2px 6px;
+}
+
+.tlb-system time {
+  width: 60px;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-style: normal;
+}
+
+.tlb-apps {
+  margin: 4px 0 0 132px;
+}
+
+.tlb-apps-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+}
+
+.tlb-apps-toggle:hover {
+  background: var(--bg-2);
+}
+
+.app-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px 1px 6px;
+}
+
+.app-chip-min {
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.tlb-apps-caret {
+  color: var(--fg-muted);
+  font-size: 11px;
+}
+
+.tlb-apps .tl-titles {
+  margin: 4px 0 0 6px;
+}
+
+.tlb-apps .tl-titles li {
+  gap: 8px;
+}
+
+.tlb-gap {
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 6px 0;
+  border-top: 1px dashed var(--border);
+}

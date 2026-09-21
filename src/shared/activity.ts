@@ -4,7 +4,7 @@
  * and per-day roll-ups. No I/O.
  */
 import { localDate } from './entries'
-import type { ActivityEvent } from './types'
+import type { ActivityEvent, Entry } from './types'
 
 export const HEARTBEAT_MS = 5 * 60_000
 
@@ -302,6 +302,107 @@ export function focusSummaryByDay(segments: FocusSegment[]): Map<string, { apps:
       })
     }
     out.set(date, { apps: list.sort((x, y) => y.minutes - x.minutes), kinds, total })
+  }
+  return out
+}
+
+// ---------------------------------------------------------------------------
+// Interval buckets for the day timeline
+// ---------------------------------------------------------------------------
+
+export interface TimelineNote {
+  pageId: string
+  entry: Entry
+}
+
+export interface TimelineBucket {
+  start: string
+  end: string
+  /** Active tasks overlapping the bucket, in order of first appearance. */
+  tasks: Array<{ pageId: string; minutes: number; source: TaskSegment['source'] }>
+  /** Foreground apps overlapping the bucket, most-used first, with titles. */
+  apps: AppSummary[]
+  screenMinutes: number
+  notes: TimelineNote[]
+  /** Lock/unlock, idle/active, sleep/wake, start/stop inside the bucket. */
+  system: ActivityEvent[]
+}
+
+export interface BucketOptions {
+  date: string
+  intervalMinutes: number
+  taskSegments: TaskSegment[]
+  focusSegments: FocusSegment[]
+  notes: TimelineNote[]
+  events: ActivityEvent[]
+  /** Buckets after this instant are not produced (defaults to now). */
+  now?: string
+}
+
+const SYSTEM_TYPES = new Set<ActivityEvent['type']>(['start', 'stop', 'lock', 'unlock', 'idle', 'active', 'suspend', 'resume'])
+
+/**
+ * Slice a local day into fixed intervals and summarise what happened in
+ * each: which task was active, which apps were in front (with minutes and
+ * titles), the notes written, and system events. Empty intervals are
+ * dropped, so the caller can render a gap between non-adjacent buckets.
+ */
+export function bucketizeDay(opts: BucketOptions): TimelineBucket[] {
+  const [y, m, d] = opts.date.split('-').map(Number)
+  const dayStart = new Date(y, m - 1, d).getTime()
+  const dayEnd = new Date(y, m - 1, d + 1).getTime()
+  const nowMs = opts.now ? ms(opts.now) : Date.now()
+  const step = Math.max(1, opts.intervalMinutes) * 60_000
+  const overlap = (a0: number, a1: number, b0: number, b1: number): number => Math.max(0, Math.min(a1, b1) - Math.max(a0, b0))
+  const out: TimelineBucket[] = []
+  for (let b0 = dayStart; b0 < dayEnd && b0 < nowMs; b0 += step) {
+    const b1 = Math.min(b0 + step, dayEnd)
+    const tasks = new Map<string, { pageId: string; minutes: number; source: TaskSegment['source'] }>()
+    for (const seg of opts.taskSegments) {
+      const o = overlap(ms(seg.start), ms(seg.end), b0, b1)
+      if (o <= 0) continue
+      const cur = tasks.get(seg.pageId)
+      if (cur) cur.minutes += o / 60_000
+      else tasks.set(seg.pageId, { pageId: seg.pageId, minutes: o / 60_000, source: seg.source })
+    }
+    const apps = new Map<string, { kind: AppKind; minutes: number; titles: Map<string, number> }>()
+    let screenMinutes = 0
+    for (const seg of opts.focusSegments) {
+      const o = overlap(ms(seg.start), ms(seg.end), b0, b1)
+      if (o <= 0) continue
+      const key = seg.app.replace(/\.exe$/i, '') || '(unknown)'
+      if (!apps.has(key)) apps.set(key, { kind: seg.kind, minutes: 0, titles: new Map() })
+      const a = apps.get(key)!
+      a.minutes += o / 60_000
+      a.titles.set(seg.title, (a.titles.get(seg.title) ?? 0) + o / 60_000)
+      screenMinutes += o / 60_000
+    }
+    const notes = opts.notes.filter((n) => {
+      const t = ms(n.entry.createdAt)
+      return t >= b0 && t < b1
+    })
+    const system = opts.events.filter((e) => {
+      if (!SYSTEM_TYPES.has(e.type)) return false
+      const t = ms(e.t)
+      return t >= b0 && t < b1
+    })
+    if (tasks.size === 0 && apps.size === 0 && notes.length === 0 && system.length === 0) continue
+    out.push({
+      start: iso(b0),
+      end: iso(b1),
+      tasks: [...tasks.values()],
+      apps: [...apps.entries()]
+        .map(([app, a]) => ({
+          app,
+          kind: a.kind,
+          minutes: a.minutes,
+          titles: [...a.titles.entries()].map(([title, minutes]) => ({ title, minutes })).sort((x, y2) => y2.minutes - x.minutes)
+        }))
+        .sort((x, y2) => y2.minutes - x.minutes),
+      screenMinutes,
+      notes: notes.sort((a, b) => a.entry.createdAt.localeCompare(b.entry.createdAt)),
+      system: system.sort((a, b) => a.t.localeCompare(b.t))
+    })
   }
   return out
 }
