@@ -230,6 +230,27 @@ export function Composer({
     return () => clearActiveComposer(sink)
   }, [autoFocus, sink])
 
+  // Edits in progress hold off an update restart. New-note drafts persist in
+  // localStorage, so only edit/reply/insert composers and pending wiki saves count.
+  const busyRef = useRef(false)
+  const setBusy_ = (b: boolean): void => {
+    if (busyRef.current === b) return
+    busyRef.current = b
+    api.updates.setEditorBusy(b)
+  }
+  useEffect(() => {
+    if (mode === 'new') return
+    const tick = setInterval(() => {
+      const e = editorRef.current
+      const dirty = isDocument ? pendingDoc.current !== null : !!e && hasContent(e)
+      setBusy_(dirty)
+    }, 1000)
+    return () => {
+      clearInterval(tick)
+      setBusy_(false)
+    }
+  }, [mode, isDocument])
+
   // Document mode: never lose the last edit when the view or the window goes away.
   useEffect(() => {
     if (!isDocument) return

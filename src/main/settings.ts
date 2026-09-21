@@ -45,7 +45,8 @@ function sanitize(s: Settings): Settings {
     trackFocus: s.trackFocus !== false,
     idleMinutes: clamp(Number.isFinite(Number(s.idleMinutes)) ? Number(s.idleMinutes) : DEFAULT_SETTINGS.idleMinutes, 0, 240),
     activityInRepo: Boolean(s.activityInRepo),
-    captureCommits: s.captureCommits !== false
+    captureCommits: s.captureCommits !== false,
+    autoUpdate: s.autoUpdate !== false
   }
 }
 

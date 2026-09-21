@@ -197,6 +197,27 @@ The **Timeline** view merges notes, system events and focus runs for one day
 into a single list; consecutive focus events for the same app collapse into
 one row that expands to the individual titles.
 
+### Auto-update
+
+`electron-updater` against GitHub Releases, `autoDownload` on, no UI. The
+only decision the app makes is *when* to restart, and that lives in
+`src/shared/updates.ts` as a pure function over signals the main process
+samples once a minute: screen locked (`powerMonitor`), window visible and
+focused, system idle seconds, sync in flight, and an "editor busy" count the
+renderer maintains for edit/reply/insert composers with text and pending
+wiki saves. Locked, or hidden and idle, or unfocused and idle for ten
+minutes, or idle for fifteen, means install now; an update older than a day
+installs at the first minute without input. The first two minutes after
+launch and any moment with a sync or an unsaved edit are always off-limits.
+
+Installing runs the same shutdown work as quitting (tracker `stop` event,
+final commit and push), then `quitAndInstall(silent, runAfter)`, so the new
+version relaunches by itself and restores the active task from user data.
+`autoInstallOnAppQuit` covers the case where the user quits first. Releases
+are gated in CI on the smoke test, which is the practical guarantee behind
+"the new version is working": a build that cannot post a note, sync, or
+show the review never gets a `latest.yml`.
+
 ## Editor
 
 TipTap 3 with StarterKit, the official `@tiptap/markdown` extension for

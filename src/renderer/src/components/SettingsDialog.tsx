@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { RepoInfo, Settings } from '@shared/types'
+import type { RepoInfo, Settings, UpdateStatus } from '@shared/types'
 import { api } from '@renderer/api'
 
 interface Props {
@@ -15,6 +15,12 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
   const [remote, setRemote] = useState(repo?.remoteUrl ?? '')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [update, setUpdate] = useState<UpdateStatus | null>(null)
+
+  useEffect(() => {
+    void api.updates.status().then(setUpdate)
+    return api.updates.onStatus(setUpdate)
+  }, [])
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
@@ -127,6 +133,32 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             as read-only notes
           </label>
           <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
+        </section>
+
+        <section>
+          <h3>Updates</h3>
+          <label className="check">
+            <input type="checkbox" checked={form.autoUpdate} onChange={(ev) => set('autoUpdate', ev.target.checked)} /> Update automatically in the
+            background and restart at a quiet moment
+          </label>
+          <p className="hint update-line">
+            Version {update?.currentVersion ?? '…'}
+            {update?.state === 'unavailable' && ' · updates only apply to installed builds'}
+            {update?.state === 'checking' && ' · checking…'}
+            {update?.state === 'downloading' && ` · downloading ${update.availableVersion ?? ''}${update.progress !== undefined ? ` (${update.progress}%)` : ''}`}
+            {update?.state === 'downloaded' && ` · ${update.availableVersion} downloaded, installs when the app is idle, hidden or the screen is locked`}
+            {update?.state === 'installing' && ' · restarting into the update…'}
+            {update?.state === 'idle' && update.checkedAt && ` · up to date (checked ${new Date(update.checkedAt).toLocaleTimeString()})`}
+            {update?.state === 'error' && ` · update check failed: ${update.error}`}
+            {update && update.state !== 'unavailable' && update.state !== 'checking' && update.state !== 'downloading' && update.state !== 'installing' && (
+              <>
+                {' '}
+                <button type="button" className="link" onClick={() => void api.updates.check()}>
+                  Check now
+                </button>
+              </>
+            )}
+          </p>
         </section>
 
         <section>

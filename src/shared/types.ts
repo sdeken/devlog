@@ -138,6 +138,8 @@ export interface Settings {
   activityInRepo: boolean
   /** Capture commits from page repositories as read-only notes. */
   captureCommits: boolean
+  /** Download releases in the background and restart into them at a quiet moment. */
+  autoUpdate: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -153,7 +155,8 @@ export const DEFAULT_SETTINGS: Settings = {
   trackFocus: true,
   idleMinutes: 10,
   activityInRepo: false,
-  captureCommits: true
+  captureCommits: true,
+  autoUpdate: true
 }
 
 export type SyncState =
@@ -234,4 +237,20 @@ export interface TrackerStatus {
   pausedReason: 'locked' | 'idle' | 'suspended' | null
   focusAvailable: boolean
   lastFocus: { app: string; title: string } | null
+}
+
+// ---------------------------------------------------------------------------
+// Auto-update
+// ---------------------------------------------------------------------------
+
+export type UpdateState = 'unavailable' | 'idle' | 'checking' | 'downloading' | 'downloaded' | 'installing' | 'error'
+
+export interface UpdateStatus {
+  state: UpdateState
+  currentVersion: string
+  availableVersion: string | null
+  /** Download progress percent while downloading. */
+  progress?: number
+  checkedAt: string | null
+  error: string | null
 }

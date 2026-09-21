@@ -16,6 +16,7 @@ import type {
   SyncStatus,
   Timeline,
   TrackerStatus,
+  UpdateStatus,
   Wiki,
   WikiMeta
 } from '../shared/types'
@@ -89,6 +90,13 @@ const api = {
     status: (): Promise<TrackerStatus | null> => ipcRenderer.invoke(IPC.trackerStatus),
     setTask: (pageId: string | null): Promise<void> => ipcRenderer.invoke(IPC.trackerSetTask, pageId),
     onStatus: (cb: (status: TrackerStatus) => void): Unsubscribe => on(IPC.evTrackerStatus, cb)
+  },
+  updates: {
+    status: (): Promise<UpdateStatus> => ipcRenderer.invoke(IPC.updateStatus),
+    check: (): Promise<void> => ipcRenderer.invoke(IPC.updateCheck),
+    onStatus: (cb: (status: UpdateStatus) => void): Unsubscribe => on(IPC.evUpdateStatus, cb),
+    /** Tell main an editor holds unsaved text so an update restart waits. */
+    setEditorBusy: (busy: boolean): void => ipcRenderer.send(IPC.editorBusy, busy)
   },
   sync: {
     now: (): Promise<unknown> => ipcRenderer.invoke(IPC.syncNow),

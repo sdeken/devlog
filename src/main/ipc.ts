@@ -1,6 +1,6 @@
 import { ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { ActivityEvent, Entry, EntryPosition, PageInput, RepoInfo, Settings, TrackerStatus } from '@shared/types'
+import type { ActivityEvent, Entry, EntryPosition, PageInput, RepoInfo, Settings, TrackerStatus, UpdateStatus } from '@shared/types'
 import type { DevlogStore } from './devlog/store'
 import type { SyncManager } from './devlog/sync'
 import type { SettingsStore } from './settings'
@@ -21,6 +21,9 @@ export interface IpcDeps {
   activityRange: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
   trackerStatus: () => TrackerStatus | null
   trackerSetTask: (pageId: string | null) => Promise<void>
+  updateStatus: () => UpdateStatus
+  updateCheck: () => Promise<void>
+  setEditorBusy: (busy: boolean) => void
 }
 
 function requireStore(deps: IpcDeps): DevlogStore {
@@ -136,6 +139,10 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.activityRange, (_e, fromDate: string, toDate: string) => deps.activityRange(fromDate, toDate))
   ipcMain.handle(IPC.trackerStatus, () => deps.trackerStatus())
   ipcMain.handle(IPC.trackerSetTask, (_e, pageId: string | null) => deps.trackerSetTask(pageId))
+
+  ipcMain.handle(IPC.updateStatus, () => deps.updateStatus())
+  ipcMain.handle(IPC.updateCheck, () => deps.updateCheck())
+  ipcMain.on(IPC.editorBusy, (_e, busy: boolean) => deps.setEditorBusy(Boolean(busy)))
 
   ipcMain.handle(IPC.syncNow, () => deps.getSync()?.syncNow('manual') ?? null)
   ipcMain.handle(IPC.syncStatus, () => deps.getSync()?.getStatus() ?? null)

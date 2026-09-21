@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, screen, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerMonitor, screen, shell } from 'electron'
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { IPC, type MenuCommand } from '@shared/ipc'
@@ -10,6 +10,7 @@ import { ActivityLog } from './activity/log'
 import { Tracker } from './activity/tracker'
 import { CommitWatcher, commitMarkdown, type CommitInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
+import { Updater } from './updates'
 import { SyncManager, type SyncOptions } from './devlog/sync'
 import { SettingsStore } from './settings'
 import { installAssetHandler, registerAssetScheme } from './protocol'
@@ -40,6 +41,10 @@ let tray: Tray | null = null
 let quitting = false
 /** Page id → "Client / Project / Title", for the tray. */
 let pageLabels = new Map<string, string>()
+let updater: Updater | null = null
+let screenLocked = false
+/** Editors with unsaved text, as reported by the renderer. */
+let editorBusyCount = 0
 
 const activityLog = new ActivityLog(() => {
   const s = settings.get()
@@ -193,10 +198,18 @@ function updateTray(st: TrackerStatus | null): void {
     : st.activePageId
       ? `Devlog · ${pageLabels.get(st.activePageId) ?? st.activePageId}${st.paused ? ' (paused)' : ''}`
       : 'Devlog · no active task'
-  tray.setToolTip(label)
+  const up = updater?.getStatus()
+  const upLabel =
+    up?.state === 'downloaded'
+      ? `Update ${up.availableVersion} ready · installs when idle`
+      : up?.state === 'downloading'
+        ? `Downloading update ${up.availableVersion ?? ''}…`
+        : null
+  tray.setToolTip(upLabel ? `${label}\n${upLabel}` : label)
   tray.setContextMenu(
     Menu.buildFromTemplate([
       { label: label, enabled: false },
+      ...(upLabel ? [{ label: upLabel, enabled: false } as Electron.MenuItemConstructorOptions] : []),
       { type: 'separator' },
       { label: 'Open Devlog', click: () => showWindow() },
       { label: 'Stop Active Task', enabled: !!st?.activePageId, click: () => void tracker?.setTask(null) },
@@ -313,6 +326,9 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  win.webContents.on('did-start-loading', () => {
+    editorBusyCount = 0
+  })
   win.on('ready-to-show', () => {
     if (state.maximized) win.maximize()
     win.show()
@@ -389,6 +405,13 @@ if (!gotLock) {
       trackerStatus: () => tracker?.getStatus() ?? null,
       trackerSetTask: async (pageId) => {
         await tracker?.setTask(pageId)
+      },
+      updateStatus: () => updater?.getStatus() ?? { state: 'unavailable', currentVersion: app.getVersion(), availableVersion: null, checkedAt: null, error: null },
+      updateCheck: async () => {
+        await updater?.check()
+      },
+      setEditorBusy: (busy) => {
+        editorBusyCount = Math.max(0, editorBusyCount + (busy ? 1 : -1))
       }
     })
 
@@ -463,14 +486,41 @@ if (!gotLock) {
     if (quitHandled) return
     quitHandled = true
     event.preventDefault()
-    const work = (async () => {
-      await tracker?.stop().catch(() => undefined)
-      commits?.stop()
-      if (sync && settings.get().commitOnQuit) await sync.syncNow('quit')
-    })()
     const timeout = new Promise<void>((resolve) => setTimeout(resolve, 20_000))
-    Promise.race([work.then(() => undefined), timeout])
+    Promise.race([shutdownWork(), timeout])
       .catch(() => undefined)
       .finally(() => app.quit())
+  })
+
+  /** Runs once before the process goes away: stop tracking, final sync. */
+  async function shutdownWork(): Promise<void> {
+    quitting = true
+    quitHandled = true
+    updater?.stop()
+    await tracker?.stop().catch(() => undefined)
+    commits?.stop()
+    if (sync && settings.get().commitOnQuit) await sync.syncNow('quit')
+  }
+
+  app.whenReady().then(() => {
+    powerMonitor.on('lock-screen', () => (screenLocked = true))
+    powerMonitor.on('unlock-screen', () => (screenLocked = false))
+    updater = new Updater({
+      enabled: () => settings.get().autoUpdate,
+      windowVisible: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized(),
+      windowFocused: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(),
+      locked: () => screenLocked,
+      syncBusy: () => {
+        const st = sync?.getStatus().state
+        return st === 'committing' || st === 'pulling' || st === 'pushing'
+      },
+      editorBusy: () => editorBusyCount > 0,
+      prepareQuit: shutdownWork
+    })
+    updater.on('status', (st) => {
+      send(IPC.evUpdateStatus, st)
+      updateTray(tracker?.getStatus() ?? null)
+    })
+    updater.start()
   })
 }

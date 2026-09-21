@@ -4,6 +4,11 @@ directories:
   buildResources: build
   output: release
 icon: build/icon.png
+publish:
+  provider: github
+  owner: sdeken
+  repo: devlog
+  releaseType: release
 files:
   - out/**
   - package.json
@@ -14,6 +19,12 @@ mac:
   target: [dmg, zip]
 win:
   target: [nsis]
+  artifactName: ${productName}-Setup-${version}.${ext}
+nsis:
+  oneClick: true
+  perMachine: false
+  allowToChangeInstallationDirectory: false
+  deleteAppDataOnUninstall: false
 linux:
   target: [AppImage, deb]
   category: Office

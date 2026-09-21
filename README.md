@@ -45,6 +45,9 @@ repository, and committed and pushed automatically.
 - **Pasted images just work.** Paste or drop an image into the composer and it
   is saved into the repository next to the day's entry and linked relatively,
   so the log also renders on GitHub.
+- **Updates itself.** Releases are checked for in the background, downloaded
+  silently, and installed by restarting at a quiet moment (screen locked,
+  window hidden, or input idle), never mid-edit and never with a dialog.
 - **Git is the database.** One Markdown file per day, one folder per month.
   Nothing proprietary: the repo is readable and editable with any tool.
 - **Automatic save, commit and push.** Every post is written to disk
@@ -223,6 +226,30 @@ already on disk.
 All settings (sync interval, debounce, push/pull toggles, commit author,
 remote URL) live under **Settings** (⌘,).
 
+## Updates and releases
+
+Installed builds check GitHub Releases shortly after launch and every four
+hours, download a newer version in the background, and restart into it when
+the app is not in use: the screen is locked, the window is hidden or
+unfocused and there has been no input for a while, or an update has been
+waiting for a day and you pause typing. An open edit, reply, insert or an
+unsaved wiki change always holds the restart. There is no prompt; Settings
+shows the version and update state and has a switch to turn it off. The
+active task survives the restart, so tracking loses only a few seconds.
+
+To cut a release, bump the version and tag it:
+
+```sh
+npm version minor      # or patch / major; commits and tags vX.Y.Z
+git push --follow-tags
+```
+
+CI then runs typecheck, unit tests, the build and the Playwright smoke test;
+only if all pass does it package Windows and macOS builds and publish a GitHub
+release with the installers and the `latest*.yml` manifests that installed
+apps read. macOS apps must be code-signed for auto-update to apply; unsigned
+macOS builds still run but will not self-update.
+
 ## Development
 
 ```sh
@@ -246,6 +273,8 @@ Code map:
 | `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
 | `src/main/activity/`              | Activity log, tracker (lock/idle/focus), commit watcher         |
+| `src/main/updates.ts`             | Silent auto-update via electron-updater and GitHub Releases    |
+| `src/shared/updates.ts`           | Pure "is now a good moment to restart" policy                  |
 | `src/main/devlog/store.ts`        | Reads/writes entries and assets inside the repo                |
 | `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |
