@@ -1,34 +1,23 @@
 import { useMemo, useState } from 'react'
-import { JOURNAL_PAGE_ID, buildCategoryTree, categoryPath, formatCategory, samePath, type CategoryNode } from '@shared/pages'
-import type { PageMeta, WikiMeta } from '@shared/types'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@shared/canvases'
+import type { CanvasMeta } from '@shared/types'
 import { kbd } from '@renderer/keys'
 
-export type SidebarSelection =
-  | { kind: 'page'; pageId: string }
-  | { kind: 'review' }
-  | { kind: 'summary' }
-  | { kind: 'timeline' }
-  | { kind: 'category'; path: string[] }
+export type SidebarSelection = { kind: 'canvas'; canvasId: string } | { kind: 'review' } | { kind: 'summary' } | { kind: 'timeline' }
 
 interface Props {
-  pages: PageMeta[]
-  wikis: WikiMeta[]
+  canvases: CanvasMeta[]
   selection: SidebarSelection
-  search: string
-  onSearch: (q: string) => void
+  /** The active task, marked with a running dot. */
+  activeCanvasId: string | null
+  searching: boolean
   onSelect: (sel: SidebarSelection) => void
-  onNewPage: () => void
-  searchRef: React.RefObject<HTMLInputElement | null>
+  onNewCanvas: () => void
 }
 
-export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, onNewPage, searchRef }: Props): React.JSX.Element {
-  const live = useMemo(() => pages.filter((p) => !p.archived), [pages])
-  const tree = useMemo(
-    () => buildCategoryTree(live, wikis.filter((w) => !w.archived).map((w) => w.path)),
-    [live, wikis]
-  )
-  const archivedPages = useMemo(() => pages.filter((p) => p.archived), [pages])
-  const archivedWikis = useMemo(() => wikis.filter((w) => w.archived), [wikis])
+export function Sidebar({ canvases, selection, activeCanvasId, searching, onSelect, onNewCanvas }: Props): React.JSX.Element {
+  const tree = useMemo(() => buildCanvasTree(canvases), [canvases])
+  const archived = useMemo(() => canvases.filter((c) => c.archived), [canvases])
   const [showArchived, setShowArchived] = useState(() => {
     try {
       return localStorage.getItem('devlog:sidebar:archived') === '1'
@@ -36,6 +25,25 @@ export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, o
       return false
     }
   })
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try {
+      return new Set(JSON.parse(localStorage.getItem('devlog:sidebar:collapsed') ?? '[]') as string[])
+    } catch {
+      return new Set()
+    }
+  })
+  const toggleCollapsed = (id: string): void =>
+    setCollapsed((s) => {
+      const n = new Set(s)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      try {
+        localStorage.setItem('devlog:sidebar:collapsed', JSON.stringify([...n]))
+      } catch {
+        /* ignore */
+      }
+      return n
+    })
   const toggleArchived = (): void => {
     setShowArchived((v) => {
       try {
@@ -46,146 +54,84 @@ export function Sidebar({ pages, wikis, selection, search, onSearch, onSelect, o
       return !v
     })
   }
-  const isPage = (id: string): boolean => !search && selection.kind === 'page' && selection.pageId === id
-  const isCategory = (path: string[]): boolean => !search && selection.kind === 'category' && samePath(selection.path, path)
+  const isSelected = (id: string): boolean => !searching && selection.kind === 'canvas' && selection.canvasId === id
+  const isView = (kind: SidebarSelection['kind']): boolean => !searching && selection.kind === kind
 
-  const pageButton = (p: PageMeta, depth: number): React.JSX.Element => (
-    <li key={p.id}>
-      <button
-        type="button"
-        className={`page-link${isPage(p.id) ? ' is-selected' : ''}`}
-        style={{ paddingLeft: 8 + depth * 14 }}
-        onClick={() => onSelect({ kind: 'page', pageId: p.id })}
-        title={p.description || p.title}
-      >
-        <span className="page-icon">#</span>
-        <span className="page-name">{p.title}</span>
-      </button>
-    </li>
-  )
-
-  const renderNode = (node: CategoryNode): React.JSX.Element => {
-    const depth = node.path.length - 1
+  const renderNode = (node: CanvasNode, depth: number): React.JSX.Element => {
+    const c = node.canvas
+    const hasChildren = node.children.length > 0
+    const open = !collapsed.has(c.id)
     return (
-      <li key={node.path.join('/')} className="category-node">
-        <button
-          type="button"
-          className={`category-label depth-${Math.min(depth, 3)}${isCategory(node.path) ? ' is-selected' : ''}`}
-          style={{ paddingLeft: 8 + depth * 14 }}
-          title={`${node.path.join(' / ')} · wiki`}
-          onClick={() => onSelect({ kind: 'category', path: node.path })}
-        >
-          {node.name}
-        </button>
-        <ul>
-          {node.children.map(renderNode)}
-          {node.pages.map((p) => pageButton(p, depth + 1))}
-        </ul>
+      <li key={c.id} className={`canvas-node${c.task ? ' is-task' : ''}`}>
+        <div className={`canvas-row${isSelected(c.id) ? ' is-selected' : ''}`} style={{ paddingLeft: 4 + depth * 12 }}>
+          <button
+            type="button"
+            className={`canvas-caret${hasChildren ? '' : ' is-leaf'}`}
+            onClick={() => hasChildren && toggleCollapsed(c.id)}
+            tabIndex={hasChildren ? 0 : -1}
+            aria-label={hasChildren ? (open ? 'Collapse' : 'Expand') : undefined}
+          >
+            {hasChildren ? (open ? '▾' : '▸') : ''}
+          </button>
+          <button type="button" className="canvas-link" onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={c.task ? `${c.title} · task` : c.title}>
+            <span className={`canvas-icon${activeCanvasId === c.id ? ' is-active' : ''}`}>{c.task ? '◉' : '▤'}</span>
+            <span className="canvas-name">{c.title}</span>
+          </button>
+        </div>
+        {hasChildren && open && <ul>{node.children.map((ch) => renderNode(ch, depth + 1))}</ul>}
       </li>
     )
   }
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-head">
-        <h1>Devlog</h1>
-      </div>
-      <div className="sidebar-search">
-        <input
-          ref={searchRef}
-          type="search"
-          placeholder="Search all pages…"
-          value={search}
-          onChange={(ev) => onSearch(ev.target.value)}
-          onKeyDown={(ev) => {
-            if (ev.key === 'Escape') {
-              onSearch('')
-              ;(ev.target as HTMLInputElement).blur()
-            }
-          }}
-        />
-      </div>
-      <nav className="sidebar-pages">
-        <ul>
+      <nav className="sidebar-nav">
+        <ul className="sidebar-views">
           <li>
-            <button
-              type="button"
-              className={`page-link page-journal${isPage(JOURNAL_PAGE_ID) ? ' is-selected' : ''}`}
-              onClick={() => onSelect({ kind: 'page', pageId: JOURNAL_PAGE_ID })}
-            >
-              <span className="page-icon">✎</span>
-              <span className="page-name">Journal</span>
+            <button type="button" className={`view-link${isSelected(JOURNAL_ID) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'canvas', canvasId: JOURNAL_ID })}>
+              <span className="view-icon">✎</span>
+              <span className="view-name">Journal</span>
             </button>
           </li>
           <li>
-            <button
-              type="button"
-              className={`page-link page-review${!search && selection.kind === 'review' ? ' is-selected' : ''}`}
-              onClick={() => onSelect({ kind: 'review' })}
-              title={`Weekly review (${kbd('mod', 'shift', 'R')})`}
-            >
-              <span className="page-icon">▦</span>
-              <span className="page-name">Weekly review</span>
+            <button type="button" className={`view-link${isView('summary') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'summary' })} title={`Hours per client (${kbd('mod', 'shift', 'H')})`}>
+              <span className="view-icon">Σ</span>
+              <span className="view-name">Summary</span>
             </button>
           </li>
           <li>
-            <button
-              type="button"
-              className={`page-link page-summary${!search && selection.kind === 'summary' ? ' is-selected' : ''}`}
-              onClick={() => onSelect({ kind: 'summary' })}
-              title={`Hours per client / project (${kbd('mod', 'shift', 'H')})`}
-            >
-              <span className="page-icon">Σ</span>
-              <span className="page-name">Summary</span>
+            <button type="button" className={`view-link${isView('review') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'review' })} title={`Weekly review (${kbd('mod', 'shift', 'R')})`}>
+              <span className="view-icon">▦</span>
+              <span className="view-name">Weekly review</span>
             </button>
           </li>
           <li>
-            <button
-              type="button"
-              className={`page-link page-timeline${!search && selection.kind === 'timeline' ? ' is-selected' : ''}`}
-              onClick={() => onSelect({ kind: 'timeline' })}
-              title={`Day timeline (${kbd('mod', 'shift', 'T')})`}
-            >
-              <span className="page-icon">◷</span>
-              <span className="page-name">Timeline</span>
+            <button type="button" className={`view-link${isView('timeline') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'timeline' })} title={`Day timeline (${kbd('mod', 'shift', 'T')})`}>
+              <span className="view-icon">◷</span>
+              <span className="view-name">Timeline</span>
             </button>
           </li>
         </ul>
-        {(tree.roots.length > 0 || tree.uncategorised.length > 0) && (
-          <ul className="sidebar-tree">
-            {tree.roots.map(renderNode)}
-            {tree.uncategorised.length > 0 && (
-              <li className="category-node">
-                <div className="category-label depth-0">Pages</div>
-                <ul>{tree.uncategorised.map((p) => pageButton(p, 1))}</ul>
-              </li>
-            )}
-          </ul>
-        )}
-        <button type="button" className="page-link page-new" onClick={onNewPage} title={`New page (${kbd('mod', 'N')})`}>
-          <span className="page-icon">+</span>
-          <span className="page-name">New page</span>
-        </button>
-        {(archivedPages.length > 0 || archivedWikis.length > 0) && (
+        <div className="sidebar-section">
+          <span>Canvases</span>
+          <button type="button" className="sidebar-add" onClick={onNewCanvas} title={`New canvas (${kbd('mod', 'N')})`}>
+            +
+          </button>
+        </div>
+        {tree.length === 0 && <p className="sidebar-hint">No canvases yet. Add a client or a project, or turn a note into a task.</p>}
+        <ul className="canvas-tree">{tree.map((n) => renderNode(n, 0))}</ul>
+        {archived.length > 0 && (
           <div className="sidebar-archived">
-            <button type="button" className="category-label depth-0 archived-toggle" onClick={toggleArchived}>
-              {showArchived ? '▾' : '▸'} Archived ({archivedPages.length + archivedWikis.length})
+            <button type="button" className="sidebar-section archived-toggle" onClick={toggleArchived}>
+              {showArchived ? '▾' : '▸'} Archived ({archived.length})
             </button>
             {showArchived && (
               <ul>
-                {archivedWikis.map((w) => (
-                  <li key={`w-${w.path.join('/')}`}>
-                    <button type="button" className={`page-link page-archived${isCategory(w.path) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'category', path: w.path })}>
-                      <span className="page-icon">▤</span>
-                      <span className="page-name">{formatCategory(w.path)}</span>
-                    </button>
-                  </li>
-                ))}
-                {archivedPages.map((p) => (
-                  <li key={p.id}>
-                    <button type="button" className={`page-link page-archived${isPage(p.id) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'page', pageId: p.id })} title={p.category ? `${p.category} / ${p.title}` : p.title}>
-                      <span className="page-icon">#</span>
-                      <span className="page-name">{[...categoryPath(p.category), p.title].join(' / ')}</span>
+                {archived.map((c) => (
+                  <li key={c.id}>
+                    <button type="button" className={`view-link canvas-archived${isSelected(c.id) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={canvasLabel(canvases, c.id)}>
+                      <span className="view-icon">{c.task ? '◉' : '▤'}</span>
+                      <span className="view-name">{canvasLabel(canvases, c.id)}</span>
                     </button>
                   </li>
                 ))}

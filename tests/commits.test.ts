@@ -33,13 +33,13 @@ describe('CommitWatcher', () => {
 
     const seen: Array<[string, CommitInfo]> = []
     watcher = new CommitWatcher(() => false)
-    watcher.on('commit', (pageId: string, info: CommitInfo) => seen.push([pageId, info]))
-    await watcher.setRepos([{ pageId: 'acme', path: repo }])
+    watcher.on('commit', (canvasId: string, info: CommitInfo) => seen.push([canvasId, info]))
+    await watcher.setRepos([{ canvasId: 'acme', path: repo }])
     await watcher.checkAll()
     expect(seen).toHaveLength(0) // the initial commit predates the watch
 
     const events: GitEventInfo[] = []
-    watcher.on('event', (_pageId: string, info: GitEventInfo) => events.push(info))
+    watcher.on('event', (_canvasId: string, info: GitEventInfo) => events.push(info))
     const git = simpleGit({ baseDir: repo, config: ['user.name=T', 'user.email=t@e.com'] })
     await git.checkout(['-b', 'feature']) // branch created + checkout, but no commit
     await watcher.checkAll()
@@ -53,8 +53,8 @@ describe('CommitWatcher', () => {
     await git.commit('Fix the thing\n\nLonger explanation here.')
     await watcher.checkAll()
     expect(seen).toHaveLength(1)
-    const [pageId, info] = seen[0]
-    expect(pageId).toBe('acme')
+    const [canvasId, info] = seen[0]
+    expect(canvasId).toBe('acme')
     expect(info).toMatchObject({ repoName: 'proj', subject: 'Fix the thing', body: 'Longer explanation here.', author: 'T' })
     expect(info.hash).toMatch(/^[0-9a-f]{40}$/)
     expect(commitMarkdown(info)).toBe(`⎇ **proj** \`feature\` · \`${info.shortHash}\` — Fix the thing\n\nLonger explanation here.`)
@@ -75,7 +75,7 @@ describe('CommitWatcher', () => {
 
   it('skips excluded repositories', async () => {
     watcher = new CommitWatcher((root) => root === path.resolve(repo))
-    await watcher.setRepos([{ pageId: 'acme', path: repo }])
+    await watcher.setRepos([{ canvasId: 'acme', path: repo }])
     const git = simpleGit({ baseDir: repo, config: ['user.name=T', 'user.email=t@e.com'] })
     await fs.writeFile(path.join(repo, 'a.txt'), '3')
     await git.add('-A')

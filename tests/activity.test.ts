@@ -38,19 +38,19 @@ describe('duration markers', () => {
 describe('task segments', () => {
   it('runs from a task event until the next task, stop or pause; pauses resume the same task', () => {
     const events = [
-      ev('start', T(9), { pageId: null }),
-      ev('task', T(9, 10), { pageId: 'acme' }),
+      ev('start', T(9), { canvasId: null }),
+      ev('task', T(9, 10), { canvasId: 'acme' }),
       ev('heartbeat', T(9, 15)),
       ev('lock', T(10)),
       ev('unlock', T(10, 30)),
-      ev('task', T(11), { pageId: 'globex' }),
+      ev('task', T(11), { canvasId: 'globex' }),
       ev('idle', T(11, 45)),
       ev('active', T(12)),
-      ev('task', T(12, 30), { pageId: null }),
+      ev('task', T(12, 30), { canvasId: null }),
       ev('stop', T(13))
     ]
     const segs = buildTaskSegments(events, ALIVE)
-    expect(segs.map((s) => [s.pageId, mins(s.start, s.end)])).toEqual([
+    expect(segs.map((s) => [s.canvasId, mins(s.start, s.end)])).toEqual([
       ['acme', 50],
       ['acme', 30],
       ['globex', 45],
@@ -59,23 +59,23 @@ describe('task segments', () => {
   })
 
   it('closes a segment when the app went silent and restores the task on start', () => {
-    const events = [ev('task', T(9), { pageId: 'acme' }), ev('heartbeat', T(9, 5)), ev('start', T(14), { pageId: 'acme' }), ev('heartbeat', T(14, 5))]
+    const events = [ev('task', T(9), { canvasId: 'acme' }), ev('heartbeat', T(9, 5)), ev('start', T(14), { canvasId: 'acme' }), ev('heartbeat', T(14, 5))]
     const segs = buildTaskSegments(events, { heartbeatMs: 5 * 60_000, now: T(14, 10) })
-    expect(segs.map((s) => [s.pageId, mins(s.start, s.end)])).toEqual([
+    expect(segs.map((s) => [s.canvasId, mins(s.start, s.end)])).toEqual([
       ['acme', 10], // 9:00 → last heartbeat 9:05 + one heartbeat
       ['acme', 10] // 14:00 → now 14:10
     ])
   })
 
   it('caps an open segment at now', () => {
-    const segs = buildTaskSegments([ev('task', T(9), { pageId: 'a' })], { ...ALIVE, now: T(9, 20) })
+    const segs = buildTaskSegments([ev('task', T(9), { canvasId: 'a' })], { ...ALIVE, now: T(9, 20) })
     expect(mins(segs[0].start, segs[0].end)).toBe(20)
   })
 
   it('lets explicit durations override tracked time in their window', () => {
-    const tracked = buildTaskSegments([ev('task', T(9), { pageId: 'acme' }), ev('task', T(12), { pageId: 'globex' }), ev('stop', T(13))], ALIVE)
-    const out = applyExplicitDurations(tracked, [{ pageId: 'meeting', end: T(12, 30), minutes: 60, entryId: 'x' }])
-    expect(out.map((s) => [s.pageId, mins(s.start, s.end), s.source])).toEqual([
+    const tracked = buildTaskSegments([ev('task', T(9), { canvasId: 'acme' }), ev('task', T(12), { canvasId: 'globex' }), ev('stop', T(13))], ALIVE)
+    const out = applyExplicitDurations(tracked, [{ canvasId: 'meeting', end: T(12, 30), minutes: 60, entryId: 'x' }])
+    expect(out.map((s) => [s.canvasId, mins(s.start, s.end), s.source])).toEqual([
       ['acme', 150, 'tracked'],
       ['meeting', 60, 'explicit'],
       ['globex', 30, 'tracked']
@@ -86,7 +86,7 @@ describe('task segments', () => {
   })
 
   it('splits segments at local midnight', () => {
-    const pieces = splitByLocalDay([{ pageId: 'a', start: T(23, 30, 14), end: T(0, 30, 15), source: 'tracked' as const }])
+    const pieces = splitByLocalDay([{ canvasId: 'a', start: T(23, 30, 14), end: T(0, 30, 15), source: 'tracked' as const }])
     expect(pieces.map((p) => [p.date, p.minutes])).toEqual([
       ['2026-09-14', 30],
       ['2026-09-15', 30]
@@ -136,22 +136,22 @@ describe('focus', () => {
 describe('timeline buckets', () => {
   it('summarises tasks, apps, notes and system events per interval and skips empty ones', () => {
     const events = [
-      ev('task', T(9), { pageId: 'acme' }),
+      ev('task', T(9), { canvasId: 'acme' }),
       ev('focus', T(9), { app: 'Code', title: 'a.ts' }),
       ev('focus', T(9, 10), { app: 'chrome', title: 'Docs' }),
       ev('lock', T(9, 20)),
       ev('unlock', T(11)),
       ev('focus', T(11), { app: 'Code', title: 'b.ts' }),
-      ev('task', T(11, 5), { pageId: 'globex' }),
+      ev('task', T(11, 5), { canvasId: 'globex' }),
       ev('stop', T(11, 20))
     ]
     const tasks = buildTaskSegments(events, ALIVE)
     const focus = buildFocusSegments(events, ALIVE)
-    const notes = [{ pageId: 'acme', entry: { id: 'n1', createdAt: T(9, 3), markdown: 'hi' } }]
+    const notes = [{ canvasId: 'acme', entry: { id: 'n1', createdAt: T(9, 3), markdown: 'hi' } }]
     const buckets = bucketizeDay({ date: '2026-09-14', intervalMinutes: 15, taskSegments: tasks, focusSegments: focus, notes, events, now: T(12) })
     expect(buckets.map((b) => new Date(b.start).getHours() * 60 + new Date(b.start).getMinutes())).toEqual([540, 555, 660, 675])
     const first = buckets[0]
-    expect(first.tasks).toEqual([{ pageId: 'acme', minutes: 15, source: 'tracked' }])
+    expect(first.tasks).toEqual([{ canvasId: 'acme', minutes: 15, source: 'tracked' }])
     expect(first.apps.map((a) => [a.app, a.minutes])).toEqual([
       ['Code', 10],
       ['chrome', 5]
@@ -164,7 +164,7 @@ describe('timeline buckets', () => {
     expect(second.system.map((e) => e.type)).toEqual(['lock'])
     const third = buckets[2]
     expect(third.system.map((e) => e.type)).toEqual(['unlock'])
-    expect(third.tasks.map((t) => [t.pageId, t.minutes])).toEqual([
+    expect(third.tasks.map((t) => [t.canvasId, t.minutes])).toEqual([
       ['acme', 5],
       ['globex', 10]
     ])
@@ -172,7 +172,7 @@ describe('timeline buckets', () => {
   })
 
   it('does not produce buckets in the future', () => {
-    const buckets = bucketizeDay({ date: '2026-09-14', intervalMinutes: 30, taskSegments: [{ pageId: 'a', start: T(9), end: T(18), source: 'tracked' }], focusSegments: [], notes: [], events: [], now: T(10, 10) })
+    const buckets = bucketizeDay({ date: '2026-09-14', intervalMinutes: 30, taskSegments: [{ canvasId: 'a', start: T(9), end: T(18), source: 'tracked' }], focusSegments: [], notes: [], events: [], now: T(10, 10) })
     expect(buckets).toHaveLength(3) // 9:00, 9:30, 10:00
   })
 })

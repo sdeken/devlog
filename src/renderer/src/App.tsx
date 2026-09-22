@@ -1,17 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@shared/entries'
-import { JOURNAL_PAGE, JOURNAL_PAGE_ID, categoryPath, categorySuggestions, formatCategory } from '@shared/pages'
-import type { Day, EntryPosition, PageMeta, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus, WikiMeta } from '@shared/types'
+import { JOURNAL, JOURNAL_ID, canvasLabel } from '@shared/canvases'
+import { themeCssVars } from '@shared/theme'
+import type { CanvasMeta, Day, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
-import { PageDialog } from './components/PageDialog'
+import { CanvasView } from './components/CanvasView'
+import { CanvasDialog } from './components/CanvasDialog'
 import { Review } from './components/Review'
 import { Summary } from './components/Summary'
 import { QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
-import { CategoryView } from './components/CategoryView'
 import { Timeline } from './components/Timeline'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
+import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Welcome } from './components/Welcome'
@@ -22,11 +24,7 @@ import { kbd } from './keys'
 
 const TIMELINE_DAYS = 10
 
-function pageLabelOf(pages: PageMeta[], id: string): string {
-  if (id === JOURNAL_PAGE_ID) return 'Journal'
-  const p = pages.find((x) => x.id === id)
-  return p ? [...categoryPath(p.category), p.title].join(' / ') : id
-}
+type View = 'canvas' | 'review' | 'summary' | 'timeline'
 
 /** Replace or insert one day in an ascending timeline; drop it when empty. */
 function mergeDay(days: Day[], day: Day): Day[] {
@@ -35,18 +33,21 @@ function mergeDay(days: Day[], day: Day): Day[] {
   return [...rest, day].sort((a, b) => a.date.localeCompare(b.date))
 }
 
+function applyTheme(settings: Settings | null): void {
+  const root = document.documentElement
+  for (const [k, v] of Object.entries(themeCssVars(settings?.theme))) root.style.setProperty(k, v)
+}
+
 export function App(): React.JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [repo, setRepo] = useState<RepoInfo | null | undefined>(undefined)
   const [today, setToday] = useState(localDate(new Date()))
-  const [pages, setPages] = useState<PageMeta[]>([JOURNAL_PAGE])
-  const [pageId, setPageId] = useState<string>(JOURNAL_PAGE_ID)
-  const [view, setView] = useState<'page' | 'review' | 'summary' | 'timeline' | 'category'>('page')
+  const [canvases, setCanvases] = useState<CanvasMeta[]>([JOURNAL])
+  const [canvasId, setCanvasId] = useState<string>(JOURNAL_ID)
+  const [view, setView] = useState<View>('canvas')
   const [switcherOpen, setSwitcherOpen] = useState(false)
-  // Where the composer posts. Follows the open page but can be pointed elsewhere.
-  const [targetPageId, setTargetPageId] = useState<string>(JOURNAL_PAGE_ID)
-  const [categoryPathSel, setCategoryPathSel] = useState<string[]>([])
-  const [wikis, setWikis] = useState<WikiMeta[]>([])
+  // Where the composer posts. Follows the open canvas but can be pointed elsewhere.
+  const [targetCanvasId, setTargetCanvasId] = useState<string>(JOURNAL_ID)
   const [timelineDate, setTimelineDate] = useState<string>(localDate(new Date()))
   const [tracker, setTracker] = useState<TrackerStatus | null>(null)
   const [days, setDays] = useState<Day[]>([])
@@ -56,30 +57,29 @@ export function App(): React.JSX.Element {
   const [hits, setHits] = useState<SearchResult | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [pageDialog, setPageDialog] = useState<{ page: PageMeta | null; category?: string } | null>(null)
+  const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean } | null>(null)
   const [focusToken, setFocusToken] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
   const [editRequest, setEditRequest] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
-  const pageIdRef = useRef(pageId)
-  pageIdRef.current = pageId
+  const canvasIdRef = useRef(canvasId)
+  canvasIdRef.current = canvasId
 
-  const page = useMemo(() => pages.find((p) => p.id === pageId) ?? JOURNAL_PAGE, [pages, pageId])
-  const targetPage = useMemo(() => pages.find((p) => p.id === targetPageId) ?? JOURNAL_PAGE, [pages, targetPageId])
-  const categories = useMemo(() => categorySuggestions(pages), [pages])
+  const canvas = useMemo(() => canvases.find((c) => c.id === canvasId) ?? JOURNAL, [canvases, canvasId])
+  const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId) ?? JOURNAL, [canvases, targetCanvasId])
 
-  const refreshPages = useCallback(async () => {
-    const [list, wikiList] = await Promise.all([api.pages.list(), api.wiki.list()])
-    setPages(list)
-    setWikis(wikiList)
-    if (!list.some((p) => p.id === pageIdRef.current)) setPageId(JOURNAL_PAGE_ID)
+  const refreshCanvases = useCallback(async () => {
+    const list = await api.canvases.list()
+    setCanvases(list)
+    if (!list.some((c) => c.id === canvasIdRef.current)) setCanvasId(JOURNAL_ID)
+    return list
   }, [])
 
   const loadTimeline = useCallback(async (id: string) => {
     setLoading(true)
     try {
-      const t = await api.entries.timeline(id, { days: TIMELINE_DAYS })
-      if (pageIdRef.current !== id) return
+      const t = await api.blocks.timeline(id, { days: TIMELINE_DAYS })
+      if (canvasIdRef.current !== id) return
       setDays(t.days)
       setHasMore(t.hasMore)
     } finally {
@@ -90,19 +90,16 @@ export function App(): React.JSX.Element {
   const loadMore = useCallback(async () => {
     const first = days[0]
     if (!first) return
-    const t = await api.entries.timeline(pageId, { beforeDate: first.date, days: TIMELINE_DAYS })
-    if (pageIdRef.current !== pageId) return
+    const t = await api.blocks.timeline(canvasId, { beforeDate: first.date, days: TIMELINE_DAYS })
+    if (canvasIdRef.current !== canvasId) return
     setDays((cur) => [...t.days, ...cur])
     setHasMore(t.hasMore)
-  }, [days, pageId])
+  }, [days, canvasId])
 
-  const reloadDay = useCallback(
-    async (id: string, date: string) => {
-      const day = await api.entries.getDay(id, date)
-      if (pageIdRef.current === id) setDays((cur) => mergeDay(cur, day))
-    },
-    []
-  )
+  const reloadDay = useCallback(async (id: string, date: string) => {
+    const day = await api.blocks.getDay(id, date)
+    if (canvasIdRef.current === id) setDays((cur) => mergeDay(cur, day))
+  }, [])
 
   // Boot: settings + repo.
   useEffect(() => {
@@ -116,7 +113,7 @@ export function App(): React.JSX.Element {
     })()
     const offRepo = api.repo.onChanged((info) => {
       setRepo(info)
-      setPageId(JOURNAL_PAGE_ID)
+      setCanvasId(JOURNAL_ID)
     })
     const offSync = api.sync.onStatus((st) => setSync(st))
     const offTracker = api.tracker.onStatus((st) => setTracker(st))
@@ -125,7 +122,7 @@ export function App(): React.JSX.Element {
       if (cmd === 'focusComposer') setFocusToken((n) => n + 1)
       if (cmd === 'search') searchRef.current?.focus()
       if (cmd === 'syncNow') void reported(api.sync.now())
-      if (cmd === 'newPage') setPageDialog({ page: null })
+      if (cmd === 'newCanvas') setCanvasDialog({ canvas: null })
       if (cmd === 'review') setView('review')
       if (cmd === 'summary') setView('summary')
       if (cmd === 'switcher') setSwitcherOpen((v) => !v)
@@ -148,6 +145,9 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  // Colours come from settings.
+  useEffect(() => applyTheme(settings), [settings])
+
   // Surface failures from fire-and-forget calls instead of losing them in the console.
   useEffect(() => {
     const onRejection = (ev: PromiseRejectionEvent): void => {
@@ -163,7 +163,6 @@ export function App(): React.JSX.Element {
     const onKey = (ev: KeyboardEvent): void => {
       if (!(ev.ctrlKey || ev.metaKey) || ev.altKey || ev.shiftKey) return
       if (ev.key.toLowerCase() !== 'k') return
-      // Ctrl+K inside the editor is the link shortcut.
       if ((ev.target as HTMLElement | null)?.closest('.ProseMirror')) return
       ev.preventDefault()
       setSwitcherOpen((v) => !v)
@@ -172,25 +171,16 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  // The composer target follows the page being viewed.
+  // The composer target follows the canvas being viewed.
   useEffect(() => {
-    if (view === 'page') setTargetPageId(pageId)
-  }, [view, pageId])
+    if (view === 'canvas') setTargetCanvasId(canvasId)
+  }, [view, canvasId])
 
   // Window title follows the view.
   useEffect(() => {
-    const label =
-      view === 'review'
-        ? 'Weekly review'
-        : view === 'summary'
-          ? 'Summary'
-          : view === 'timeline'
-            ? 'Timeline'
-            : view === 'category'
-              ? formatCategory(categoryPathSel)
-              : pageLabelOf(pages, pageId)
+    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : canvasLabel(canvases, canvasId)
     document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
-  }, [view, categoryPathSel, pages, pageId, search])
+  }, [view, canvases, canvasId, search])
 
   // Roll over at midnight.
   useEffect(() => {
@@ -201,16 +191,16 @@ export function App(): React.JSX.Element {
     return () => clearInterval(t)
   }, [today])
 
-  // Load pages + timeline when the repo or page changes, or another machine pushed something.
+  // Load canvases + stream when the repo or canvas changes, or another machine pushed something.
   useEffect(() => {
     if (!repo) return
-    void refreshPages()
-    void loadTimeline(pageId)
-    return api.entries.onChanged(() => {
-      void refreshPages()
-      void loadTimeline(pageIdRef.current)
+    void refreshCanvases()
+    void loadTimeline(canvasId)
+    return api.blocks.onChanged(() => {
+      void refreshCanvases()
+      void loadTimeline(canvasIdRef.current)
     })
-  }, [repo, pageId, refreshPages, loadTimeline])
+  }, [repo, canvasId, refreshCanvases, loadTimeline])
 
   // Search (debounced).
   useEffect(() => {
@@ -221,44 +211,65 @@ export function App(): React.JSX.Element {
     }
     setHits(null)
     const t = setTimeout(() => {
-      void api.entries.search(search).then(setHits)
+      void api.blocks.search(search).then(setHits)
     }, 180)
     return () => clearTimeout(t)
   }, [search, repo])
 
+  const openCanvas = useCallback((id: string, date?: string) => {
+    setSearch('')
+    setView('canvas')
+    setCanvasId(id)
+    if (date) setTimeout(() => document.querySelector(`.day-group[data-date="${date}"]`)?.scrollIntoView({ block: 'start' }), 250)
+  }, [])
+
   const addEntry = useCallback(
-    async (id: string, markdown: string, position?: EntryPosition) => {
-      const { date } = await api.entries.add(id, markdown, position)
-      if (!position && date !== today) setToday(date)
-      await reloadDay(id, date)
+    async (id: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }) => {
+      const res = await api.blocks.add(id, markdown, position, opts)
+      if (!position && res.date !== today) setToday(res.date)
+      await reloadDay(id, res.date)
+      if (res.canvas) {
+        await refreshCanvases()
+        showToast(`Task started: ${res.canvas.title}`)
+      }
     },
-    [today, reloadDay]
+    [today, reloadDay, refreshCanvases]
   )
 
   const updateEntry = useCallback(
     async (id: string, date: string, entryId: string, markdown: string) => {
-      await api.entries.update(id, date, entryId, markdown)
+      await api.blocks.update(id, date, entryId, markdown)
       await reloadDay(id, date)
-      if (search) setHits(await api.entries.search(search))
+      if (search) setHits(await api.blocks.search(search))
     },
     [search, reloadDay]
   )
 
   const deleteEntry = useCallback(
     async (id: string, date: string, entryId: string) => {
-      await api.entries.remove(id, date, entryId)
+      await api.blocks.remove(id, date, entryId)
       await reloadDay(id, date)
-      if (search) setHits(await api.entries.search(search))
+      if (search) setHits(await api.blocks.search(search))
     },
     [search, reloadDay]
   )
 
   const moveEntry = useCallback(
-    async (id: string, date: string, entryId: string, toPageId: string) => {
-      await api.entries.move(id, date, entryId, toPageId)
+    async (id: string, date: string, entryId: string, toCanvasId: string) => {
+      await api.blocks.move(id, date, entryId, toCanvasId)
       await reloadDay(id, date)
     },
     [reloadDay]
+  )
+
+  const promoteEntry = useCallback(
+    async (id: string, date: string, entryId: string) => {
+      const res = await api.blocks.promote(id, date, entryId)
+      await reloadDay(id, date)
+      await refreshCanvases()
+      showToast(`Task started: ${res.canvas.title}`)
+    },
+    [reloadDay, refreshCanvases]
   )
 
   const editLast = useCallback(() => {
@@ -268,34 +279,16 @@ export function App(): React.JSX.Element {
     setTimeout(() => setEditRequest(null), 0)
   }, [days, today])
 
-  const openCategory = useCallback((path: string[]) => {
-    setSearch('')
-    setCategoryPathSel(path)
-    setView('category')
-  }, [])
-
   const goTo = useCallback(
     (target: SwitchTarget) => {
       setSearch('')
       if (target.kind === 'view') {
         if (target.view === 'timeline') setTimelineDate(localDate(new Date()))
         setView(target.view)
-      } else if (target.kind === 'category') openCategory(target.path)
-      else {
-        setView('page')
-        setPageId(target.pageId)
-      }
+      } else openCanvas(target.canvasId)
     },
-    [openCategory]
+    [openCanvas]
   )
-
-  const jumpTo = useCallback((id: string, date: string) => {
-    setSearch('')
-    setView('page')
-    setPageId(id)
-    // Scroll the day into view once the timeline has rendered.
-    setTimeout(() => document.querySelector(`.day-group[data-date="${date}"]`)?.scrollIntoView({ block: 'start' }), 250)
-  }, [])
 
   if (repo === undefined || settings === null) {
     return <div className="boot">Loading…</div>
@@ -313,120 +306,122 @@ export function App(): React.JSX.Element {
     )
   }
 
+  const selection: SidebarSelection = view === 'canvas' ? { kind: 'canvas', canvasId } : { kind: view }
+
   return (
     <div className="app">
+      <TopBar search={search} onSearch={setSearch} searchRef={searchRef} onSwitcher={() => setSwitcherOpen(true)} />
       <Sidebar
-        pages={pages}
-        wikis={wikis}
-        selection={
-          view === 'review'
-            ? { kind: 'review' }
-            : view === 'summary'
-              ? { kind: 'summary' }
-              : view === 'timeline'
-                ? { kind: 'timeline' }
-                : view === 'category'
-                  ? { kind: 'category', path: categoryPathSel }
-                  : { kind: 'page', pageId }
-        }
-        search={search}
-        onSearch={setSearch}
-        onSelect={(sel: SidebarSelection) => {
+        canvases={canvases}
+        selection={selection}
+        activeCanvasId={tracker?.activeCanvasId ?? null}
+        searching={Boolean(search)}
+        onSelect={(sel) => {
           setSearch('')
-          if (sel.kind === 'review') setView('review')
-          else if (sel.kind === 'summary') setView('summary')
-          else if (sel.kind === 'timeline') setView('timeline')
-          else if (sel.kind === 'category') openCategory(sel.path)
+          if (sel.kind === 'canvas') openCanvas(sel.canvasId)
           else {
-            setView('page')
-            setPageId(sel.pageId)
+            if (sel.kind === 'timeline') setTimelineDate(localDate(new Date()))
+            setView(sel.kind)
           }
         }}
-        onNewPage={() => setPageDialog({ page: null })}
-        searchRef={searchRef}
+        onNewCanvas={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvasId !== JOURNAL_ID ? canvasId : null })}
       />
       <main className="main">
+        {search && (
+          <Feed
+            canvas={canvas}
+            canvases={canvases}
+            days={[]}
+            hasMore={false}
+            today={today}
+            search={search}
+            hits={hits}
+            loading={false}
+            editRequest={null}
+            onLoadMore={async () => undefined}
+            onAdd={addEntry}
+            onUpdate={updateEntry}
+            onDelete={deleteEntry}
+            onMove={moveEntry}
+            onJumpTo={openCanvas}
+            onOpenCanvas={openCanvas}
+          />
+        )}
         {view === 'review' && !search && (
           <Review
-            pages={pages}
+            canvases={canvases}
             today={today}
             focusMinSeconds={settings.focusMinSeconds}
-            onJumpTo={jumpTo}
+            onJumpTo={openCanvas}
             onOpenTimeline={(d) => {
               setTimelineDate(d)
               setView('timeline')
             }}
           />
         )}
-        {view === 'summary' && !search && <Summary pages={pages} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCategory={openCategory} onJumpTo={jumpTo} />}
+        {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
         {view === 'timeline' && !search && (
-          <Timeline pages={pages} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
+          <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={openCanvas} />
         )}
-        {view === 'category' && !search && (
-          <CategoryView
-            key={formatCategory(categoryPathSel)}
-            path={categoryPathSel}
-            pages={pages}
-            onSelectCategory={openCategory}
-            onSelectPage={(id) => {
-              setView('page')
-              setPageId(id)
+        {view === 'canvas' && !search && (
+          <CanvasView
+            key={canvasId}
+            canvas={canvas}
+            canvases={canvases}
+            days={days}
+            hasMore={hasMore}
+            today={today}
+            loading={loading}
+            editRequest={editRequest}
+            activeCanvasId={tracker?.activeCanvasId ?? null}
+            onLoadMore={loadMore}
+            onAdd={addEntry}
+            onUpdate={updateEntry}
+            onDelete={deleteEntry}
+            onMove={moveEntry}
+            onPromote={promoteEntry}
+            onOpenCanvas={openCanvas}
+            onEditCanvas={() => setCanvasDialog({ canvas })}
+            onNewCanvasHere={(task) => setCanvasDialog({ canvas: null, parentId: canvasId, task })}
+            onArchive={async (archived) => {
+              await api.canvases.archive(canvasId, archived)
+              await refreshCanvases()
             }}
-            onNewPage={(category) => setPageDialog({ page: null, category })}
-            onChanged={refreshPages}
+            onStartTask={() => void reported(api.tracker.setTask(canvasId))}
+            onStopTask={() => void reported(api.tracker.setTask(null))}
           />
         )}
-        {(view === 'page' || search) && (
-        <Feed
-          page={page}
-          pages={pages}
-          days={days}
-          hasMore={hasMore}
-          today={today}
-          search={search}
-          hits={hits}
-          loading={loading}
-          editRequest={editRequest}
-          onLoadMore={loadMore}
-          onAdd={addEntry}
-          onUpdate={updateEntry}
-          onDelete={deleteEntry}
-          onMove={moveEntry}
-          onEditPage={() => setPageDialog({ page })}
-          onArchivePage={(archived) => void reported(api.pages.archive(pageId, archived).then(() => refreshPages()))}
-          onJumpTo={jumpTo}
-          onOpenCategory={openCategory}
-        />
-        )}
-        {!search && !(view === 'page' && page.archived) && (
+        {!search && !(view === 'canvas' && canvas.archived) && (
           <div className="composer-dock">
             <Composer
-              key={targetPageId}
+              key={targetCanvasId}
               mode="new"
               placeholder={
-                targetPage.id === JOURNAL_PAGE_ID
+                targetCanvas.id === JOURNAL_ID
                   ? undefined
-                  : `Write a note on ${targetPage.title}…  Enter posts, Shift+Enter new line, paste or ${kbd('mod', 'shift', 'I')} for images`
+                  : targetCanvas.task
+                    ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Shift+Enter new line`
+                    : `Note on ${targetCanvas.title}…  Enter posts, ${kbd('mod', 'shift', 'Enter')} posts as a task, Shift+Enter new line`
               }
-              assetPageId={targetPageId}
-              draftKey={`devlog:draft:${repo.path}:${targetPageId}`}
-              autoFocus={view === 'page'}
-              onSubmit={async (md) => {
-                await addEntry(targetPageId, md)
-                if (view !== 'page') showToast(`Posted to ${pageLabelOf(pages, targetPageId)}`)
+              assetCanvasId={targetCanvasId}
+              draftKey={`devlog:draft:${repo.path}:${targetCanvasId}`}
+              autoFocus={view === 'canvas'}
+              onSubmit={async (md, opts) => {
+                await addEntry(targetCanvasId, md, undefined, opts)
+                if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
               }}
-              onEditLast={view === 'page' ? editLast : undefined}
+              onEditLast={view === 'canvas' ? editLast : undefined}
               focusToken={focusToken}
-              pages={pages}
-              targetPageId={targetPageId}
-              onTargetChange={setTargetPageId}
+              canvases={canvases}
+              targetCanvasId={targetCanvasId}
+              onTargetChange={setTargetCanvasId}
             />
           </div>
         )}
         <StatusBar
           status={sync}
           tracker={tracker}
-          taskLabel={tracker?.activePageId ? pageLabelOf(pages, tracker.activePageId) : null}
+          taskLabel={tracker?.activeCanvasId ? canvasLabel(canvases, tracker.activeCanvasId) : null}
           onSyncNow={() => void reported(api.sync.now())}
           onOpenSettings={() => setSettingsOpen(true)}
           onStopTask={() => void reported(api.tracker.setTask(null))}
@@ -439,8 +434,7 @@ export function App(): React.JSX.Element {
       <Toasts />
       {switcherOpen && (
         <QuickSwitcher
-          pages={pages}
-          wikis={wikis}
+          canvases={canvases}
           onPick={(t) => {
             setSwitcherOpen(false)
             goTo(t)
@@ -449,29 +443,22 @@ export function App(): React.JSX.Element {
         />
       )}
       {settingsOpen && (
-        <SettingsDialog
-          settings={settings}
-          repo={repo}
-          onClose={() => setSettingsOpen(false)}
-          onSaved={setSettings}
-          onRepoChanged={(r) => setRepo(r)}
-        />
+        <SettingsDialog settings={settings} repo={repo} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onRepoChanged={(r) => setRepo(r)} onPreview={applyTheme} />
       )}
-      {pageDialog && (
-        <PageDialog
-          page={pageDialog.page}
-          categories={categories}
-          initialCategory={pageDialog.category}
-          onClose={() => setPageDialog(null)}
+      {canvasDialog && (
+        <CanvasDialog
+          canvas={canvasDialog.canvas}
+          canvases={canvases}
+          initialParentId={canvasDialog.parentId}
+          initialTask={canvasDialog.task}
+          onClose={() => setCanvasDialog(null)}
           onSaved={async (saved) => {
-            await refreshPages()
-            setSearch('')
-            setView('page')
-            setPageId(saved.id)
+            await refreshCanvases()
+            openCanvas(saved.id)
           }}
           onDeleted={async () => {
-            setPageId(JOURNAL_PAGE_ID)
-            await refreshPages()
+            setCanvasId(JOURNAL_ID)
+            await refreshCanvases()
           }}
         />
       )}

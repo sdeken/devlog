@@ -1,13 +1,20 @@
-/** A single devlog post. Markdown image sources are repo-root-relative (e.g. `entries/2026/09/assets/x.png`). */
-export type EntryKind = 'note' | 'commit'
+/**
+ * A block: one post in a canvas's stream. Markdown image sources are
+ * repo-root-relative (e.g. `entries/2026/09/assets/x.png`).
+ *
+ * Kinds: `note` (the default, user-written), `commit` (captured from git,
+ * read-only), `task` (a note that was turned into a task; `meta.canvas` is
+ * the task canvas it opened).
+ */
+export type EntryKind = 'note' | 'commit' | 'task'
 
 export interface Entry {
   id: string
   /** Id of the note this one replies to; absent for top-level notes. */
   parentId?: string
-  /** Notes are user-written; commits are captured from git and read-only. */
+  /** Absent means `note`. */
   kind?: EntryKind
-  /** Extra attributes for system entries (e.g. `repo`, `hash` for commits). */
+  /** Extra attributes (`repo`, `hash`, `branch`, `author` for commits; `canvas` for tasks). */
   meta?: Record<string, string>
   /** ISO-8601 timestamp of creation (UTC). */
   createdAt: string
@@ -51,70 +58,73 @@ export interface DaySummary {
 }
 
 /**
- * A page is a separate stream of notes (a client, a project, …). The journal
- * is the built-in page whose notes live at the repository root.
+ * A canvas: a client, a project, a task, a topic. It has a surface (free
+ * markdown) and a stream of blocks, nests under a parent canvas, and when
+ * `task` is set it is something time is tracked against. The journal is the
+ * built-in root canvas (`id: 'journal'`) whose stream lives at `entries/`.
  */
-export interface PageMeta {
-  /** Folder slug under `pages/`, or `journal` for the built-in page. */
+export interface CanvasMeta {
+  /** Folder slug under `canvases/`, or `journal`. Stable: renaming or moving keeps it. */
   id: string
   title: string
-  /** Free-text grouping shown in the sidebar (e.g. "Clients"). Empty for none. */
-  category: string
-  /** Markdown shown at the top of the page. */
-  description: string
+  /** Enclosing canvas, or null at the top level. */
+  parentId: string | null
+  /** Tasks are what the tracker times. Posting on a task makes it the active task. */
+  task: boolean
   createdAt: string
-  /** Local git repositories whose commits belong to this page. */
+  /** Last surface edit. */
+  updatedAt: string
+  /** Local git repositories whose commits land in this canvas's stream. */
   repos: string[]
-  /** Archived pages are hidden from the sidebar but still searchable. */
+  /** Archived canvases (and everything beneath them) leave the sidebar but stay searchable. */
   archived: boolean
+  /** True when the surface has any text. */
+  hasSurface: boolean
 }
 
-export interface PageInput {
+export interface Canvas extends CanvasMeta {
+  /** Surface markdown with repo-root-relative image paths. */
+  surface: string
+}
+
+export interface CanvasInput {
   title: string
-  category?: string
-  description?: string
+  parentId?: string | null
+  task?: boolean
   repos?: string[]
 }
 
-/** A slice of a page's history: whole days, oldest first. */
+/** A slice of a canvas's stream: whole days, oldest first. */
 export interface Timeline {
-  pageId: string
+  canvasId: string
   days: Day[]
   /** True when older days exist before the first one returned. */
   hasMore: boolean
 }
 
 export interface SearchHit {
-  pageId: string
+  canvasId: string
   date: string
   entry: Entry
-  /** True when the page holding this note is archived. */
+  /** True when the canvas holding this block is archived. */
   archived: boolean
 }
 
-/** A category's wiki: a free-form markdown canvas, one per category path. */
-export interface WikiMeta {
-  /** Category path segments, e.g. ["Acme Corp", "Web"]. */
-  path: string[]
-  archived: boolean
-  updatedAt: string
-}
-
-export interface Wiki extends WikiMeta {
-  /** Markdown with repo-root-relative image paths. Empty when the wiki has not been written yet. */
-  markdown: string
-  exists: boolean
-}
-
-export interface WikiHit {
-  path: string[]
+export interface SurfaceHit {
+  canvasId: string
   archived: boolean
   excerpt: string
 }
 
 export interface SearchResult {
-  notes: SearchHit[]
-  wikis: WikiHit[]
+  blocks: SearchHit[]
+  surfaces: SurfaceHit[]
+}
+
+/** Result of turning a block into a task. */
+export interface PromoteResult {
+  canvas: CanvasMeta
+  entry: Entry
 }
 
 export interface Settings {
@@ -142,6 +152,17 @@ export interface Settings {
   autoUpdate: boolean
   /** Foreground windows held for less than this many seconds are folded into their neighbour in views. */
   focusMinSeconds: number
+  /** Colours: a preset name plus optional overrides. */
+  theme: ThemeSettings
+}
+
+export interface ThemeSettings {
+  /** One of the presets in shared/theme.ts. */
+  preset: string
+  /** Sidebar / top bar colour override (hex). */
+  sidebar?: string
+  /** Accent colour override (hex). */
+  accent?: string
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -159,7 +180,8 @@ export const DEFAULT_SETTINGS: Settings = {
   activityInRepo: false,
   captureCommits: true,
   autoUpdate: true,
-  focusMinSeconds: 5
+  focusMinSeconds: 5,
+  theme: { preset: 'graphite' }
 }
 
 export type SyncState =
@@ -218,7 +240,7 @@ export type ActivityEventType =
   | 'active'
   | 'suspend'
   | 'resume'
-  | 'task' // active task changed (pageId, or null = stopped)
+  | 'task' // active task changed (canvasId, or null = stopped)
   | 'focus' // foreground window changed
   | 'git' // something happened in a watched repository
 
@@ -228,7 +250,8 @@ export interface ActivityEvent {
   /** ISO timestamp. */
   t: string
   type: ActivityEventType
-  pageId?: string | null
+  /** The canvas a task/start/git event refers to. Older logs wrote this as `pageId`. */
+  canvasId?: string | null
   entryId?: string
   app?: string
   title?: string
@@ -242,7 +265,7 @@ export interface ActivityEvent {
 
 export interface TrackerStatus {
   tracking: boolean
-  activePageId: string | null
+  activeCanvasId: string | null
   /** When the current task segment started (after the last pause). */
   since: string | null
   paused: boolean

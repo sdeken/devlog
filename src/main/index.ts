@@ -3,7 +3,8 @@ import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { IPC, type MenuCommand } from '@shared/ipc'
 import type { AttachedImage, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
-import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
+import { JOURNAL_ID, canvasLabel } from '@shared/canvases'
+import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@shared/entries'
 import { DevlogStore } from './devlog/store'
 import { ActivityLog } from './activity/log'
@@ -39,8 +40,10 @@ let tracker: Tracker | null = null
 let commits: CommitWatcher | null = null
 let tray: Tray | null = null
 let quitting = false
-/** Page id → "Client / Project / Title", for the tray. */
-let pageLabels = new Map<string, string>()
+/** Canvas id → "Client / Project / Task", for the tray. */
+let canvasLabels = new Map<string, string>()
+/** Canvas id → task flag, so posting on a non-task never starts the clock. */
+let taskCanvases = new Set<string>()
 let updater: Updater | null = null
 let screenLocked = false
 /** Editors with unsaved text, as reported by the renderer. */
@@ -116,6 +119,8 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     throw new Error('That folder is not a git repository. Use "Create a new devlog" to initialise one.')
   }
   await nextStore.initLayout()
+  const migrated = await nextStore.migrateLegacyLayout()
+  if (migrated.length) console.log(`migrated ${migrated.length} legacy pages/categories into canvases/`)
   if (!isRepo || create) await SyncManager.initRepo(root, syncOptionsFrom(s))
 
   const nextSync = new SyncManager(root, syncOptionsFrom(s))
@@ -138,11 +143,11 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   await nextTracker.start()
 
   const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
-  nextCommits.on('commit', (pageId: string, info: CommitInfo) => void onCommit(pageId, info))
-  nextCommits.on('event', (pageId: string, info: GitEventInfo) => {
+  nextCommits.on('commit', (canvasId: string, info: CommitInfo) => void onCommit(canvasId, info))
+  nextCommits.on('event', (canvasId: string, info: GitEventInfo) => {
     if (!settings.get().trackingEnabled) return
     void activityLog
-      .append({ t: new Date().toISOString(), type: 'git', pageId, repo: info.repoName, action: info.action, branch: info.branch, from: info.from, detail: info.detail })
+      .append({ t: new Date().toISOString(), type: 'git', canvasId, repo: info.repoName, action: info.action, branch: info.branch, from: info.from, detail: info.detail })
       .catch((err) => console.error('git event log failed', err))
   })
   commits = nextCommits
@@ -156,53 +161,58 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
 async function refreshCommitWatchers(): Promise<void> {
   if (!store || !commits) return
   if (!settings.get().captureCommits) {
+    const canvases = await store.listCanvases()
+    canvasLabels = new Map(canvases.map((c) => [c.id, canvasLabel(canvases, c.id)]))
+    taskCanvases = new Set(canvases.filter((c) => c.task && !c.archived).map((c) => c.id))
+    updateTray(tracker?.getStatus() ?? null)
     await commits.setRepos([])
     return
   }
-  const pages = await store.listPages()
-  pageLabels = new Map(pages.map((p) => [p.id, p.id === JOURNAL_PAGE_ID ? 'Journal' : [...categoryPath(p.category), p.title].join(' / ')]))
+  const canvases = await store.listCanvases()
+  canvasLabels = new Map(canvases.map((c) => [c.id, canvasLabel(canvases, c.id)]))
+  taskCanvases = new Set(canvases.filter((c) => c.task && !c.archived).map((c) => c.id))
   updateTray(tracker?.getStatus() ?? null)
-  const list: Array<{ pageId: string; path: string }> = []
-  for (const p of pages) {
-    if (p.archived) continue // a finished project's repo should not feed an archived page
-    for (const r of p.repos) list.push({ pageId: p.id, path: r })
+  const list: Array<{ canvasId: string; path: string }> = []
+  for (const c of canvases) {
+    if (c.archived) continue // a finished project's repo should not feed an archived canvas
+    for (const r of c.repos) list.push({ canvasId: c.id, path: r })
   }
   await commits.setRepos(list)
 }
 
-/** A commit landed in a page's repository: add it as a read-only note. */
-async function onCommit(pageId: string, info: CommitInfo): Promise<void> {
+/** A commit landed in a canvas's repository: add it as a read-only block. */
+async function onCommit(canvasId: string, info: CommitInfo): Promise<void> {
   if (!store) return
   try {
     const { date } = await store.addEntry(
-      pageId,
+      canvasId,
       commitMarkdown(info),
       { date: localDate(new Date()) },
       new Date(),
       { kind: 'commit', meta: { repo: info.repoPath, hash: info.hash, branch: info.branch ?? '', author: info.author } }
     )
-    send(IPC.evEntriesChanged, { pageId, date })
+    send(IPC.evEntriesChanged, { canvasId, date })
   } catch (err) {
     console.error('failed to record commit', err)
   }
 }
 
-/** A user note was posted: pages other than the journal become the active task. */
-async function onEntryAdded(pageId: string, entry: Entry): Promise<void> {
+/** A user block was posted: on a task canvas that task becomes active; elsewhere it is just a note. */
+async function onEntryAdded(canvasId: string, entry: Entry): Promise<void> {
   if (!tracker) return
-  if (pageId === JOURNAL_PAGE_ID) return
+  if (canvasId === JOURNAL_ID || !taskCanvases.has(canvasId)) return
   if (entry.kind && entry.kind !== 'note') return
-  // A note with an explicit duration records the past; it does not start a task.
+  // A block with an explicit duration records the past; it does not start a task.
   if (parseDurationMarker(entry.markdown) !== null) return
-  await tracker.setTask(pageId, entry.id)
+  await tracker.setTask(canvasId, entry.id)
 }
 
 function updateTray(st: TrackerStatus | null): void {
   if (!tray) return
   const label = !st || !st.tracking
     ? 'Devlog'
-    : st.activePageId
-      ? `Devlog · ${pageLabels.get(st.activePageId) ?? st.activePageId}${st.paused ? ' (paused)' : ''}`
+    : st.activeCanvasId
+      ? `Devlog · ${canvasLabels.get(st.activeCanvasId) ?? st.activeCanvasId}${st.paused ? ' (paused)' : ''}`
       : 'Devlog · no active task'
   const up = updater?.getStatus()
   const upLabel =
@@ -218,7 +228,7 @@ function updateTray(st: TrackerStatus | null): void {
       ...(upLabel ? [{ label: upLabel, enabled: false } as Electron.MenuItemConstructorOptions] : []),
       { type: 'separator' },
       { label: 'Open Devlog', click: () => showWindow() },
-      { label: 'Stop Active Task', enabled: !!st?.activePageId, click: () => void tracker?.setTask(null) },
+      { label: 'Stop Active Task', enabled: !!st?.activeCanvasId, click: () => void tracker?.setTask(null) },
       { label: 'Sync Now', click: () => void sync?.syncNow('manual') },
       { type: 'separator' },
       { label: 'Quit Devlog', click: () => quitApp() }
@@ -308,6 +318,23 @@ function watchWindowState(win: BrowserWindow): void {
   win.on('close', save)
 }
 
+/** Colours for the native window controls drawn over the top bar (Windows/Linux). */
+function titleBarOverlay(): Electron.TitleBarOverlay {
+  const t = resolveTheme(settings.get().theme)
+  return { color: t.topbarBg, symbolColor: t.sidebarFg, height: TOPBAR_HEIGHT }
+}
+
+const TOPBAR_HEIGHT = 40
+
+function applyTheme(): void {
+  if (!mainWindow || mainWindow.isDestroyed() || process.platform === 'darwin') return
+  try {
+    mainWindow.setTitleBarOverlay(titleBarOverlay())
+  } catch {
+    /* not supported on this platform/version */
+  }
+}
+
 function createWindow(): BrowserWindow {
   const state = loadWindowState()
   const win = new BrowserWindow({
@@ -320,9 +347,12 @@ function createWindow(): BrowserWindow {
     show: false,
     icon: process.platform === 'darwin' ? undefined : nativeImage.createFromDataURL(`data:image/png;base64,${TRAY_ICON_PNG_BASE64}`),
     title: 'Devlog',
-    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
-    trafficLightPosition: { x: 14, y: 14 },
-    backgroundColor: '#1a1d21',
+    // Slack-style chrome: the app draws the title bar; the menu lives behind a hamburger button.
+    titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
+    titleBarOverlay: process.platform === 'darwin' ? undefined : titleBarOverlay(),
+    trafficLightPosition: { x: 14, y: 12 },
+    autoHideMenuBar: true,
+    backgroundColor: resolveTheme(settings.get().theme).sidebarBg,
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -404,13 +434,14 @@ if (!gotLock) {
         sync?.updateOptions(syncOptionsFrom(s))
         void tracker?.updateSettings(s)
         void refreshCommitWatchers()
+        applyTheme()
       },
       onEntryAdded,
-      onPagesChanged: refreshCommitWatchers,
+      onCanvasesChanged: refreshCommitWatchers,
       activityRange: (from, to) => activityLog.read(from, to),
       trackerStatus: () => tracker?.getStatus() ?? null,
-      trackerSetTask: async (pageId) => {
-        await tracker?.setTask(pageId)
+      trackerSetTask: async (canvasId) => {
+        await tracker?.setTask(canvasId)
       },
       updateStatus: () => updater?.getStatus() ?? { state: 'unavailable', currentVersion: app.getVersion(), availableVersion: null, checkedAt: null, error: null },
       updateCheck: async () => {
@@ -438,7 +469,7 @@ if (!gotLock) {
       openSettings: menuCmd('openSettings'),
       focusComposer: menuCmd('focusComposer'),
       search: menuCmd('search'),
-      newPage: menuCmd('newPage'),
+      newCanvas: menuCmd('newCanvas'),
       review: menuCmd('review'),
       summary: menuCmd('summary'),
       switcher: menuCmd('switcher'),

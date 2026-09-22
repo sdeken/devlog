@@ -4,49 +4,62 @@ A desktop app for keeping a running developer log. Posts are written in a
 Slack-style WYSIWYG Markdown composer, stored as plain Markdown files in a git
 repository, and committed and pushed automatically.
 
+Three words cover the model. A **canvas** is anything you write about: a
+client, a project, a topic, a task. Every canvas has a *surface* (free
+markdown: links, how-tos, a research scratchpad) and a *stream* of dated
+**blocks**. Canvases nest. A canvas marked as a **task** is something time is
+tracked against; any block can become one.
+
 - **WYSIWYG Markdown, no chrome.** Bold, italic, strikethrough, inline code,
   syntax-highlighted code blocks, lists, quotes, headings and links render as
   you type, with the usual shortcuts (`**bold**`, `- ` for a list, ```` ```ts ````
   for a code block, ⌘B / ⌘I / ⌘K…). The composer is a bare input: the only
   formatting UI is a small bubble menu that appears when you select text.
   Enter posts, Shift+Enter starts a new line.
-- **Every note is a node.** Reply to a note to start a thread, hover between
-  two notes and press **+** to insert one there, double-click a note (or press
-  ↑ in the empty composer) to edit it. Notes on past days work the same way.
-- **Pages in a client / project hierarchy.** Besides the journal, create a
-  page per client, project, task, or whatever you want to slice by. A page's
-  category is a path like `Acme Corp / Website`, so the sidebar nests projects
-  under clients (and a "Website" under two clients is two different projects).
-  Each page is its own stream with a description at the top; notes can be
-  moved between pages, and search covers all of them.
-- **A wiki per category.** Click a client or project in the sidebar to open
-  its wiki: a blank canvas that is not a task, for links to the issue tracker,
-  environments, contacts, credentials, how-tos. It opens read-only so links
-  just work; **Edit** (or a double-click) turns it into the editor, which
-  saves as you type. It lives in the repo as `categories/<path>/wiki.md`.
-- **Archive what you're done with.** Archive a page, or a whole category with
-  everything beneath it, to get it out of the sidebar. Archived things stay
-  readable and searchable, and one click brings them back.
-- **One active task, tracked for you.** Posting on a page makes it the active
-  task; it stays active until you post elsewhere, press Stop, lock the
-  machine, go idle or sleep. Devlog keeps running in the tray to watch. A note
-  with an explicit duration like `[2h]` or `[45m]` overrides tracking for that
-  window when you know better.
+- **Every block is a node.** Reply to a block to start a thread, hover
+  between two blocks and press **+** to insert one there, double-click a
+  block (or press ↑ in the empty composer) to edit it. Blocks on past days
+  work the same way.
+- **Canvases nest however you slice your work.** Besides the journal, make a
+  canvas per client, with project canvases inside it, with task canvases
+  inside those; or flatter, or deeper. The sidebar is the tree. "Website"
+  under two clients is two different canvases. Blocks can be moved between
+  canvases, and search covers all of them.
+- **Every canvas has a surface.** Above the stream sits free-form markdown
+  that is not a dated note: links to the issue tracker, environments,
+  contacts, credentials, how-tos, or the evolving write-up of whatever you are
+  researching. It opens read-only so links just work; **Edit surface** (or a
+  double-click) turns it into the editor, which saves as you type.
+- **Notes are notes until you say otherwise.** Posting on a client or
+  project canvas is just a note. A block becomes a **task** with
+  ⌘⇧Enter, with `#task` anywhere on its first line, or with the **Task**
+  action on hover: Devlog creates a task canvas beneath the current one,
+  titled from the block, links the block to it, and starts the clock. The
+  task canvas has its own surface and stream for everything that follows.
+- **One active task, tracked for you.** Posting on a task canvas (or
+  pressing **Start** in its header) makes it the active task; it stays active
+  until you post on another task, press Stop, lock the machine, go idle or
+  sleep. Devlog keeps running in the tray to watch. A block with an explicit
+  duration like `[2h]` or `[45m]` overrides tracking for that window when
+  you know better.
+- **Archive what you're done with.** Archive a canvas, with everything
+  beneath it, to get it out of the sidebar. Archived things stay readable
+  and searchable, and one click brings them back.
 - **Activity timeline.** Alongside your notes, Devlog records lock/unlock,
   idle, sleep and which window was in front (app and title, so a browser tab
   or a Teams call shows up). A per-day **Timeline** view lays it all out next
   to your notes; the weekly review adds screen time by kind (coding, meetings,
   browser…).
-- **Commits become notes, branches become events.** Map a page to the git
+- **Commits become blocks, branches become events.** Map a canvas to the git
   repositories you use for it and every commit you make there is added to the
-  page as a read-only note you can reply to, move or delete. Creating or
+  canvas as a read-only block you can reply to, move or delete. Creating or
   switching branches, pushing, merging, rebasing and stashing show up on the
-  timeline without cluttering the page.
+  timeline without cluttering the stream.
 - **Weekly review and summary.** The review rolls the week up by day and by
-  client → project → page with tracked time, plus a per-day breakdown of what
+  client → project → task with tracked time, plus a per-day breakdown of what
   you wrote, task time and screen time. The **Summary** view answers the
   timesheet question directly: hours per client for any range, rounded to
-  the nearest 15 minutes (or whatever you set), with projects and pages one
+  the nearest 15 minutes (or whatever you set), with projects and tasks one
   click away. Made for Friday.
 - **Pasted evidence just works.** Paste or drop an image into the composer
   and it is saved into the repository next to the day's entry and linked
@@ -55,8 +68,13 @@ repository, and committed and pushed automatically.
   session and it lands in a code block instead of being mangled into
   paragraphs.
 - **Jot from anywhere.** The composer stays at the bottom of every view, with
-  a picker for which page the note goes to, and ⌘P / ⌘K opens a quick switcher
-  that jumps to any page, client, project or view by fuzzy name.
+  a picker for which canvas the block goes to, and ⌘P / ⌘K opens a quick
+  switcher that jumps to any canvas or view by fuzzy name.
+- **Its own chrome.** No menu bar: the app draws the title bar Slack-style,
+  with a hamburger menu on the left and search in the middle. Pick a colour
+  theme in Settings (Graphite by default; Ocean, Forest, Ember, Aubergine,
+  Paper) or set your own sidebar and accent colours; everything else is
+  derived from those two.
 - **Updates itself.** Releases are checked for in the background, downloaded
   silently, and installed by restarting at a quiet moment (screen locked,
   window hidden, or input idle), never mid-edit and never with a dialog.
@@ -93,71 +111,99 @@ entries/                          ← the journal
       2026-09-19.md
       assets/
         2026-09-19-143201-a1b2.png
-pages/
-  acme-corp-web-website/          ← a page; folder name = category path + title
-    page.md                       ← title, category path, description, archived flag
-    entries/2026/09/2026-09-19.md ← same day-file format
-categories/
-  acme-corp/
-    wiki.md                       ← the "Acme Corp" wiki (front matter + markdown)
-    assets/                       ← images pasted into it
-    web/wiki.md                   ← the "Acme Corp / Web" wiki
+canvases/
+  acme-corp/                      ← a canvas (a client)
+    canvas.md                     ← title, parent, task flag, repos, archived flag + the surface
+    assets/                       ← images pasted into the surface
+    entries/2026/09/2026-09-19.md ← its stream, same day-file format
+  website/                        ← another canvas, parent: acme-corp
+    canvas.md
+    entries/…
+  fix-the-login-redirect/         ← a task canvas, parent: website
+    canvas.md                     ← task: true
+    entries/…
 ```
 
-`page.md` is a short front-matter block followed by the description:
+Canvas folders are flat and named by a slug of the title (made unique with
+`-2`, `-3`…); the hierarchy is the `parent` line in `canvas.md`, so renaming
+or moving a canvas never moves files or breaks history. `canvas.md` is a
+short front-matter block followed by the surface:
 
 ```markdown
 ---
 title: Website
-category: Acme Corp / Web
+parent: acme-corp
 created: 2026-09-19T10:00:00.000Z
+repo: C:\src\acme-site
 ---
 
 Marketing site rebuild. Weekly sync on Tuesdays.
+
+- Tracker: https://issues.example.com/acme
 ```
 
-## Category wikis
+A devlog written by Devlog 0.2 (with `pages/` and `categories/`) is migrated
+into this layout the first time it is opened; nothing is thrown away.
 
-Every category node (a client, a project) has a wiki. Open it by clicking the
-category name in the sidebar, the category chip on a page, or a breadcrumb. It
-opens as a rendered page: links open in the browser, images open full size.
-**Edit** in the header (or double-clicking the text) switches to a
-full-height editor with the same Markdown and image support as notes, but no
-posting: Enter is just a new line and every change is saved a moment later
-(the header says "Saved"); **Done** switches back. An empty wiki opens
-straight into the editor. Below the canvas the view lists the pages in that
-category, including archived ones with an Unarchive button, and offers
-"+ Page here" to create a page pre-filled with the category.
+## Canvases, surfaces and tasks
 
-Wikis are searched along with notes. Like everything else in the repository,
-they are plain files; treat the repository as sensitive, because it is.
+Click a canvas in the sidebar to open it. The header shows its breadcrumbs,
+the canvases inside it as chips, and actions: **Edit** (rename, move under
+another canvas, mark as a task, repositories), **Archive**, and for tasks
+**Start** / **Stop**.
+
+The **surface** sits above the stream. It opens rendered: links open in the
+browser, images open full size. **Add surface** / **Edit surface** (or a
+double-click) switches to a full-height editor with the same Markdown and
+image support as blocks, but no posting: Enter is just a new line and every
+change is saved a moment later (the header says "Saved"); **Done** switches
+back. Surfaces are searched along with blocks.
+
+A **task** is a canvas with the task flag. Three ways to make one from a
+block you are writing or have written:
+
+- press ⌘⇧Enter instead of Enter when posting,
+- put `#task` anywhere on the block's first line (it is stripped on save),
+- hover an existing block and choose **Task**.
+
+Each creates a task canvas beneath the block's canvas (top-level for journal
+blocks), titled from the block's first sentence, marks the block as the link
+to it (a chip opens the task), and makes it the active task. Blocks inside a
+task canvas can be anything: more notes, pasted evidence, further tasks. A
+canvas can also be flagged as a task, or unflagged, in **Edit**.
+
+Like everything else in the repository, canvases are plain files; treat the
+repository as sensitive, because it is.
 
 ## Archiving
 
-**Archive** in a page header hides the page from the sidebar. It keeps its
-notes, stays searchable (results are marked "archived"), can still be opened
-and read, and comes back with **Unarchive**. Archived pages cannot become the
-active task or receive commits. **Archive category…** in a wiki header does
-the same for the category and every page beneath it; unarchiving restores
-them all. The sidebar's collapsible **Archived** section lists everything
-archived so it is never lost.
+**Archive** in a canvas header hides the canvas and everything beneath it
+from the sidebar. They keep their blocks, stay searchable (results are marked
+"archived"), can still be opened and read, and come back with **Unarchive**.
+Archived canvases cannot become the active task or receive commits. The
+sidebar's collapsible **Archived** section lists everything archived so it is
+never lost.
 
 ## Time tracking
 
-There is one active task at a time. The workflow is: write a line or two to
-wrap up what you were doing, then a short note on the page for the next thing;
-that page is now the active task. The status bar shows it with a running clock
-and a **Stop** button (also ⌘⇧. and in the tray menu).
+There is one active task at a time, and a task is a canvas with the task
+flag. The workflow: write a line or two to wrap up what you were doing, then
+either post on the task you are picking up (that makes it active), press
+**Start** in its header, or write the next thing as a new block and post it
+with ⌘⇧Enter so it becomes a task of its own. The status bar shows the active
+task with a running clock and a **Stop** button (also ⌘⇧. and in the tray
+menu). Posting on the journal or on a canvas that is not a task never
+touches the clock: those are just notes.
 
 Time stops accruing while the screen is locked, the machine sleeps, or there
 has been no input for a while (default 10 minutes, adjustable), and resumes on
-the same task afterwards. Journal notes never switch the task. Quitting Devlog
-stops the clock, so it keeps running in the tray when you close the window.
+the same task afterwards. Quitting Devlog stops the clock, so it keeps
+running in the tray when you close the window.
 
-When you know better than the tracker, say so in the note: `[2h] Acme sync`
-or `[45m] code review` counts exactly that much for the note's page, ending at
-the note's time, and replaces whatever was tracked in that window. Such notes
-do not switch the active task.
+When you know better than the tracker, say so in the block: `[2h] Acme sync`
+or `[45m] code review` counts exactly that much for the block's canvas,
+ending at the block's time, and replaces whatever was tracked in that window.
+Such blocks do not switch the active task.
 
 Window tracking records every focus change, and if you alt-tab a lot that is
 a lot of sub-second flips. The raw log keeps all of them; the views clean
@@ -178,43 +224,43 @@ for browsers is the active tab), and git events from watched repositories. Focus
 on Windows, `osascript` on macOS (window titles need the Accessibility
 permission) and `xdotool` on Linux if present.
 
-## Working copies: commits as notes, branches as events
+## Working copies: commits as blocks, branches as events
 
-Give a page its repositories (**Edit page → Git repositories**); these are
-the working copies you code in, not the devlog repository. Devlog watches each
-repository's reflogs and, on every commit, adds a read-only note to the page:
-repo, branch, short hash and message. Reply to it, move it or delete it, but
-not edit it.
+Give a canvas its repositories (**Edit → Git repositories**); these are the
+working copies you code in, not the devlog repository. Devlog watches each
+repository's reflogs and, on every commit, adds a read-only block to the
+canvas: repo, branch, short hash and message. Reply to it, move it or delete
+it, but not edit it.
 
 Everything else git records is captured as an activity event rather than a
-note, so the page stays readable: creating a branch, switching branches
+block, so the stream stays readable: creating a branch, switching branches
 (with where from), pushing, merging, rebasing, pulling, resetting and
-stashing. They appear on the day's Timeline with the repo name, and count
-towards the active task like any other activity. Commits in the devlog
-repository itself are ignored.
+stashing. They appear on the day's Timeline with the repo name. Commits in
+the devlog repository itself are ignored.
 
 ## Weekly review
 
 **Weekly review** in the sidebar (⌘⇧R) shows a Monday–Sunday grid: one row
-per top-level category (client), nested rows for sub-categories (projects) and
-pages, one column per day, and a week total. Each cell shows tracked time and
-the number of notes. Below the grid, every day is broken down by client →
-project → page with the notes you wrote, the task time segments, and screen
-time by kind (coding, terminal, meetings, email & chat, browser) and by app.
+per top-level canvas (client), nested rows for the canvases beneath it
+(projects, tasks), one column per day, and a week total. Each cell shows
+tracked time and the number of blocks. Below the grid, every day is broken
+down by client → project → task with the blocks you wrote, the task time
+segments, and screen time by kind (coding, terminal, meetings, email & chat,
+browser) and by app.
 
 Days with no tracking data at all are marked `~` and estimated from note
 timestamps instead (each note counts until the next one, capped at an hour).
 
 ## Summary
 
-**Summary** (⌘⇧H) is the timesheet view: one row per top-level category
+**Summary** (⌘⇧H) is the timesheet view: one row per top-level canvas
 (client) with hours for the chosen range (this week, last week, this month,
-last month, or any two dates), a share bar, the note count and the exact
+last month, or any two dates), a share bar, the block count and the exact
 tracked minutes. Hours are rounded to the nearest 15 minutes by default;
 change the granularity in the header and it is remembered. Expand a client to
-see its projects and pages rounded the same way, click a name to open the
-page or wiki. Rounding happens per row, so the rounded rows may not add up to
-the rounded total.
+see its projects and tasks rounded the same way; click a name to open the
+canvas. Rounding happens per row, so the rounded rows may not add up to the
+rounded total.
 
 ## Timeline
 
@@ -224,7 +270,7 @@ and captured commits written in it, git events from watched repositories
 (branch created, switched, pushed…), system events such as lock or sleep, and
 the apps that were in front with minutes each; click the app chips to see the
 window titles behind them. Quiet intervals are collapsed into a "nothing
-recorded" line. Click a note to open it on its page.
+recorded" line. Click a block to open it on its canvas.
 
 A day file looks like this:
 
@@ -249,10 +295,11 @@ A reply in the thread under the first note.
 Done. **Ship it.**
 ```
 
-The HTML comment carries each note's id, optional `parent`, and timestamps,
-and is invisible when rendered; the time heading is regenerated from the
-timestamp (`↳` and a deeper heading level mark replies). File order is display
-order, so inserted notes stay where you put them.
+The HTML comment carries each block's id, optional `parent`, kind
+(`commit`, or `task` with the task canvas's id) and timestamps, and is
+invisible when rendered; the time heading is regenerated from the timestamp
+(`↳` and a deeper heading level mark replies). File order is display order,
+so inserted blocks stay where you put them.
 
 ## Sync behaviour
 
@@ -279,7 +326,7 @@ hours, download a newer version in the background, and restart into it when
 the app is not in use: the screen is locked, the window is hidden or
 unfocused and there has been no input for a while, or an update has been
 waiting for a day and you pause typing. An open edit, reply, insert or an
-unsaved wiki change always holds the restart. There is no prompt; Settings
+unsaved surface change always holds the restart. There is no prompt; Settings
 shows the version and update state and has a switch to turn it off. The
 active task survives the restart, so tracking loses only a few seconds.
 
@@ -306,7 +353,7 @@ npm run screens     # builds, seeds a demo devlog and screenshots every view in 
 ```
 
 The window remembers its size and position, closes to the tray while tracking
-is on, and shows the current page in its title. Failed background actions
+is on, and shows the current canvas in its title. Failed background actions
 (a move, an archive, a sync) surface as a toast in the corner rather than
 disappearing into the console.
 
@@ -315,7 +362,8 @@ Code map:
 | Path                              | Purpose                                                        |
 | --------------------------------- | -------------------------------------------------------------- |
 | `src/shared/entries.ts`           | Day-file format: parse/serialize, path helpers, image rewriting |
-| `src/shared/pages.ts`             | Page and wiki files, slugs, category paths and tree, archiving |
+| `src/shared/canvases.ts`          | Canvas files, slugs, hierarchy helpers, legacy layout parsing |
+| `src/shared/theme.ts`             | Colour presets and derived theme variables                     |
 | `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
 | `src/main/activity/`              | Activity log, tracker (lock/idle/focus), commit watcher         |
@@ -325,6 +373,6 @@ Code map:
 | `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |
 | `src/main/ipc.ts`, `src/preload/` | IPC surface exposed to the renderer as `window.devlog`         |
-| `src/renderer/src/components/`    | React UI: sidebar, threaded feed, composer (TipTap), settings  |
+| `src/renderer/src/components/`    | React UI: top bar, sidebar tree, canvas view, composer, settings |
 | `src/renderer/src/editor/`        | TipTap extensions: highlighted code, asset images, Slack keys  |
 | `docs/DESIGN.md`                  | Design notes and rationale                                     |

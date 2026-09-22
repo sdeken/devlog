@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localDate, previewText } from '@shared/entries'
-import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
+import { JOURNAL_ID, ancestorIds, canvasLabel } from '@shared/canvases'
 import { APP_KIND_LABEL, splitByLocalDay, type AppKind } from '@shared/activity'
 import {
   DEFAULT_ESTIMATE,
@@ -14,14 +14,14 @@ import {
   type ReviewNote,
   type ReviewRow
 } from '@shared/review'
-import type { ActivityEvent, PageMeta } from '@shared/types'
+import type { ActivityEvent, CanvasMeta } from '@shared/types'
 import { api } from '@renderer/api'
 
 interface Props {
-  pages: PageMeta[]
+  canvases: CanvasMeta[]
   today: string
   focusMinSeconds: number
-  onJumpTo: (pageId: string, date: string) => void
+  onJumpTo: (canvasId: string, date: string) => void
   onOpenTimeline: (date: string) => void
 }
 
@@ -38,7 +38,7 @@ function parseLocal(date: string): Date {
 
 const KIND_ORDER: AppKind[] = ['coding', 'terminal', 'meeting', 'comms', 'browser', 'devlog', 'other']
 
-export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline }: Props): React.JSX.Element {
+export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimeline }: Props): React.JSX.Element {
   const [start, setStart] = useState(() => weekStart(today))
   const [notes, setNotes] = useState<ReviewNote[] | null>(null)
   const [events, setEvents] = useState<ActivityEvent[]>([])
@@ -48,14 +48,14 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
   useEffect(() => {
     let cancelled = false
     setNotes(null)
-    void Promise.all([api.entries.range(start, end), api.activity.range(start, end)]).then(([chunks, evs]) => {
+    void Promise.all([api.blocks.range(start, end), api.activity.range(start, end)]).then(([chunks, evs]) => {
       if (cancelled) return
       const flat: ReviewNote[] = []
-      for (const { pageId, day } of chunks) {
+      for (const { canvasId, day } of chunks) {
         for (const entry of day.entries) {
           // Attribute by when it was written; replies can live in an older day file.
           const date = localDate(new Date(entry.createdAt))
-          if (date >= start && date <= end) flat.push({ pageId, date, entry })
+          if (date >= start && date <= end) flat.push({ canvasId, date, entry })
         }
       }
       setNotes(flat)
@@ -67,20 +67,15 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
   }, [start, end])
 
   const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates, estimate: DEFAULT_ESTIMATE, focusMinSeconds }), [notes, events, dates, focusMinSeconds])
-  const rows = useMemo(() => buildReviewRows(pages, notes ?? [], time.byPageDay), [pages, notes, time])
-  const pageById = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages])
-  const pageLabel = (id: string): string => {
-    if (id === JOURNAL_PAGE_ID) return 'Journal'
-    const p = pageById.get(id)
-    if (!p) return id
-    return [...categoryPath(p.category), p.title].join(' / ')
-  }
+  const rows = useMemo(() => buildReviewRows(canvases, notes ?? [], time.byCanvasDay), [canvases, notes, time])
+  const byId = useMemo(() => new Map(canvases.map((c) => [c.id, c])), [canvases])
+  const pageLabel = (id: string): string => canvasLabel(canvases, id)
 
   const dayTotals = useMemo(() => {
     const t = new Map<string, { notes: number; minutes: number }>()
     for (const d of dates) t.set(d, { notes: 0, minutes: 0 })
     for (const n of notes ?? []) t.get(n.date)!.notes += 1
-    for (const [date, perPage] of time.byPageDay) {
+    for (const [date, perPage] of time.byCanvasDay) {
       const cell = t.get(date)
       if (cell) for (const m of perPage.values()) cell.minutes += m
     }
@@ -92,7 +87,7 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
   const anyTracked = [...time.method.values()].includes('tracked')
 
   const segmentsByDay = useMemo(() => {
-    const m = new Map<string, Array<{ pageId: string; start: string; end: string; minutes: number; source: string }>>()
+    const m = new Map<string, Array<{ canvasId: string; start: string; end: string; minutes: number; source: string }>>()
     for (const piece of splitByLocalDay(time.taskSegments)) {
       if (!m.has(piece.date)) m.set(piece.date, [])
       m.get(piece.date)!.push({ ...piece.segment, minutes: piece.minutes })
@@ -102,15 +97,12 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
 
   const renderRow = (row: ReviewRow): React.JSX.Element => (
     <>
-      <tr key={row.key} className={`review-row review-${row.kind} depth-${Math.min(row.depth, 3)}`}>
+      <tr key={row.canvasId} className={`review-row review-${row.task ? 'task' : row.children.length ? 'category' : 'page'} depth-${Math.min(row.depth, 3)}`}>
         <th scope="row" style={{ paddingLeft: 10 + row.depth * 16 }}>
-          {row.kind === 'page' && row.pageId ? (
-            <button type="button" className="link" onClick={() => onJumpTo(row.pageId!, dates.find((d) => row.cells.has(d)) ?? today)}>
-              {row.label}
-            </button>
-          ) : (
-            row.label
-          )}
+          <button type="button" className="link" onClick={() => onJumpTo(row.canvasId, dates.find((d) => row.cells.has(d)) ?? today)}>
+            {row.task ? '◉ ' : ''}
+            {row.label}
+          </button>
         </th>
         {dates.map((d) => {
           const cell = row.cells.get(d)
@@ -142,25 +134,26 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
       byDate.get(n.date)!.push(n)
     }
     return dates
-      .filter((d) => byDate.has(d) || (time.byPageDay.get(d)?.size ?? 0) > 0)
+      .filter((d) => byDate.has(d) || (time.byCanvasDay.get(d)?.size ?? 0) > 0)
       .map((d) => {
-        const perPage = time.byPageDay.get(d) ?? new Map<string, number>()
+        const perPage = time.byCanvasDay.get(d) ?? new Map<string, number>()
         const groups = new Map<string, { label: string; minutes: number; sub: Map<string, { label: string; minutes: number; notes: ReviewNote[] }> }>()
-        const touch = (pageId: string): { label: string; minutes: number; notes: ReviewNote[] } => {
-          const page = pageById.get(pageId)
-          const path = pageId === JOURNAL_PAGE_ID ? [] : categoryPath(page?.category ?? '')
-          const title = pageId === JOURNAL_PAGE_ID ? 'Journal' : (page?.title ?? pageId)
-          const topKey = path[0] ?? `page:${pageId}`
-          if (!groups.has(topKey)) groups.set(topKey, { label: path[0] ?? title, minutes: 0, sub: new Map() })
-          const g = groups.get(topKey)!
-          if (!g.sub.has(pageId)) {
-            g.sub.set(pageId, { label: [...path.slice(1), path.length > 0 ? title : ''].filter(Boolean).join(' / '), minutes: 0, notes: [] })
+        const touch = (canvasId: string): { label: string; minutes: number; notes: ReviewNote[] } => {
+          const chain = [...ancestorIds(canvases, canvasId).reverse(), canvasId]
+          const topId = chain[0]
+          const top = byId.get(topId)
+          const topLabel = topId === JOURNAL_ID ? 'Journal' : (top?.title ?? topId)
+          if (!groups.has(topId)) groups.set(topId, { label: topLabel, minutes: 0, sub: new Map() })
+          const g = groups.get(topId)!
+          if (!g.sub.has(canvasId)) {
+            const rest = chain.slice(1).map((id) => byId.get(id)?.title ?? id)
+            g.sub.set(canvasId, { label: rest.join(' / '), minutes: 0, notes: [] })
           }
-          return g.sub.get(pageId)!
+          return g.sub.get(canvasId)!
         }
-        for (const n of byDate.get(d) ?? []) touch(n.pageId).notes.push(n)
-        for (const [pageId, minutes] of perPage) {
-          const s = touch(pageId)
+        for (const n of byDate.get(d) ?? []) touch(n.canvasId).notes.push(n)
+        for (const [canvasId, minutes] of perPage) {
+          const s = touch(canvasId)
           s.minutes += minutes
         }
         for (const g of groups.values()) g.minutes = [...g.sub.values()].reduce((s, x) => s + x.minutes, 0)
@@ -176,7 +169,7 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
             .sort((a, b) => b.minutes - a.minutes)
         }
       })
-  }, [notes, dates, pageById, time])
+  }, [notes, dates, byId, canvases, time])
 
   return (
     <div className="feed review">
@@ -185,7 +178,7 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
           <h2>Weekly review</h2>
           <span className="feed-sub">
             {rangeFmt.format(parseLocal(start))} – {rangeFmt.format(parseLocal(end))}
-            {notes ? ` · ${weekNotes} note${weekNotes === 1 ? '' : 's'} · ${anyEstimated && !anyTracked ? '~' : ''}${formatMinutes(weekMinutes)}` : ''}
+            {notes ? ` · ${weekNotes} block${weekNotes === 1 ? '' : 's'} · ${anyEstimated && !anyTracked ? '~' : ''}${formatMinutes(weekMinutes)}` : ''}
           </span>
           <span className="spacer" />
           <div className="week-nav">
@@ -291,7 +284,7 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
                         <ul className="review-notes">
                           {s.notes.map((n) => (
                             <li key={noteKey(n)}>
-                              <button type="button" className="review-note-link" onClick={() => onJumpTo(n.pageId, n.date)} title="Open on its page">
+                              <button type="button" className="review-note-link" onClick={() => onJumpTo(n.canvasId, n.date)} title="Open on its canvas">
                                 <time>{timeFmt.format(new Date(n.entry.createdAt))}</time>
                                 <span className="review-note-text">
                                   {n.entry.parentId ? '↳ ' : ''}
@@ -323,7 +316,7 @@ export function Review({ pages, today, focusMinSeconds, onJumpTo, onOpenTimeline
                               <time>
                                 {timeFmt.format(new Date(sg.start))}–{timeFmt.format(new Date(sg.end))}
                               </time>
-                              <span className="review-note-text">{pageLabel(sg.pageId)}</span>
+                              <span className="review-note-text">{pageLabel(sg.canvasId)}</span>
                               <span className="review-note-minutes">
                                 {formatMinutes(sg.minutes)}
                                 {sg.source === 'explicit' ? ' ✎' : ''}

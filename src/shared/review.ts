@@ -6,7 +6,7 @@
  * timestamp heuristic so an untracked day still shows something.
  */
 import { localDate, parseDurationMarker } from './entries'
-import { JOURNAL_PAGE_ID, categoryPath } from './pages'
+import { JOURNAL_ID, ancestorIds } from './canvases'
 import {
   applyExplicitDurations,
   buildFocusSegments,
@@ -20,10 +20,10 @@ import {
   type FocusSegment,
   type TaskSegment
 } from './activity'
-import type { ActivityEvent, Entry, PageMeta } from './types'
+import type { ActivityEvent, CanvasMeta, Entry } from './types'
 
 export interface ReviewNote {
-  pageId: string
+  canvasId: string
   /** Local date the note was written (from its timestamp). */
   date: string
   entry: Entry
@@ -38,7 +38,7 @@ export interface EstimateOptions {
 
 export const DEFAULT_ESTIMATE: EstimateOptions = { capMinutes: 60, lastNoteMinutes: 15 }
 
-export const noteKey = (n: ReviewNote): string => `${n.pageId}/${n.date}/${n.entry.id}`
+export const noteKey = (n: ReviewNote): string => `${n.canvasId}/${n.date}/${n.entry.id}`
 
 /** Monday of the week containing `date` (YYYY-MM-DD). */
 export function weekStart(date: string): string {
@@ -113,8 +113,8 @@ export function formatMinutes(minutes: number): string {
 export type DayMethod = 'tracked' | 'estimated' | 'none'
 
 export interface WeekTime {
-  /** date → pageId → minutes */
-  byPageDay: Map<string, Map<string, number>>
+  /** date → canvasId → minutes */
+  byCanvasDay: Map<string, Map<string, number>>
   /** How each date's minutes were obtained. */
   method: Map<string, DayMethod>
   taskSegments: TaskSegment[]
@@ -142,21 +142,21 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
     if (n.entry.kind && n.entry.kind !== 'note') continue
     const minutes = parseDurationMarker(n.entry.markdown)
     if (minutes) {
-      explicit.push({ pageId: n.pageId, end: n.entry.createdAt, minutes, entryId: n.entry.id })
+      explicit.push({ canvasId: n.canvasId, end: n.entry.createdAt, minutes, entryId: n.entry.id })
       explicitByNote.set(noteKey(n), minutes)
     }
   }
   const segOpts = { now: opts.now, heartbeatMs: opts.heartbeatMs }
   const tracked = applyExplicitDurations(buildTaskSegments(events, segOpts), explicit)
   const focusSegments = cleanFocusSegments(buildFocusSegments(events, segOpts), { minSeconds: opts.focusMinSeconds ?? 5 })
-  const byPageDay = taskMinutesByDay(tracked)
+  const byCanvasDay = taskMinutesByDay(tracked)
   const method = new Map<string, DayMethod>()
   const datesWithEvents = new Set(events.map((e) => localDate(new Date(e.t))))
 
   // Fallback per day: no tracking data and no explicit markers → heuristic.
   const fallback = estimateMinutes(notes, opts.estimate)
   for (const date of opts.dates) {
-    const hasTracked = (byPageDay.get(date)?.size ?? 0) > 0 || datesWithEvents.has(date)
+    const hasTracked = (byCanvasDay.get(date)?.size ?? 0) > 0 || datesWithEvents.has(date)
     if (hasTracked) {
       method.set(date, 'tracked')
       continue
@@ -168,11 +168,11 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
     }
     method.set(date, 'estimated')
     const m = new Map<string, number>()
-    for (const n of dayNotes) m.set(n.pageId, (m.get(n.pageId) ?? 0) + (fallback.get(noteKey(n)) ?? 0))
-    byPageDay.set(date, m)
+    for (const n of dayNotes) m.set(n.canvasId, (m.get(n.canvasId) ?? 0) + (fallback.get(noteKey(n)) ?? 0))
+    byCanvasDay.set(date, m)
   }
 
-  return { byPageDay, method, taskSegments: tracked, focusSegments, focus: focusSummaryByDay(focusSegments), explicitByNote }
+  return { byCanvasDay, method, taskSegments: tracked, focusSegments, focus: focusSummaryByDay(focusSegments), explicitByNote }
 }
 
 // ---------------------------------------------------------------------------
@@ -180,14 +180,12 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
 // ---------------------------------------------------------------------------
 
 export interface ReviewRow {
-  /** "category" rows group pages; "page" rows are leaves. */
-  kind: 'category' | 'page'
-  key: string
+  canvasId: string
   label: string
   depth: number
-  pageId?: string
-  path: string[]
-  /** Per-date totals. */
+  /** Task canvases are what the tracker times; others are groupings (clients, projects). */
+  task: boolean
+  /** Per-date totals, rolled up from descendants. */
   cells: Map<string, { notes: number; minutes: number }>
   totalNotes: number
   totalMinutes: number
@@ -195,28 +193,34 @@ export interface ReviewRow {
 }
 
 /**
- * Build the review matrix: a tree of category rows (top level first, then
- * nested categories) with page rows as leaves. Pages appear when they have
- * notes or time in the range. The journal is a top-level row of its own.
+ * Build the review tree: one row per canvas that has blocks or time in the
+ * range, plus every ancestor so totals roll up client → project → task.
+ * The journal is a top-level row of its own, listed last.
  */
-export function buildReviewRows(pages: PageMeta[], notes: ReviewNote[], byPageDay: Map<string, Map<string, number>>): ReviewRow[] {
-  const pageById = new Map(pages.map((p) => [p.id, p]))
+export function buildReviewRows(canvases: CanvasMeta[], notes: ReviewNote[], byCanvasDay: Map<string, Map<string, number>>): ReviewRow[] {
+  const byId = new Map(canvases.map((c) => [c.id, c]))
+  const rows = new Map<string, ReviewRow>()
   const roots: ReviewRow[] = []
-  const rowsByKey = new Map<string, ReviewRow>()
 
-  const rowFor = (kind: ReviewRow['kind'], path: string[], label: string, pageId?: string): ReviewRow => {
-    const key = `${kind}:${path.join('/')}${pageId ? `#${pageId}` : ''}`
-    let row = rowsByKey.get(key)
+  const rowFor = (id: string): ReviewRow => {
+    let row = rows.get(id)
     if (row) return row
-    row = { kind, key, label, depth: path.length - (kind === 'page' ? 0 : 1), pageId, path, cells: new Map(), totalNotes: 0, totalMinutes: 0, children: [] }
-    rowsByKey.set(key, row)
-    const parentPath = kind === 'page' ? path : path.slice(0, -1)
-    if (parentPath.length === 0) roots.push(row)
-    else {
-      const parentKey = `category:${parentPath.join('/')}`
-      const parent = rowsByKey.get(parentKey) ?? rowFor('category', parentPath, parentPath[parentPath.length - 1])
-      parent.children.push(row)
+    const c = byId.get(id)
+    const parentId = c?.parentId && byId.has(c.parentId) ? c.parentId : null
+    const parent = parentId ? rowFor(parentId) : null
+    row = {
+      canvasId: id,
+      label: id === JOURNAL_ID ? 'Journal' : (c?.title ?? id),
+      depth: parent ? parent.depth + 1 : 0,
+      task: c?.task ?? false,
+      cells: new Map(),
+      totalNotes: 0,
+      totalMinutes: 0,
+      children: []
     }
+    rows.set(id, row)
+    if (parent) parent.children.push(row)
+    else roots.push(row)
     return row
   }
 
@@ -229,29 +233,21 @@ export function buildReviewRows(pages: PageMeta[], notes: ReviewNote[], byPageDa
     row.totalMinutes += minutes
   }
 
-  const pathOf = (pageId: string): { path: string[]; label: string } => {
-    const page = pageById.get(pageId)
-    if (pageId === JOURNAL_PAGE_ID) return { path: [], label: 'Journal' }
-    return { path: categoryPath(page?.category ?? ''), label: page?.title ?? pageId }
+  const add = (id: string, date: string, notesCount: number, minutes: number): void => {
+    bump(rowFor(id), date, notesCount, minutes)
+    for (const a of ancestorIds(canvases, id)) if (byId.has(a)) bump(rowFor(a), date, notesCount, minutes)
   }
 
-  const add = (pageId: string, date: string, notesCount: number, minutes: number): void => {
-    const { path, label } = pathOf(pageId)
-    for (let i = 1; i <= path.length; i++) rowFor('category', path.slice(0, i), path[i - 1])
-    bump(rowFor('page', path, label, pageId), date, notesCount, minutes)
-    for (let i = 1; i <= path.length; i++) bump(rowFor('category', path.slice(0, i), path[i - 1]), date, notesCount, minutes)
-  }
+  for (const n of notes) add(n.canvasId, n.date, 1, 0)
+  for (const [date, perCanvas] of byCanvasDay) for (const [id, minutes] of perCanvas) add(id, date, 0, minutes)
 
-  for (const n of notes) add(n.pageId, n.date, 1, 0)
-  for (const [date, perPage] of byPageDay) for (const [pageId, minutes] of perPage) add(pageId, date, 0, minutes)
-
-  const sortRows = (rows: ReviewRow[]): ReviewRow[] =>
-    rows
+  const sortRows = (list: ReviewRow[]): ReviewRow[] =>
+    list
       .map((r) => ({ ...r, children: sortRows(r.children) }))
       .sort((a, b) => {
-        if (a.pageId === JOURNAL_PAGE_ID) return 1
-        if (b.pageId === JOURNAL_PAGE_ID) return -1
-        return b.totalMinutes - a.totalMinutes || a.label.localeCompare(b.label)
+        if (a.canvasId === JOURNAL_ID) return 1
+        if (b.canvasId === JOURNAL_ID) return -1
+        return b.totalMinutes - a.totalMinutes || b.totalNotes - a.totalNotes || a.label.localeCompare(b.label)
       })
   return sortRows(roots)
 }

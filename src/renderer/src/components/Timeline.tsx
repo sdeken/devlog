@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localDate, previewText } from '@shared/entries'
-import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
+import { canvasLabel } from '@shared/canvases'
 import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTaskSegments, cleanFocusSegments, type TimelineBucket } from '@shared/activity'
 import { addDays, formatMinutes } from '@shared/review'
-import type { ActivityEvent, Entry, PageMeta } from '@shared/types'
+import type { ActivityEvent, CanvasMeta, Entry } from '@shared/types'
 import { api } from '@renderer/api'
 
 interface Props {
-  pages: PageMeta[]
+  canvases: CanvasMeta[]
   today: string
   date: string
   /** Focus flips shorter than this are folded into their neighbours (alt-tab noise). */
   focusMinSeconds: number
   onChangeDate: (date: string) => void
-  onJumpTo: (pageId: string, date: string) => void
+  onJumpTo: (canvasId: string, date: string) => void
 }
 
 const longDay = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
@@ -64,8 +64,8 @@ function gitLabel(e: ActivityEvent): string {
 const INTERVALS = [5, 15, 30, 60]
 const INTERVAL_KEY = 'devlog:timeline:interval'
 
-export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, onJumpTo }: Props): React.JSX.Element {
-  const [notes, setNotes] = useState<Array<{ pageId: string; entry: Entry }> | null>(null)
+export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate, onJumpTo }: Props): React.JSX.Element {
+  const [notes, setNotes] = useState<Array<{ canvasId: string; entry: Entry }> | null>(null)
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [showApps, setShowApps] = useState(true)
   const [showSystem, setShowSystem] = useState(true)
@@ -78,22 +78,16 @@ export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, on
     }
   })
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const pageById = useMemo(() => new Map(pages.map((p) => [p.id, p])), [pages])
-  const pageLabel = (id: string | null | undefined): string => {
-    if (!id) return 'no task'
-    if (id === JOURNAL_PAGE_ID) return 'Journal'
-    const p = pageById.get(id)
-    return p ? [...categoryPath(p.category), p.title].join(' / ') : id
-  }
+  const pageLabel = (id: string | null | undefined): string => (id ? canvasLabel(canvases, id) : 'no task')
 
   useEffect(() => {
     let cancelled = false
     setNotes(null)
-    void Promise.all([api.entries.range(addDays(date, -1), date), api.activity.range(date, date)]).then(([chunks, evs]) => {
+    void Promise.all([api.blocks.range(addDays(date, -1), date), api.activity.range(date, date)]).then(([chunks, evs]) => {
       if (cancelled) return
-      const flat: Array<{ pageId: string; entry: Entry }> = []
-      for (const { pageId, day } of chunks) {
-        for (const entry of day.entries) if (localDate(new Date(entry.createdAt)) === date) flat.push({ pageId, entry })
+      const flat: Array<{ canvasId: string; entry: Entry }> = []
+      for (const { canvasId, day } of chunks) {
+        for (const entry of day.entries) if (localDate(new Date(entry.createdAt)) === date) flat.push({ canvasId, entry })
       }
       setNotes(flat)
       setEvents(evs)
@@ -137,7 +131,7 @@ export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, on
     const tasks = new Map<string, number>()
     for (const b of buckets) {
       screen += b.screenMinutes
-      for (const t of b.tasks) tasks.set(t.pageId, (tasks.get(t.pageId) ?? 0) + t.minutes)
+      for (const t of b.tasks) tasks.set(t.canvasId, (tasks.get(t.canvasId) ?? 0) + t.minutes)
     }
     return { screen, tasked: [...tasks.values()].reduce((a, b) => a + b, 0) }
   }, [buckets])
@@ -159,7 +153,7 @@ export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, on
     const taskLabel =
       b.tasks.length === 0
         ? null
-        : b.tasks.map((t) => `${pageLabel(t.pageId)}${b.tasks.length > 1 && Math.round(t.minutes) >= 1 ? ` (${formatMinutes(t.minutes)})` : ''}`).join(' → ')
+        : b.tasks.map((t) => `${pageLabel(t.canvasId)}${b.tasks.length > 1 && Math.round(t.minutes) >= 1 ? ` (${formatMinutes(t.minutes)})` : ''}`).join(' → ')
     const visibleSystem = showSystem ? b.system : []
     rows.push(
       <li key={key} className={`tlb${b.tasks.length === 0 ? ' tlb-idle' : ''}`}>
@@ -169,7 +163,7 @@ export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, on
             <span className="tlb-dash">–</span>
             {timeFmt.format(new Date(b.end))}
           </time>
-          <span className="tlb-task" title={b.tasks.map((t) => `${pageLabel(t.pageId)}: ${formatMinutes(t.minutes)}${t.source === 'explicit' ? ' (explicit)' : ''}`).join('\n')}>
+          <span className="tlb-task" title={b.tasks.map((t) => `${pageLabel(t.canvasId)}: ${formatMinutes(t.minutes)}${t.source === 'explicit' ? ' (explicit)' : ''}`).join('\n')}>
             {taskLabel ?? <span className="tlb-notask">no task</span>}
           </span>
           {showApps && b.apps.length > 0 && (
@@ -185,9 +179,9 @@ export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, on
           <ul className="tlb-notes">
             {b.notes.map((n) => (
               <li key={n.entry.id}>
-                <button type="button" className={`tl-link${n.entry.kind === 'commit' ? ' tlb-commit' : ''}`} onClick={() => onJumpTo(n.pageId, date)}>
+                <button type="button" className={`tl-link${n.entry.kind === 'commit' ? ' tlb-commit' : ''}`} onClick={() => onJumpTo(n.canvasId, date)}>
                   <time>{timeFmt.format(new Date(n.entry.createdAt))}</time>
-                  <span className="tl-page">{pageLabel(n.pageId)}</span>
+                  <span className="tl-page">{pageLabel(n.canvasId)}</span>
                   <span className="tl-text">
                     {n.entry.parentId ? '↳ ' : ''}
                     {previewText(n.entry.markdown, 160)}
@@ -213,7 +207,7 @@ export function Timeline({ pages, today, date, focusMinSeconds, onChangeDate, on
             {visibleSystem.map((e, i) => (
               <li key={i}>
                 <time>{timeFmt.format(new Date(e.t))}</time>
-                <span>{e.type === 'start' && e.pageId ? `Devlog started · task ${pageLabel(e.pageId)}` : (SYSTEM_LABEL[e.type] ?? e.type)}</span>
+                <span>{e.type === 'start' && e.canvasId ? `Devlog started · task ${pageLabel(e.canvasId)}` : (SYSTEM_LABEL[e.type] ?? e.type)}</span>
               </li>
             ))}
           </ul>

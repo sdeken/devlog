@@ -1,6 +1,7 @@
-import { ipcMain, shell } from 'electron'
+import { BrowserWindow, Menu, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { ActivityEvent, Entry, EntryPosition, PageInput, RepoInfo, Settings, TrackerStatus, UpdateStatus } from '@shared/types'
+import type { ActivityEvent, CanvasInput, Entry, EntryPosition, RepoInfo, Settings, TrackerStatus, UpdateStatus } from '@shared/types'
+import { hasTaskTag, stripTaskTag } from '@shared/entries'
 import type { DevlogStore } from './devlog/store'
 import type { SyncManager } from './devlog/sync'
 import type { SettingsStore } from './settings'
@@ -15,12 +16,12 @@ export interface IpcDeps {
   repoInfo: () => Promise<RepoInfo | null>
   chooseDirectory: () => Promise<string | null>
   onSettingsChanged: (s: Settings) => void
-  /** A user note was added; lets the tracker switch the active task. */
-  onEntryAdded: (pageId: string, entry: Entry) => Promise<void>
-  onPagesChanged: () => Promise<void>
+  /** A user block was added; lets the tracker switch the active task. */
+  onEntryAdded: (canvasId: string, entry: Entry) => Promise<void>
+  onCanvasesChanged: () => Promise<void>
   activityRange: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
   trackerStatus: () => TrackerStatus | null
-  trackerSetTask: (pageId: string | null) => Promise<void>
+  trackerSetTask: (canvasId: string | null) => Promise<void>
   updateStatus: () => UpdateStatus
   updateCheck: () => Promise<void>
   setEditorBusy: (busy: boolean) => void
@@ -72,73 +73,85 @@ export function registerIpc(deps: IpcDeps): void {
     await settings.set({ repoPath: null })
   })
 
-  ipcMain.handle(IPC.pagesList, () => requireStore(deps).listPages())
-  ipcMain.handle(IPC.pageCreate, async (_e, input: PageInput) => {
-    const page = await requireStore(deps).createPage(input)
-    await deps.onPagesChanged()
-    return page
+  ipcMain.handle(IPC.canvasesList, () => requireStore(deps).listCanvases())
+  ipcMain.handle(IPC.canvasGet, (_e, id: string) => requireStore(deps).readCanvas(id))
+  ipcMain.handle(IPC.canvasCreate, async (_e, input: CanvasInput) => {
+    const canvas = await requireStore(deps).createCanvas(input)
+    await deps.onCanvasesChanged()
+    return canvas
   })
-  ipcMain.handle(IPC.pageUpdate, async (_e, pageId: string, patch: Partial<PageInput>) => {
-    const page = await requireStore(deps).updatePage(pageId, patch)
-    await deps.onPagesChanged()
-    return page
+  ipcMain.handle(IPC.canvasUpdate, async (_e, id: string, patch: Partial<CanvasInput>) => {
+    const canvas = await requireStore(deps).updateCanvas(id, patch)
+    const active = deps.trackerStatus()?.activeCanvasId
+    if (active === id && patch.task === false) await deps.trackerSetTask(null)
+    await deps.onCanvasesChanged()
+    return canvas
   })
-  ipcMain.handle(IPC.pageArchive, async (_e, pageId: string, archived: boolean) => {
-    const page = await requireStore(deps).setPageArchived(pageId, archived)
-    if (archived && deps.trackerStatus()?.activePageId === pageId) await deps.trackerSetTask(null)
-    await deps.onPagesChanged()
-    return page
+  ipcMain.handle(IPC.canvasArchive, async (_e, id: string, archived: boolean) => {
+    const changed = await requireStore(deps).setCanvasArchived(id, archived)
+    const active = deps.trackerStatus()?.activeCanvasId
+    if (archived && active && changed.includes(active)) await deps.trackerSetTask(null)
+    await deps.onCanvasesChanged()
+    return changed
   })
-  ipcMain.handle(IPC.categoryArchive, async (_e, path: string[], archived: boolean) => {
-    const result = await requireStore(deps).setCategoryArchived(path, archived)
-    const active = deps.trackerStatus()?.activePageId
-    if (archived && active) {
-      const page = await requireStore(deps).readPage(active).catch(() => null)
-      if (page?.archived) await deps.trackerSetTask(null)
-    }
-    await deps.onPagesChanged()
-    return result
-  })
-  ipcMain.handle(IPC.wikisList, () => requireStore(deps).listWikis())
-  ipcMain.handle(IPC.wikiGet, (_e, path: string[]) => requireStore(deps).readWiki(path))
-  ipcMain.handle(IPC.wikiSet, (_e, path: string[], markdown: string) => requireStore(deps).writeWiki(path, markdown))
-  ipcMain.handle(IPC.wikiAssetSave, (_e, path: string[], bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
-    requireStore(deps).saveWikiAsset(path, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
-  )
-  ipcMain.handle(IPC.pageDelete, async (_e, pageId: string) => {
-    const n = await requireStore(deps).deletePage(pageId)
-    await deps.onPagesChanged()
+  ipcMain.handle(IPC.canvasDelete, async (_e, id: string) => {
+    const store = requireStore(deps)
+    const n = await store.deleteCanvas(id)
+    // The active task may have been the canvas or one beneath it.
+    const active = deps.trackerStatus()?.activeCanvasId
+    if (active && !(await store.listCanvases()).some((c) => c.id === active)) await deps.trackerSetTask(null)
+    await deps.onCanvasesChanged()
     return n
   })
+  ipcMain.handle(IPC.surfaceSet, (_e, id: string, markdown: string) => requireStore(deps).writeSurface(id, markdown))
+  ipcMain.handle(IPC.surfaceAssetSave, (_e, id: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
+    requireStore(deps).saveSurfaceAsset(id, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
+  )
 
-  ipcMain.handle(IPC.daysList, (_e, pageId: string) => requireStore(deps).listDays(pageId))
-  ipcMain.handle(IPC.dayGet, (_e, pageId: string, date: string) => requireStore(deps).readDay(pageId, date))
-  ipcMain.handle(IPC.timelineGet, (_e, pageId: string, opts?: { beforeDate?: string; days?: number }) =>
-    requireStore(deps).getTimeline(pageId, opts ?? {})
+  ipcMain.handle(IPC.daysList, (_e, canvasId: string) => requireStore(deps).listDays(canvasId))
+  ipcMain.handle(IPC.dayGet, (_e, canvasId: string, date: string) => requireStore(deps).readDay(canvasId, date))
+  ipcMain.handle(IPC.timelineGet, (_e, canvasId: string, opts?: { beforeDate?: string; days?: number }) =>
+    requireStore(deps).getTimeline(canvasId, opts ?? {})
   )
   ipcMain.handle(IPC.rangeGet, (_e, fromDate: string, toDate: string) => requireStore(deps).getRange(fromDate, toDate))
-  ipcMain.handle(IPC.entryAdd, async (_e, pageId: string, markdown: string, position?: EntryPosition) => {
-    const result = await requireStore(deps).addEntry(pageId, markdown, position ?? {})
-    await deps.onEntryAdded(pageId, result.entry)
+  ipcMain.handle(IPC.entryAdd, async (_e, canvasId: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }) => {
+    const store = requireStore(deps)
+    // "#task" on the first line (or the explicit flag) posts the block and turns it into a task at once.
+    const wantsTask = Boolean(opts?.task) || hasTaskTag(markdown)
+    const text = wantsTask ? stripTaskTag(markdown) : markdown
+    const result = await store.addEntry(canvasId, text, position ?? {})
+    if (wantsTask) {
+      const promoted = await store.promoteToTask(canvasId, result.date, result.entry.id)
+      await deps.onCanvasesChanged()
+      await deps.trackerSetTask(promoted.canvas.id)
+      return { date: result.date, entry: promoted.entry, canvas: promoted.canvas }
+    }
+    await deps.onEntryAdded(canvasId, result.entry)
     return result
   })
-  ipcMain.handle(IPC.entryUpdate, (_e, pageId: string, date: string, id: string, markdown: string) =>
-    requireStore(deps).updateEntry(pageId, date, id, markdown)
+  ipcMain.handle(IPC.entryPromote, async (_e, canvasId: string, date: string, id: string) => {
+    const result = await requireStore(deps).promoteToTask(canvasId, date, id)
+    await deps.onCanvasesChanged()
+    await deps.trackerSetTask(result.canvas.id)
+    return result
+  })
+  ipcMain.handle(IPC.entryUpdate, (_e, canvasId: string, date: string, id: string, markdown: string) =>
+    requireStore(deps).updateEntry(canvasId, date, id, markdown)
   )
-  ipcMain.handle(IPC.entryDelete, (_e, pageId: string, date: string, id: string) => requireStore(deps).deleteEntry(pageId, date, id))
-  ipcMain.handle(IPC.entryMove, (_e, fromPageId: string, date: string, id: string, toPageId: string) =>
-    requireStore(deps).moveEntry(fromPageId, date, id, toPageId)
+  ipcMain.handle(IPC.entryDelete, (_e, canvasId: string, date: string, id: string) => requireStore(deps).deleteEntry(canvasId, date, id))
+  ipcMain.handle(IPC.entryMove, (_e, fromCanvasId: string, date: string, id: string, toCanvasId: string) =>
+    requireStore(deps).moveEntry(fromCanvasId, date, id, toCanvasId)
   )
   ipcMain.handle(IPC.entrySearch, (_e, query: string) => requireStore(deps).search(query))
   ipcMain.handle(
     IPC.assetSave,
-    (_e, pageId: string, date: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
-      requireStore(deps).saveAsset(pageId, date, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
+    (_e, canvasId: string, date: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>
+      requireStore(deps).saveAsset(canvasId, date, bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes), mime, name)
   )
 
   ipcMain.handle(IPC.activityRange, (_e, fromDate: string, toDate: string) => deps.activityRange(fromDate, toDate))
   ipcMain.handle(IPC.trackerStatus, () => deps.trackerStatus())
-  ipcMain.handle(IPC.trackerSetTask, (_e, pageId: string | null) => deps.trackerSetTask(pageId))
+  ipcMain.handle(IPC.trackerSetTask, (_e, canvasId: string | null) => deps.trackerSetTask(canvasId))
 
   ipcMain.handle(IPC.updateStatus, () => deps.updateStatus())
   ipcMain.handle(IPC.updateCheck, () => deps.updateCheck())
@@ -150,6 +163,21 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
     if (/^(https?|mailto):/i.test(url)) return shell.openExternal(url)
     return undefined
+  })
+
+  // The application menu is hidden; the hamburger button pops it up instead.
+  ipcMain.handle(IPC.menuPopup, (e, x?: number, y?: number) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    const menu = Menu.getApplicationMenu()
+    if (!win || !menu) return
+    menu.popup({ window: win, x: x !== undefined ? Math.round(x) : undefined, y: y !== undefined ? Math.round(y) : undefined })
+  })
+  ipcMain.handle(IPC.windowControl, (e, action: 'minimize' | 'maximize' | 'close') => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win) return
+    if (action === 'minimize') win.minimize()
+    else if (action === 'maximize') (win.isMaximized() ? win.unmaximize() : win.maximize())
+    else win.close()
   })
 }
 

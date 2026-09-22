@@ -1,5 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
-import type { Entry, PageMeta } from '@shared/types'
+import type { CanvasMeta, Entry } from '@shared/types'
+import { canvasLabel } from '@shared/canvases'
 import { renderMarkdown } from '@renderer/markdown'
 import { parseDurationMarker } from '@shared/entries'
 import { formatMinutes } from '@shared/review'
@@ -8,7 +9,7 @@ import { Composer } from './Composer'
 import { Lightbox } from './Lightbox'
 
 interface Props {
-  pageId: string
+  canvasId: string
   date: string
   entry: Entry
   showDate?: boolean
@@ -16,11 +17,14 @@ interface Props {
   replyCount?: number
   /** When true the note opens in edit mode (Up arrow in the composer). */
   forceEdit?: boolean
-  /** Other pages this note can be moved to. */
-  pages?: PageMeta[]
-  onUpdate: (pageId: string, date: string, id: string, markdown: string) => Promise<void>
-  onDelete: (pageId: string, date: string, id: string) => Promise<void>
-  onMove?: (pageId: string, date: string, id: string, toPageId: string) => Promise<void>
+  /** Every canvas, for the move picker and task labels. */
+  canvases?: CanvasMeta[]
+  onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
+  onDelete: (canvasId: string, date: string, id: string) => Promise<void>
+  onMove?: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
+  /** Turn this block into a task (a task canvas beneath this one). */
+  onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
+  onOpenCanvas?: (id: string) => void
   onReply?: () => void
 }
 
@@ -51,16 +55,18 @@ function handleContentClick(ev: React.MouseEvent<HTMLDivElement>, openImage: (sr
 }
 
 export const EntryView = memo(function EntryView({
-  pageId,
+  canvasId,
   date,
   entry,
   showDate,
   replyCount = 0,
   forceEdit,
-  pages,
+  canvases,
   onUpdate,
   onDelete,
   onMove,
+  onPromote,
+  onOpenCanvas,
   onReply
 }: Props) {
   const [editing, setEditing] = useState(false)
@@ -75,8 +81,11 @@ export const EntryView = memo(function EntryView({
   }, [forceEdit])
 
   const timeLabel = showDate ? dateTimeFmt.format(created) : timeFmt.format(created)
-  const targets = (pages ?? []).filter((p) => p.id !== pageId)
+  const targets = (canvases ?? []).filter((c) => c.id !== canvasId && !c.archived)
   const readOnly = entry.kind === 'commit'
+  const isTask = entry.kind === 'task'
+  const taskCanvasId = isTask ? entry.meta?.canvas : undefined
+  const taskLabel = taskCanvasId && canvases ? canvasLabel(canvases, taskCanvasId).split(' / ').pop() : undefined
   const duration = readOnly ? null : parseDurationMarker(entry.markdown)
 
   if (editing) {
@@ -89,11 +98,11 @@ export const EntryView = memo(function EntryView({
         <Composer
           mode="edit"
           initialMarkdown={entry.markdown}
-          assetPageId={pageId}
+          assetCanvasId={canvasId}
           assetDate={date}
           autoFocus
           onSubmit={async (md) => {
-            await onUpdate(pageId, date, entry.id, md)
+            await onUpdate(canvasId, date, entry.id, md)
             setEditing(false)
           }}
           onCancel={() => setEditing(false)}
@@ -104,7 +113,7 @@ export const EntryView = memo(function EntryView({
 
   return (
     <article
-      className={`entry${readOnly ? ' entry-commit' : ''}`}
+      className={`entry${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}`}
       id={`entry-${entry.id}`}
       onDoubleClick={(ev) => {
         // Double-click on the text edits the note, unless the user is selecting text.
@@ -123,8 +132,13 @@ export const EntryView = memo(function EntryView({
             commit
           </span>
         )}
+        {isTask && taskCanvasId && (
+          <button type="button" className="task-chip" onClick={() => onOpenCanvas?.(taskCanvasId)} title="Open the task canvas">
+            ◉ {taskLabel ?? 'task'}
+          </button>
+        )}
         {duration !== null && (
-          <span className="duration-chip" title="Explicit duration: counts exactly this much for this page">
+          <span className="duration-chip" title="Explicit duration: counts exactly this much for this canvas">
             {formatMinutes(duration)}
           </span>
         )}
@@ -138,9 +152,9 @@ export const EntryView = memo(function EntryView({
           {confirmDelete ? (
             <>
               <span className="entry-confirm">
-                {replyCount > 0 ? `Delete this note and ${replyCount} repl${replyCount === 1 ? 'y' : 'ies'}?` : 'Delete this note?'}
+                {replyCount > 0 ? `Delete this block and ${replyCount} repl${replyCount === 1 ? 'y' : 'ies'}?` : 'Delete this block?'}
               </span>
-              <button type="button" className="btn btn-danger btn-xs" onClick={() => void onDelete(pageId, date, entry.id)}>
+              <button type="button" className="btn btn-danger btn-xs" onClick={() => void onDelete(canvasId, date, entry.id)}>
                 Delete
               </button>
               <button type="button" className="btn btn-quiet btn-xs" onClick={() => setConfirmDelete(false)}>
@@ -149,7 +163,7 @@ export const EntryView = memo(function EntryView({
             </>
           ) : moving ? (
             <>
-              <span className="entry-confirm">Move {replyCount > 0 ? 'thread' : 'note'} to</span>
+              <span className="entry-confirm">Move {replyCount > 0 ? 'thread' : 'block'} to</span>
               <select
                 autoFocus
                 className="move-select"
@@ -157,17 +171,16 @@ export const EntryView = memo(function EntryView({
                 onChange={(ev) => {
                   const to = ev.target.value
                   setMoving(false)
-                  if (to && onMove) void onMove(pageId, date, entry.id, to)
+                  if (to && onMove) void onMove(canvasId, date, entry.id, to)
                 }}
                 onBlur={() => setMoving(false)}
               >
                 <option value="" disabled>
-                  Choose a page…
+                  Choose a canvas…
                 </option>
-                {targets.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.category ? `${p.category} / ` : ''}
-                    {p.title}
+                {targets.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {canvasLabel(canvases ?? [], c.id)}
                   </option>
                 ))}
               </select>
@@ -184,8 +197,13 @@ export const EntryView = memo(function EntryView({
                   Edit
                 </button>
               )}
+              {onPromote && !readOnly && !isTask && !entry.parentId && (
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => void onPromote(canvasId, date, entry.id)} title="Turn this block into a task with its own canvas, and start the clock">
+                  Task
+                </button>
+              )}
               {onMove && targets.length > 0 && !entry.parentId && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setMoving(true)} title="Move to another page">
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setMoving(true)} title="Move to another canvas">
                   Move
                 </button>
               )}

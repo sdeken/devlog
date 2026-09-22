@@ -1,6 +1,7 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/types'
+import { sanitizeTheme } from '@shared/theme'
 
 export class SettingsStore {
   private data: Settings = { ...DEFAULT_SETTINGS }
@@ -47,7 +48,8 @@ function sanitize(s: Settings): Settings {
     activityInRepo: Boolean(s.activityInRepo),
     captureCommits: s.captureCommits !== false,
     autoUpdate: s.autoUpdate !== false,
-    focusMinSeconds: clamp(Number.isFinite(Number(s.focusMinSeconds)) ? Number(s.focusMinSeconds) : DEFAULT_SETTINGS.focusMinSeconds, 0, 120)
+    focusMinSeconds: clamp(Number.isFinite(Number(s.focusMinSeconds)) ? Number(s.focusMinSeconds) : DEFAULT_SETTINGS.focusMinSeconds, 0, 120),
+    theme: sanitizeTheme(s.theme)
   }
 }
 

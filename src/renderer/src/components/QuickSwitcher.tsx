@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_PAGE_ID, categoryPath, formatCategory } from '@shared/pages'
-import type { PageMeta, WikiMeta } from '@shared/types'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@shared/canvases'
+import type { CanvasMeta } from '@shared/types'
 
-export type SwitchTarget = { kind: 'page'; pageId: string } | { kind: 'category'; path: string[] } | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }
+export type SwitchTarget = { kind: 'canvas'; canvasId: string } | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }
 
 interface Props {
-  pages: PageMeta[]
-  wikis: WikiMeta[]
+  canvases: CanvasMeta[]
   onPick: (target: SwitchTarget) => void
   onClose: () => void
 }
@@ -30,40 +29,28 @@ function score(query: string, label: string): number {
   return i === q.length ? 1 : 0
 }
 
-export function QuickSwitcher({ pages, wikis, onPick, onClose }: Props): React.JSX.Element {
+export function QuickSwitcher({ canvases, onPick, onClose }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const input = useRef<HTMLInputElement>(null)
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [
-      { key: 'page:journal', label: 'Journal', hint: 'page', target: { kind: 'page', pageId: JOURNAL_PAGE_ID } },
+      { key: 'canvas:journal', label: 'Journal', hint: 'journal', target: { kind: 'canvas', canvasId: JOURNAL_ID } },
       { key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } },
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
       { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } }
     ]
-    const seen = new Set<string>()
-    for (const p of pages) {
-      if (p.id === JOURNAL_PAGE_ID) continue
-      const path = categoryPath(p.category)
-      out.push({ key: `page:${p.id}`, label: [...path, p.title].join(' / '), hint: p.archived ? 'archived page' : 'page', target: { kind: 'page', pageId: p.id } })
-      for (let i = 1; i <= path.length; i++) {
-        const k = formatCategory(path.slice(0, i))
-        if (!seen.has(k.toLowerCase())) {
-          seen.add(k.toLowerCase())
-          out.push({ key: `cat:${k}`, label: k, hint: 'wiki', target: { kind: 'category', path: path.slice(0, i) } })
-        }
-      }
-    }
-    for (const w of wikis) {
-      const k = formatCategory(w.path)
-      if (!seen.has(k.toLowerCase())) {
-        seen.add(k.toLowerCase())
-        out.push({ key: `cat:${k}`, label: k, hint: w.archived ? 'archived wiki' : 'wiki', target: { kind: 'category', path: w.path } })
-      }
+    for (const { canvas: c } of flattenTree(buildCanvasTree(canvases, { includeArchived: true }))) {
+      out.push({
+        key: `canvas:${c.id}`,
+        label: canvasLabel(canvases, c.id),
+        hint: `${c.task ? 'task' : 'canvas'}${c.archived ? ' · archived' : ''}`,
+        target: { kind: 'canvas', canvasId: c.id }
+      })
     }
     return out
-  }, [pages, wikis])
+  }, [canvases])
 
   const results = useMemo(() => {
     return items
@@ -85,7 +72,7 @@ export function QuickSwitcher({ pages, wikis, onPick, onClose }: Props): React.J
         <input
           ref={input}
           type="text"
-          placeholder="Go to page, client, project, view…"
+          placeholder="Go to a canvas, task or view…"
           value={query}
           onChange={(ev) => setQuery(ev.target.value)}
           onKeyDown={(ev) => {

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { buildReviewRows, computeWeekTime, estimateMinutes, formatHours, formatMinutes, noteKey, roundMinutes, weekDates, weekStart, type ReviewNote } from '../src/shared/review'
 import type { ActivityEvent } from '../src/shared/types'
-import type { PageMeta } from '../src/shared/types'
+import type { CanvasMeta } from '../src/shared/types'
 
-const page = (id: string, title: string, category: string): PageMeta => ({ id, title, category, description: '', createdAt: '', repos: [], archived: false })
-const note = (pageId: string, date: string, time: string, id = `${pageId}-${time}`): ReviewNote => ({
-  pageId,
+const canvas = (id: string, title: string, parentId: string | null, task = false): CanvasMeta => ({ id, title, parentId, task, createdAt: '', updatedAt: '', repos: [], archived: false, hasSurface: false })
+const note = (canvasId: string, date: string, time: string, id = `${canvasId}-${time}`): ReviewNote => ({
+  canvasId,
   date,
   entry: { id, createdAt: `${date}T${time}:00.000Z`, markdown: `note ${id}` }
 })
@@ -47,34 +47,43 @@ describe('time estimate', () => {
 })
 
 describe('review rows', () => {
-  const pages = [page('journal', 'Journal', ''), page('acme-web', 'Website', 'Acme Corp / Web'), page('acme-general', 'General', 'Acme Corp'), page('globex-web', 'Website', 'Globex / Web')]
+  const canvases = [
+    canvas('journal', 'Journal', null),
+    canvas('acme', 'Acme Corp', null),
+    canvas('acme-web', 'Web', 'acme'),
+    canvas('acme-web-site', 'Website', 'acme-web', true),
+    canvas('acme-general', 'General', 'acme', true),
+    canvas('globex', 'Globex', null),
+    canvas('globex-web', 'Website', 'globex', true)
+  ]
 
-  it('nests client → project → page and sums upwards, journal last', () => {
+  it('nests client → project → task and sums upwards, journal last', () => {
     const notes = [
-      note('acme-web', '2026-09-14', '09:00'),
-      note('acme-web', '2026-09-14', '09:30'),
+      note('acme-web-site', '2026-09-14', '09:00'),
+      note('acme-web-site', '2026-09-14', '09:30'),
       note('acme-general', '2026-09-15', '09:00'),
       note('globex-web', '2026-09-14', '10:00'),
       note('journal', '2026-09-16', '09:00')
     ]
-    const byPageDay = new Map<string, Map<string, number>>([
-      ['2026-09-14', new Map([['acme-web', 60], ['globex-web', 30]])],
+    const byCanvasDay = new Map<string, Map<string, number>>([
+      ['2026-09-14', new Map([['acme-web-site', 60], ['globex-web', 30]])],
       ['2026-09-15', new Map([['acme-general', 30]])]
     ])
-    const rows = buildReviewRows(pages, notes, byPageDay)
+    const rows = buildReviewRows(canvases, notes, byCanvasDay)
     expect(rows.map((r) => r.label)).toEqual(['Acme Corp', 'Globex', 'Journal'])
     const acme = rows[0]
-    expect(acme.kind).toBe('category')
+    expect(acme.task).toBe(false)
     expect(acme.totalNotes).toBe(3)
     expect(acme.totalMinutes).toBe(90)
     expect(acme.cells.get('2026-09-14')).toEqual({ notes: 2, minutes: 60 })
-    expect(acme.children.map((r) => `${r.kind}:${r.label}`)).toEqual(['category:Web', 'page:General'])
-    const web = acme.children[0]
-    expect(web.depth).toBe(1)
-    expect(web.children.map((r) => `${r.kind}:${r.label}@${r.depth}`)).toEqual(['page:Website@2'])
-    // Same project name under another client is a separate branch.
-    expect(rows[1].children[0].children[0].pageId).toBe('globex-web')
-    expect(rows[2]).toMatchObject({ kind: 'page', pageId: 'journal', depth: 0, totalNotes: 1, totalMinutes: 0 })
+    expect(acme.children.map((r) => `${r.label}@${r.depth}`)).toEqual(['Web@1', 'General@1'])
+    expect(acme.children[0].children.map((r) => `${r.label}@${r.depth}:${r.task}`)).toEqual(['Website@2:true'])
+    // Same task name under another client is a separate branch.
+    expect(rows[1].children[0].canvasId).toBe('globex-web')
+    expect(rows[2]).toMatchObject({ canvasId: 'journal', depth: 0, totalNotes: 1, totalMinutes: 0 })
+    // A canvas whose parent is unknown sits at the top level.
+    const orphan = buildReviewRows([canvas('x', 'X', 'gone')], [note('x', '2026-09-14', '09:00')], new Map())
+    expect(orphan.map((r) => `${r.canvasId}@${r.depth}`)).toEqual(['x@0'])
   })
 })
 
@@ -84,24 +93,24 @@ describe('computeWeekTime', () => {
 
   it('uses tracked segments when there is activity data and explicit markers when present', () => {
     const events: ActivityEvent[] = [
-      { t: T(14, 9), type: 'task', pageId: 'acme-web' },
+      { t: T(14, 9), type: 'task', canvasId: 'acme-web' },
       { t: T(14, 11), type: 'lock' },
       { t: T(14, 12), type: 'unlock' },
       { t: T(14, 13), type: 'stop' }
     ]
     const notes: ReviewNote[] = [
-      { pageId: 'acme-web', date: '2026-09-14', entry: { id: 'a', createdAt: T(14, 9), markdown: 'start' } },
-      { pageId: 'globex-web', date: '2026-09-14', entry: { id: 'b', createdAt: T(14, 12, 30), markdown: '[30m] Globex call' } },
-      { pageId: 'journal', date: '2026-09-16', entry: { id: 'c', createdAt: T(16, 9), markdown: 'untracked day' } }
+      { canvasId: 'acme-web', date: '2026-09-14', entry: { id: 'a', createdAt: T(14, 9), markdown: 'start' } },
+      { canvasId: 'globex-web', date: '2026-09-14', entry: { id: 'b', createdAt: T(14, 12, 30), markdown: '[30m] Globex call' } },
+      { canvasId: 'journal', date: '2026-09-16', entry: { id: 'c', createdAt: T(16, 9), markdown: 'untracked day' } }
     ]
     const time = computeWeekTime(notes, events, { dates, now: T(20, 0), heartbeatMs: 24 * 60 * 60_000 })
     expect(time.method.get('2026-09-14')).toBe('tracked')
     expect(time.method.get('2026-09-15')).toBe('none')
     expect(time.method.get('2026-09-16')).toBe('estimated')
-    const mon = time.byPageDay.get('2026-09-14')!
+    const mon = time.byCanvasDay.get('2026-09-14')!
     expect(mon.get('acme-web')).toBe(120 + 30) // 9–11, then 12–12:30 (12:30–13 overridden)
     expect(mon.get('globex-web')).toBe(30)
     expect(time.explicitByNote.get('globex-web/2026-09-14/b')).toBe(30)
-    expect(time.byPageDay.get('2026-09-16')?.get('journal')).toBe(15) // fallback: last note allowance
+    expect(time.byCanvasDay.get('2026-09-16')?.get('journal')).toBe(15) // fallback: last note allowance
   })
 })

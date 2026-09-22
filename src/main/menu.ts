@@ -7,7 +7,7 @@ export interface MenuActions {
   focusComposer: () => void
   search: () => void
   attachImage: () => void
-  newPage: () => void
+  newCanvas: () => void
   review: () => void
   summary: () => void
   switcher: () => void
@@ -42,7 +42,7 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
   template.push({
     label: 'File',
     submenu: [
-      { label: 'New Page…', accelerator: 'CmdOrCtrl+N', click: actions.newPage },
+      { label: 'New Canvas…', accelerator: 'CmdOrCtrl+N', click: actions.newCanvas },
       { label: 'Open Devlog Repository…', accelerator: 'CmdOrCtrl+O', click: actions.openRepo },
       { type: 'separator' },
       { label: 'Sync Now', accelerator: 'CmdOrCtrl+Shift+S', click: actions.syncNow },
@@ -80,7 +80,7 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
     submenu: [
       { label: 'Weekly Review', accelerator: 'CmdOrCtrl+Shift+R', click: actions.review },
       { label: 'Summary', accelerator: 'CmdOrCtrl+Shift+H', click: actions.summary },
-      { label: 'Go to Page…', accelerator: 'CmdOrCtrl+P', click: actions.switcher },
+      { label: 'Go to Canvas…', accelerator: 'CmdOrCtrl+P', click: actions.switcher },
       { label: 'Day Timeline', accelerator: 'CmdOrCtrl+Shift+T', click: actions.timeline },
       { type: 'separator' },
       { role: 'reload' },

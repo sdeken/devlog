@@ -38,10 +38,10 @@ outside the open repository.
 
 - `entries/YYYY/MM/YYYY-MM-DD.md` – the journal, one file per local day.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
-- `pages/<slug>/page.md` + `pages/<slug>/entries/…` – every other page, in
-  the same day-file layout (see **Pages** below).
+- `canvases/<id>/canvas.md` + `canvases/<id>/entries/…` – every other
+  canvas, in the same day-file layout (see **Canvases** below).
 
-Each note is delimited by
+Each block is delimited by
 `<!-- devlog:entry id=… [parent=…] created=… [updated=…] -->`.
 Reasons for this over alternatives:
 
@@ -79,64 +79,82 @@ A reply written on a later day is stored in the parent's day file, so a
 thread never splits across files. Replies render with `↳` and a deeper
 heading level so GitHub shows the nesting without breaking Markdown.
 
-### Pages and categories
+### Canvases, surfaces, tasks
 
-A page is a separate stream of notes: a client, a project, a topic. The
-journal is the built-in page rooted at `entries/`; everything else lives
-under `pages/<slug>/`, where the slug is derived from the title and made
-unique. `page.md` holds a tiny `key: value` front matter (title, category,
-created) and a markdown description rendered at the top of the page. No
-YAML library: the parser accepts `key: value` lines and quoted values only.
+There is one container type. A **canvas** has a title, an optional parent,
+a task flag, a list of repositories, an archived flag, a *surface* (free
+markdown) and a *stream* (day files of blocks). The journal is the built-in
+root canvas whose stream lives at `entries/`; every other canvas lives under
+`canvases/<id>/` with `canvas.md` holding a tiny `key: value` front matter
+followed by the surface markdown. No YAML library: the parser accepts
+`key: value` lines and quoted values only.
 
-A category is a path string on the page, `Acme Corp / Web`, normalised on
-save. The sidebar nests pages by path (clients → projects → pages), and the
-page dialog offers every existing path and prefix as a suggestion, so a new
-level costs nothing and an empty one disappears. Because the hierarchy is a
-path, "Website" under Acme and "Website" under Globex are different nodes by
-construction; the page folder is slugged from path plus title
-(`acme-corp-web-website`) so the repository reads the same way.
+Ids are slugs of the title made unique (`website`, `website-2`), and the
+hierarchy is `parent: <id>` in the front matter, not the folder path. This
+was a deliberate trade against a nested directory tree: ids are what the
+activity log, task blocks and tracker state point at, and a rename or a move
+under a different client must not invalidate a month of time records or
+relocate files in git. `canvasPath` / `canvasLabel` in
+`src/shared/canvases.ts` walk parents for display, `buildCanvasTree` nests
+for the sidebar (non-tasks before tasks, then by title), and a canvas whose
+parent has gone simply shows at the top level.
 
-Every store operation takes a page id; the helpers in `entries.ts` take the
-page's entries base so day files and image links are computed the same way
-everywhere. Root-relative image paths start with `entries/` or `pages/`,
-which is how `toDayRelative` recognises them.
+Every store operation takes a canvas id; the helpers in `entries.ts` take
+the canvas's entries base so day files and image links are computed the same
+way everywhere. Root-relative image paths start with `entries/` or
+`canvases/`, which is how `toDayRelative` recognises them. Surfaces use the
+same root-relative-in-memory, file-relative-on-disk rule with the canvas
+folder as the base and an `assets/` folder beside `canvas.md`.
 
-**Moving** a note (with its thread) to another page rewrites nothing but the
-file it lives in: assets stay put and the serialised link becomes
+**Tasks** are canvases with `task: true`, and that flag is the whole
+tracking model: posting a user block on a task canvas makes it the active
+task; posting anywhere else is just a note. This replaced the earlier
+"posting on any page starts a task" rule, which made every jotted note start
+a clock. A block turns into a task through `promoteToTask`: a new canvas is
+created beneath the block's canvas (top-level for journal blocks) titled
+from the block (`titleFromMarkdown`: first sentence, markup and duration
+markers stripped, capped), the block's kind becomes `task` with
+`meta.canvas` pointing at it, and the tracker is pointed at the new canvas.
+The block keeps its text and stays editable; it is the record of when and
+where the task began, and the chip on it is the link. `#task` on the first
+line and ⌘⇧Enter are the same operation performed at post time
+(`hasTaskTag` / `stripTaskTag`), so the round trip is one keystroke.
+
+**Moving** a block (with its thread) to another canvas rewrites nothing but
+the file it lives in: assets stay put and the serialised link becomes
 `../../../../../entries/2026/09/assets/x.png`, which still renders on
 GitHub. Ids are re-generated only on collision in the target day.
 
-The feed is a continuous timeline per page: the newest ten non-empty days,
-oldest first with day dividers, and older days load on scroll or via "Show
-earlier notes" while preserving the scroll position. Search runs across all
-pages and each hit links to its page and day.
+The stream is a continuous timeline per canvas: the newest ten non-empty
+days, oldest first with day dividers, and older days load on scroll or via
+"Show earlier blocks" while preserving the scroll position. Search runs
+across every canvas (blocks and surfaces) and each hit links to its canvas
+and day.
 
-### Category wikis and archiving
+Archiving is a flag, not a move: `archived: true` in `canvas.md`. Everything
+that reads canvases still sees archived ones; the sidebar tree, move
+targets, commit watchers and the active task simply filter them out. Search
+returns archived hits with a badge. Archiving a canvas flags every canvas
+beneath it; unarchiving reverses the same set. Keeping it a flag means git
+history stays linear and a mistaken archive is a one-line change.
 
-A category is a path, so its wiki lives at `categories/<slug>/<slug>/wiki.md`
-with the same tiny front matter (`path`, `updated`, `archived`) and a Markdown
-body; images go in an `assets/` folder beside it and use the same
-root-relative-in-memory, file-relative-on-disk rule as notes (`toRootRelativeFrom`
-/ `toRelativeFrom`). The editor is the note Composer in a `document` mode:
-Enter is a paragraph break, there is no submit, and changes are debounced
-800 ms into `writeWiki`, with a flush on unmount so switching views never
-loses the last keystrokes.
-
-Archiving is a flag, not a move: `archived: true` in `page.md` or `wiki.md`.
-Everything that reads pages still sees archived ones; the sidebar tree,
-move targets, commit watchers and the active task simply filter them out.
-Search returns archived hits with a badge. Archiving a category flags every
-page whose path starts with it (case-insensitive segments) and every wiki
-beneath it, writing a wiki file if none existed so the category itself
-carries the flag; unarchiving reverses the same set. Keeping it a flag means
-git history stays linear and a mistaken archive is a one-line change.
+**Migration.** Devlog 0.2 stored `pages/<slug>/page.md` with a category path
+string, and `categories/<slugs>/wiki.md` per path node. `migrateLegacyLayout`
+runs once when such a repository is opened: each category path becomes a
+chain of canvases (ids slugged from the full path, `acme-corp-web`), wiki
+text and assets become that canvas's surface, and each page folder moves to
+`canvases/<slug>/` with its parent set to the deepest category canvas and
+its description as the surface. Day files move untouched; their relative
+image links are the same depth in both layouts. The activity log keeps its
+old `pageId` field and is read as `canvasId`.
 
 ### Active task and the activity log
 
 The model is deliberately small: **one active task at a time, and the task
-is a page**. Posting a user note on any page but the journal makes that page
-the active task (`task` event). Stop (status bar, menu, tray) records
-`task` with no page. The task survives restarts (persisted in user data and
+is a canvas flagged as one**. Posting a user block on a task canvas, pressing
+Start in its header, or turning a block into a task makes it the active task
+(`task` event with the canvas id). Stop (status bar, menu, tray) records
+`task` with no canvas. The task survives restarts (persisted in user data and
 re-announced with a `start` event) but time only accrues while Devlog is
 running, which is why the window closes to the tray when tracking is on.
 
@@ -175,36 +193,37 @@ and merges adjacent segments with the same app and title. Task segments are
 untouched: a task is a deliberate act, a focus flip is not.
 
 Git capture (`commits.ts`) watches `.git/logs/` of every repository mapped to
-a page, recursively (via `fs.watch` on the directory plus a 15 s poll), and
+a canvas, recursively (via `fs.watch` on the directory plus a 15 s poll), and
 reads only bytes appended to each reflog since the watch began. Lines are
 classified by which log they came from and their message: a commit or
 cherry-pick on `HEAD` is resolved with `git show` and emitted as a commit;
 `checkout: moving from A to B` on `HEAD`, `branch: Created` under
 `refs/heads/`, `update by push` under `refs/remotes/`, and merge, rebase,
 pull, reset and stash messages are emitted as events with a `GitAction`.
-The main process turns commits into `kind=commit` notes with
+The main process turns commits into `kind=commit` blocks with
 `repo`/`hash`/`branch`/`author` attributes in the marker (the store refuses
-`updateEntry` on such notes and de-duplicates by hash) and everything else
-into `type: 'git'` activity events tagged with the page, so they show on the
-timeline without becoming notes. The devlog repository itself is excluded so
+`updateEntry` on such blocks and de-duplicates by hash) and everything else
+into `type: 'git'` activity events tagged with the canvas, so they show on the
+timeline without becoming blocks. The devlog repository itself is excluded so
 auto-sync commits do not feed back into the log.
 
 ### Weekly review
 
 `src/shared/review.ts` is pure and unit-tested: `weekStart` (Monday),
 `computeWeekTime`, and `buildReviewRows`. The main process supplies
-`getRange(from, to)` (every day file across every page) and the activity log
+`getRange(from, to)` (every day file across every canvas) and the activity log
 for the same range. Notes are attributed to the local date of their
 timestamp, not the file they sit in, so a reply written on Wednesday under
 Monday's thread counts for Wednesday.
 
-Minutes per page per day come from task segments (tracked and explicit). A
+Minutes per canvas per day come from task segments (tracked and explicit). A
 day with no events and no markers falls back to the old timestamp heuristic
 (each note owns the gap to the next, capped) and is marked `~` in the grid so
 the two are never confused.
 
-Rows are a tree: category rows for each path prefix, page rows as leaves,
-totals summed upward, journal last, siblings ordered by time. The same tree
+Rows are a tree that mirrors the canvas tree: one row per canvas with
+blocks or time in the range plus every ancestor, totals summed upward,
+journal last, siblings ordered by time. The same tree
 drives the per-day detail, which also lists the day's task segments and its
 screen time by app kind (`classifyApp`: a small rule table over process names
 and titles) and by app with the top titles on hover.
@@ -221,6 +240,27 @@ segment, the notes written, the git events, and the system events. Overlap rathe
 bucket" is what keeps a 3-hour Code session visible as 12 rows of "Code 15m"
 rather than one row at its start. Empty buckets are dropped and rendered as
 a gap line, so a lunch break is one line, not four empty ones.
+
+### Window chrome and themes
+
+The window is frameless in the Slack sense: `titleBarStyle: 'hidden'` with a
+`titleBarOverlay` on Windows and Linux (native minimise/maximise/close drawn
+over the app's own top bar, coloured to match) and `hiddenInset` on macOS.
+The application menu still exists, for accelerators and for the hamburger
+button, which asks the main process to `popup()` it; `autoHideMenuBar` keeps
+it off-screen otherwise. The renderer's top bar is the drag region
+(`-webkit-app-region: drag`, buttons and the search box opt out) and is
+padded by `env(titlebar-area-width)` so it never sits under the overlay.
+
+A theme is a preset name plus at most two overrides, sidebar and accent
+(`src/shared/theme.ts`). Everything else, text, muted text, hover, the
+darker top bar, the accent's foreground, is derived by mixing towards black
+or white depending on the sidebar's luminance, so a custom colour never
+needs six more inputs and light sidebars get dark text automatically. The
+renderer sets the result as CSS custom properties on `:root`; the main
+process uses the same function for the title-bar overlay colours, so both
+change together when settings are saved. Content-area light/dark still
+follows the system.
 
 ### Auto-update
 
@@ -320,7 +360,9 @@ timeout kills a stalled network call.
 
 - Multiple devlogs open at once (switching is supported).
 - Conflict resolution UI; git's own tooling is the fallback.
-- Tags inside notes for cross-cutting slices; pages/categories cover the
-  main use, and search is full-text across every page.
+- Tags inside blocks for cross-cutting slices; canvases cover the main
+  use, and search is full-text across every canvas.
 - A calendar or day picker; the timeline plus search stand in for now.
-- Drag-to-reorder or re-parenting notes; insert/reply cover the common cases.
+- Drag-to-reorder blocks within a canvas. Insert-between and move cover the
+  common cases today; reordering is the likely next step once the shape of
+  research canvases settles.

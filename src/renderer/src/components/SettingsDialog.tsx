@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
-import type { RepoInfo, Settings, UpdateStatus } from '@shared/types'
+import type { RepoInfo, Settings, ThemeSettings, UpdateStatus } from '@shared/types'
+import { THEME_PRESETS, resolveTheme } from '@shared/theme'
 import { api } from '@renderer/api'
 
 interface Props {
@@ -8,9 +9,11 @@ interface Props {
   onClose: () => void
   onSaved: (s: Settings) => void
   onRepoChanged: (r: RepoInfo | null) => void
+  /** Live-preview colours while the dialog is open. */
+  onPreview?: (s: Settings) => void
 }
 
-export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged }: Props): React.JSX.Element {
+export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged, onPreview }: Props): React.JSX.Element {
   const [form, setForm] = useState<Settings>(settings)
   const [remote, setRemote] = useState(repo?.remoteUrl ?? '')
   const [saving, setSaving] = useState(false)
@@ -24,13 +27,27 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape') onClose()
+      if (ev.key === 'Escape') close()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const set = <K extends keyof Settings>(k: K, v: Settings[K]): void => setForm((f) => ({ ...f, [k]: v }))
+  const setTheme = (patch: Partial<ThemeSettings>): void =>
+    setForm((f) => {
+      const theme: ThemeSettings = { ...f.theme, ...patch }
+      if (patch.sidebar === undefined && 'sidebar' in patch) delete theme.sidebar
+      if (patch.accent === undefined && 'accent' in patch) delete theme.accent
+      const next = { ...f, theme }
+      onPreview?.(next)
+      return next
+    })
+  const resolved = resolveTheme(form.theme)
+  const close = (): void => {
+    onPreview?.(settings) // drop any unsaved preview
+    onClose()
+  }
 
   const save = async (): Promise<void> => {
     setSaving(true)
@@ -64,7 +81,7 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
   }
 
   return (
-    <div className="modal-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && onClose()}>
+    <div className="modal-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && close()}>
       <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
         <h2 id="settings-title">Settings</h2>
 
@@ -89,6 +106,45 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             <input id="remote" type="text" placeholder="git@github.com:you/devlog.git" value={remote} onChange={(ev) => setRemote(ev.target.value)} />
             <p className="hint">Pushes use your existing git credentials (SSH agent or credential helper). Leave blank to keep the log local.</p>
           </div>
+        </section>
+
+        <section>
+          <h3>Appearance</h3>
+          <div className="theme-presets">
+            {THEME_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={`theme-swatch${form.theme.preset === p.id && !form.theme.sidebar && !form.theme.accent ? ' is-selected' : ''}`}
+                style={{ background: p.sidebar }}
+                title={p.label}
+                onClick={() => setTheme({ preset: p.id, sidebar: undefined, accent: undefined })}
+              >
+                <span className="theme-swatch-accent" style={{ background: p.accent }} />
+                <span className="theme-swatch-label" style={{ color: resolveTheme({ preset: p.id }).sidebarFg }}>
+                  {p.label}
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="field-grid">
+            <label htmlFor="themeSidebar">Sidebar colour</label>
+            <span className="field-row">
+              <input id="themeSidebar" type="color" value={resolved.sidebarBg} onChange={(ev) => setTheme({ sidebar: ev.target.value })} />
+              <code className="path">{resolved.sidebarBg}</code>
+            </span>
+            <label htmlFor="themeAccent">Accent colour</label>
+            <span className="field-row">
+              <input id="themeAccent" type="color" value={resolved.accent} onChange={(ev) => setTheme({ accent: ev.target.value })} />
+              <code className="path">{resolved.accent}</code>
+              {(form.theme.sidebar || form.theme.accent) && (
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setTheme({ sidebar: undefined, accent: undefined })}>
+                  Reset to preset
+                </button>
+              )}
+            </span>
+          </div>
+          <p className="hint">Text, hover and selection colours follow from these two. Light and dark mode for the content area follow the system.</p>
         </section>
 
         <section>
@@ -143,8 +199,8 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             repository (synced; window titles included) instead of locally
           </label>
           <label className="check">
-            <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from page repositories
-            as read-only notes
+            <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from canvas
+            repositories as read-only blocks
           </label>
           <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
         </section>
@@ -189,7 +245,7 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
         {error && <p className="form-error">{error}</p>}
 
         <div className="modal-actions">
-          <button type="button" className="btn btn-quiet" onClick={onClose}>
+          <button type="button" className="btn btn-quiet" onClick={close}>
             Cancel
           </button>
           <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>

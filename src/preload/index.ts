@@ -3,12 +3,14 @@ import { IPC, type MenuCommand } from '../shared/ipc'
 import type {
   ActivityEvent,
   AttachedImage,
+  Canvas,
+  CanvasInput,
+  CanvasMeta,
   Day,
   DaySummary,
   Entry,
   EntryPosition,
-  PageInput,
-  PageMeta,
+  PromoteResult,
   RepoInfo,
   SavedAsset,
   SearchResult,
@@ -16,9 +18,7 @@ import type {
   SyncStatus,
   Timeline,
   TrackerStatus,
-  UpdateStatus,
-  Wiki,
-  WikiMeta
+  UpdateStatus
 } from '../shared/types'
 
 type Unsubscribe = () => void
@@ -44,51 +44,48 @@ const api = {
     close: (): Promise<void> => ipcRenderer.invoke(IPC.repoClose),
     onChanged: (cb: (info: RepoInfo | null) => void): Unsubscribe => on(IPC.evRepoChanged, cb)
   },
-  pages: {
-    list: (): Promise<PageMeta[]> => ipcRenderer.invoke(IPC.pagesList),
-    create: (input: PageInput): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageCreate, input),
-    update: (pageId: string, patch: Partial<PageInput>): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageUpdate, pageId, patch),
-    remove: (pageId: string): Promise<number> => ipcRenderer.invoke(IPC.pageDelete, pageId),
-    archive: (pageId: string, archived: boolean): Promise<PageMeta> => ipcRenderer.invoke(IPC.pageArchive, pageId, archived)
+  canvases: {
+    list: (): Promise<CanvasMeta[]> => ipcRenderer.invoke(IPC.canvasesList),
+    get: (id: string): Promise<Canvas> => ipcRenderer.invoke(IPC.canvasGet, id),
+    create: (input: CanvasInput): Promise<CanvasMeta> => ipcRenderer.invoke(IPC.canvasCreate, input),
+    update: (id: string, patch: Partial<CanvasInput>): Promise<CanvasMeta> => ipcRenderer.invoke(IPC.canvasUpdate, id, patch),
+    remove: (id: string): Promise<number> => ipcRenderer.invoke(IPC.canvasDelete, id),
+    /** Archive or restore a canvas and everything beneath it; returns the ids that changed. */
+    archive: (id: string, archived: boolean): Promise<string[]> => ipcRenderer.invoke(IPC.canvasArchive, id, archived),
+    setSurface: (id: string, markdown: string): Promise<Canvas> => ipcRenderer.invoke(IPC.surfaceSet, id, markdown),
+    saveSurfaceAsset: (id: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
+      ipcRenderer.invoke(IPC.surfaceAssetSave, id, bytes, mime, name)
   },
-  categories: {
-    archive: (path: string[], archived: boolean): Promise<{ pages: number; wikis: number }> =>
-      ipcRenderer.invoke(IPC.categoryArchive, path, archived)
-  },
-  wiki: {
-    list: (): Promise<WikiMeta[]> => ipcRenderer.invoke(IPC.wikisList),
-    get: (path: string[]): Promise<Wiki> => ipcRenderer.invoke(IPC.wikiGet, path),
-    set: (path: string[], markdown: string): Promise<Wiki> => ipcRenderer.invoke(IPC.wikiSet, path, markdown),
-    saveAsset: (path: string[], bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
-      ipcRenderer.invoke(IPC.wikiAssetSave, path, bytes, mime, name)
-  },
-  entries: {
-    listDays: (pageId: string): Promise<DaySummary[]> => ipcRenderer.invoke(IPC.daysList, pageId),
-    getDay: (pageId: string, date: string): Promise<Day> => ipcRenderer.invoke(IPC.dayGet, pageId, date),
-    timeline: (pageId: string, opts?: { beforeDate?: string; days?: number }): Promise<Timeline> =>
-      ipcRenderer.invoke(IPC.timelineGet, pageId, opts),
-    range: (fromDate: string, toDate: string): Promise<Array<{ pageId: string; day: Day }>> =>
+  blocks: {
+    listDays: (canvasId: string): Promise<DaySummary[]> => ipcRenderer.invoke(IPC.daysList, canvasId),
+    getDay: (canvasId: string, date: string): Promise<Day> => ipcRenderer.invoke(IPC.dayGet, canvasId, date),
+    timeline: (canvasId: string, opts?: { beforeDate?: string; days?: number }): Promise<Timeline> =>
+      ipcRenderer.invoke(IPC.timelineGet, canvasId, opts),
+    range: (fromDate: string, toDate: string): Promise<Array<{ canvasId: string; day: Day }>> =>
       ipcRenderer.invoke(IPC.rangeGet, fromDate, toDate),
-    add: (pageId: string, markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry }> =>
-      ipcRenderer.invoke(IPC.entryAdd, pageId, markdown, position),
-    update: (pageId: string, date: string, id: string, markdown: string): Promise<Entry> =>
-      ipcRenderer.invoke(IPC.entryUpdate, pageId, date, id, markdown),
-    remove: (pageId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, pageId, date, id),
-    move: (fromPageId: string, date: string, id: string, toPageId: string): Promise<{ date: string; entry: Entry }> =>
-      ipcRenderer.invoke(IPC.entryMove, fromPageId, date, id, toPageId),
+    /** Post a block. `task: true` (or `#task` on the first line) also turns it into a task and starts the clock. */
+    add: (canvasId: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }): Promise<{ date: string; entry: Entry; canvas?: CanvasMeta }> =>
+      ipcRenderer.invoke(IPC.entryAdd, canvasId, markdown, position, opts),
+    update: (canvasId: string, date: string, id: string, markdown: string): Promise<Entry> =>
+      ipcRenderer.invoke(IPC.entryUpdate, canvasId, date, id, markdown),
+    remove: (canvasId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, canvasId, date, id),
+    move: (fromCanvasId: string, date: string, id: string, toCanvasId: string): Promise<{ date: string; entry: Entry }> =>
+      ipcRenderer.invoke(IPC.entryMove, fromCanvasId, date, id, toCanvasId),
+    /** Turn an existing block into a task canvas beneath its canvas. */
+    promote: (canvasId: string, date: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.entryPromote, canvasId, date, id),
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
   assets: {
-    save: (pageId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
-      ipcRenderer.invoke(IPC.assetSave, pageId, date, bytes, mime, name)
+    save: (canvasId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
+      ipcRenderer.invoke(IPC.assetSave, canvasId, date, bytes, mime, name)
   },
   activity: {
     range: (fromDate: string, toDate: string): Promise<ActivityEvent[]> => ipcRenderer.invoke(IPC.activityRange, fromDate, toDate)
   },
   tracker: {
     status: (): Promise<TrackerStatus | null> => ipcRenderer.invoke(IPC.trackerStatus),
-    setTask: (pageId: string | null): Promise<void> => ipcRenderer.invoke(IPC.trackerSetTask, pageId),
+    setTask: (canvasId: string | null): Promise<void> => ipcRenderer.invoke(IPC.trackerSetTask, canvasId),
     onStatus: (cb: (status: TrackerStatus) => void): Unsubscribe => on(IPC.evTrackerStatus, cb)
   },
   updates: {
@@ -105,6 +102,11 @@ const api = {
   },
   shell: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke(IPC.openExternal, url)
+  },
+  window: {
+    /** Pop the application menu up (the hamburger button). */
+    menu: (x?: number, y?: number): Promise<void> => ipcRenderer.invoke(IPC.menuPopup, x, y),
+    control: (action: 'minimize' | 'maximize' | 'close'): Promise<void> => ipcRenderer.invoke(IPC.windowControl, action)
   },
   onMenu: (cb: (cmd: MenuCommand) => void): Unsubscribe => on(IPC.evMenu, cb),
   onAttachImages: (cb: (images: AttachedImage[]) => void): Unsubscribe => on(IPC.evAttachImages, cb),

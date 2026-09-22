@@ -41,6 +41,8 @@ export const DevlogImage = Image.extend({
 
 export interface SubmitKeymapOptions {
   onSubmit: () => boolean
+  /** Mod+Shift+Enter: post and turn the block into a task. */
+  onSubmitTask: () => boolean
   onCancel: () => boolean
   /** Up arrow in an empty editor: edit the previous note (Slack behaviour). */
   onEditLast: () => boolean
@@ -61,7 +63,7 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
   priority: 1000,
 
   addOptions() {
-    return { onSubmit: () => false, onCancel: () => false, onEditLast: () => false, onLink: () => false }
+    return { onSubmit: () => false, onSubmitTask: () => false, onCancel: () => false, onEditLast: () => false, onLink: () => false }
   },
 
   addKeyboardShortcuts() {
@@ -89,6 +91,7 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
         return this.editor.commands.splitBlock()
       },
       'Mod-Enter': () => this.options.onSubmit(),
+      'Mod-Shift-Enter': () => this.options.onSubmitTask(),
       Escape: () => this.options.onCancel(),
       ArrowUp: () => {
         if (this.editor.isEmpty) return this.options.onEditLast()

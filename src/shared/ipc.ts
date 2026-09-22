@@ -11,18 +11,16 @@ export const IPC = {
   repoSetRemote: 'repo:setRemote',
   repoRevealInFinder: 'repo:reveal',
   repoClose: 'repo:close',
-  // pages
-  pagesList: 'pages:list',
-  pageCreate: 'page:create',
-  pageUpdate: 'page:update',
-  pageDelete: 'page:delete',
-  pageArchive: 'page:archive',
-  categoryArchive: 'category:archive',
-  wikiGet: 'wiki:get',
-  wikiSet: 'wiki:set',
-  wikiAssetSave: 'wiki:assetSave',
-  wikisList: 'wikis:list',
-  // entries
+  // canvases
+  canvasesList: 'canvases:list',
+  canvasGet: 'canvas:get',
+  canvasCreate: 'canvas:create',
+  canvasUpdate: 'canvas:update',
+  canvasDelete: 'canvas:delete',
+  canvasArchive: 'canvas:archive',
+  surfaceSet: 'surface:set',
+  surfaceAssetSave: 'surface:assetSave',
+  // blocks
   daysList: 'days:list',
   dayGet: 'day:get',
   timelineGet: 'timeline:get',
@@ -31,6 +29,7 @@ export const IPC = {
   entryUpdate: 'entry:update',
   entryDelete: 'entry:delete',
   entryMove: 'entry:move',
+  entryPromote: 'entry:promote',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
   // activity / tracker
@@ -44,8 +43,10 @@ export const IPC = {
   // sync
   syncNow: 'sync:now',
   syncStatus: 'sync:status',
-  // shell
+  // shell / window
   openExternal: 'shell:openExternal',
+  menuPopup: 'window:menuPopup',
+  windowControl: 'window:control',
   // main -> renderer events
   evSyncStatus: 'ev:syncStatus',
   evEntriesChanged: 'ev:entriesChanged',
@@ -56,4 +57,4 @@ export const IPC = {
   evUpdateStatus: 'ev:updateStatus'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newPage' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask'

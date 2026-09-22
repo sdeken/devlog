@@ -9,7 +9,7 @@ import type { ActivityEvent, Entry } from './types'
 export const HEARTBEAT_MS = 5 * 60_000
 
 export interface TaskSegment {
-  pageId: string
+  canvasId: string
   start: string
   end: string
   /** `tracked` from live events; `explicit` from a duration marker in a note. */
@@ -28,7 +28,7 @@ export interface FocusSegment {
 }
 
 export interface ExplicitDuration {
-  pageId: string
+  canvasId: string
   /** ISO time the note was written; the duration ends here. */
   end: string
   minutes: number
@@ -101,7 +101,7 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
   let lastSeen: number | null = null
 
   const close = (at: number): void => {
-    if (active && openAt !== null && at > openAt) out.push({ pageId: active, start: iso(openAt), end: iso(at), source: 'tracked' })
+    if (active && openAt !== null && at > openAt) out.push({ canvasId: active, start: iso(openAt), end: iso(at), source: 'tracked' })
     openAt = null
   }
   const open = (at: number): void => {
@@ -120,13 +120,13 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
       case 'start':
         // Fresh process: whatever was open is stale; restore the persisted task.
         openAt = null
-        active = ev.pageId ?? null
+        active = ev.canvasId ?? null
         paused = false
         open(t)
         break
       case 'task':
         close(t)
-        active = ev.pageId ?? null
+        active = ev.canvasId ?? null
         open(t)
         break
       case 'stop':
@@ -179,7 +179,7 @@ export function applyExplicitDurations(segments: TaskSegment[], explicit: Explic
       if (s < start) next.push({ ...seg, end: iso(start) })
       if (e > end) next.push({ ...seg, start: iso(end) })
     }
-    next.push({ pageId: ex.pageId, start: iso(start), end: iso(end), source: 'explicit', entryId: ex.entryId })
+    next.push({ canvasId: ex.canvasId, start: iso(start), end: iso(end), source: 'explicit', entryId: ex.entryId })
     result = next
   }
   return result.sort((a, b) => a.start.localeCompare(b.start))
@@ -331,7 +331,7 @@ export function taskMinutesByDay(segments: TaskSegment[]): Map<string, Map<strin
   for (const piece of splitByLocalDay(segments)) {
     if (!out.has(piece.date)) out.set(piece.date, new Map())
     const m = out.get(piece.date)!
-    m.set(piece.segment.pageId, (m.get(piece.segment.pageId) ?? 0) + piece.minutes)
+    m.set(piece.segment.canvasId, (m.get(piece.segment.canvasId) ?? 0) + piece.minutes)
   }
   return out
 }
@@ -381,7 +381,7 @@ export function focusSummaryByDay(segments: FocusSegment[]): Map<string, { apps:
 // ---------------------------------------------------------------------------
 
 export interface TimelineNote {
-  pageId: string
+  canvasId: string
   entry: Entry
 }
 
@@ -389,7 +389,7 @@ export interface TimelineBucket {
   start: string
   end: string
   /** Active tasks overlapping the bucket, in order of first appearance. */
-  tasks: Array<{ pageId: string; minutes: number; source: TaskSegment['source'] }>
+  tasks: Array<{ canvasId: string; minutes: number; source: TaskSegment['source'] }>
   /** Foreground apps overlapping the bucket, most-used first, with titles. */
   apps: AppSummary[]
   screenMinutes: number
@@ -429,13 +429,13 @@ export function bucketizeDay(opts: BucketOptions): TimelineBucket[] {
   const out: TimelineBucket[] = []
   for (let b0 = dayStart; b0 < dayEnd && b0 < nowMs; b0 += step) {
     const b1 = Math.min(b0 + step, dayEnd)
-    const tasks = new Map<string, { pageId: string; minutes: number; source: TaskSegment['source'] }>()
+    const tasks = new Map<string, { canvasId: string; minutes: number; source: TaskSegment['source'] }>()
     for (const seg of opts.taskSegments) {
       const o = overlap(ms(seg.start), ms(seg.end), b0, b1)
       if (o <= 0) continue
-      const cur = tasks.get(seg.pageId)
+      const cur = tasks.get(seg.canvasId)
       if (cur) cur.minutes += o / 60_000
-      else tasks.set(seg.pageId, { pageId: seg.pageId, minutes: o / 60_000, source: seg.source })
+      else tasks.set(seg.canvasId, { canvasId: seg.canvasId, minutes: o / 60_000, source: seg.source })
     }
     const apps = new Map<string, { kind: AppKind; minutes: number; titles: Map<string, number> }>()
     let screenMinutes = 0

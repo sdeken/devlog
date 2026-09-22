@@ -13,13 +13,13 @@ import { ActivityLog } from './log'
 import { ForegroundWatcher } from './foreground'
 
 interface PersistedState {
-  activePageId: string | null
+  activeCanvasId: string | null
 }
 
 export class Tracker extends EventEmitter {
   private status: TrackerStatus = {
     tracking: false,
-    activePageId: null,
+    activeCanvasId: null,
     since: null,
     paused: false,
     pausedReason: null,
@@ -51,14 +51,14 @@ export class Tracker extends EventEmitter {
     if (this.running) return
     this.running = true
     const persisted = await this.loadState()
-    this.status.activePageId = persisted.activePageId
+    this.status.activeCanvasId = persisted.activeCanvasId
     this.status.tracking = this.settings.trackingEnabled
     if (!this.settings.trackingEnabled) {
       this.emitStatus()
       return
     }
-    await this.record({ type: 'start', pageId: this.status.activePageId })
-    this.status.since = this.status.activePageId ? new Date().toISOString() : null
+    await this.record({ type: 'start', canvasId: this.status.activeCanvasId })
+    this.status.since = this.status.activeCanvasId ? new Date().toISOString() : null
 
     powerMonitor.on('lock-screen', this.onLock)
     powerMonitor.on('unlock-screen', this.onUnlock)
@@ -116,16 +116,16 @@ export class Tracker extends EventEmitter {
   }
 
   /**
-   * A note was posted on `pageId`: that page is now the active task.
+   * Make `canvasId` the active task (null stops the clock).
    * Returns true if the task changed.
    */
-  async setTask(pageId: string | null, entryId?: string): Promise<boolean> {
-    const changed = pageId !== this.status.activePageId
-    this.status.activePageId = pageId
-    await this.saveState({ activePageId: pageId })
+  async setTask(canvasId: string | null, entryId?: string): Promise<boolean> {
+    const changed = canvasId !== this.status.activeCanvasId
+    this.status.activeCanvasId = canvasId
+    await this.saveState({ activeCanvasId: canvasId })
     if (this.status.tracking) {
-      await this.record({ type: 'task', pageId, entryId })
-      this.status.since = pageId && !this.status.paused ? new Date().toISOString() : null
+      await this.record({ type: 'task', canvasId, entryId })
+      this.status.since = canvasId && !this.status.paused ? new Date().toISOString() : null
     }
     this.emitStatus()
     return changed
@@ -188,7 +188,7 @@ export class Tracker extends EventEmitter {
     if (this.status.paused && (this.status.pausedReason === reason || reason === 'locked')) {
       this.status.paused = false
       this.status.pausedReason = null
-      this.status.since = this.status.activePageId ? new Date().toISOString() : null
+      this.status.since = this.status.activeCanvasId ? new Date().toISOString() : null
     }
     this.emitStatus()
   }
@@ -208,10 +208,11 @@ export class Tracker extends EventEmitter {
 
   private async loadState(): Promise<PersistedState> {
     try {
-      const raw = JSON.parse(await fs.readFile(this.stateFile, 'utf8')) as Partial<PersistedState>
-      return { activePageId: typeof raw.activePageId === 'string' ? raw.activePageId : null }
+      const raw = JSON.parse(await fs.readFile(this.stateFile, 'utf8')) as Partial<PersistedState> & { activePageId?: string }
+      const id = typeof raw.activeCanvasId === 'string' ? raw.activeCanvasId : typeof raw.activePageId === 'string' ? raw.activePageId : null
+      return { activeCanvasId: id }
     } catch {
-      return { activePageId: null }
+      return { activeCanvasId: null }
     }
   }
 

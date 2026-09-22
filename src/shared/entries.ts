@@ -143,7 +143,7 @@ export function rewriteImageSrcs(markdown: string, fn: (src: string) => string):
 
 /** Root-relative image paths always start with one of the top-level content folders. */
 export function isRootRelativeSrc(src: string): boolean {
-  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('pages/') || src.startsWith('categories/')
+  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('canvases/') || src.startsWith('pages/') || src.startsWith('categories/')
 }
 
 /** Convert image paths relative to the file in `dir` into repo-root-relative paths. */
@@ -227,7 +227,7 @@ export function parseDayFile(date: string, text: string, base: string = ENTRIES_
     }
     if (current.attrs.parent) entry.parentId = current.attrs.parent
     if (current.attrs.updated) entry.updatedAt = current.attrs.updated
-    if (current.attrs.kind === 'commit') entry.kind = 'commit'
+    if (current.attrs.kind === 'commit' || current.attrs.kind === 'task') entry.kind = current.attrs.kind
     const meta: Record<string, string> = {}
     for (const [k, v] of Object.entries(current.attrs)) {
       if (!RESERVED_ATTRS.has(k)) meta[k] = v
@@ -436,4 +436,32 @@ export function previewText(markdown: string, max = 120): string {
 
 export function isTitleLine(line: string): boolean {
   return TITLE_RE.test(line)
+}
+
+// ---------------------------------------------------------------------------
+// Task tag: `#task` anywhere on the first line turns a new block into a task.
+// ---------------------------------------------------------------------------
+
+const TASK_TAG_RE = /(^|\s)\\?#task\b[ \t]*/i
+
+export function hasTaskTag(markdown: string): boolean {
+  const first = markdown.trimStart().split('\n')[0] ?? ''
+  return TASK_TAG_RE.test(first)
+}
+
+/** Remove the `#task` tag from the first line. */
+export function stripTaskTag(markdown: string): string {
+  const lines = markdown.trimStart().split('\n')
+  lines[0] = (lines[0] ?? '').replace(TASK_TAG_RE, '$1').replace(/[ \t]+$/, '')
+  return lines.join('\n').trim()
+}
+
+/** A short title for a block, from its first meaningful line. */
+export function titleFromMarkdown(markdown: string, max = 80): string {
+  const text = previewText(stripTaskTag(markdown).replace(DURATION_MARKER_RE, ''), 400)
+  const first = text.split(/(?<=[.!?])\s+/)[0] ?? text
+  const t = first.trim().replace(/[.:;,]+$/, '')
+  if (t.length <= max) return t || 'Task'
+  const cut = t.slice(0, max)
+  return `${cut.slice(0, Math.max(20, cut.lastIndexOf(' ')))}…`
 }

@@ -38,8 +38,14 @@ export class ActivityLog {
       for (const line of text.split('\n')) {
         if (!line.trim()) continue
         try {
-          const ev = JSON.parse(line) as ActivityEvent
-          if (ev && typeof ev.t === 'string' && typeof ev.type === 'string') out.push(ev)
+          const ev = JSON.parse(line) as ActivityEvent & { pageId?: string | null }
+          if (!ev || typeof ev.t !== 'string' || typeof ev.type !== 'string') continue
+          // Logs written before 0.3 named the canvas `pageId`.
+          if (ev.canvasId === undefined && ev.pageId !== undefined) {
+            ev.canvasId = ev.pageId
+            delete ev.pageId
+          }
+          out.push(ev)
         } catch {
           /* skip corrupt line */
         }

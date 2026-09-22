@@ -91,18 +91,18 @@ export function StatusBar({ status, tracker, taskLabel, onSyncNow, onOpenSetting
     <footer className="statusbar">
       {tracker?.tracking && (
         <span className="task-status" title={tracker.lastFocus ? `Focused: ${tracker.lastFocus.app} — ${tracker.lastFocus.title}` : 'Activity tracking on'}>
-          <span className={`status-dot status-${tracker.activePageId ? (tracker.paused ? 'dirty' : 'busy') : 'idle'}`} />
+          <span className={`status-dot status-${tracker.activeCanvasId ? (tracker.paused ? 'dirty' : 'busy') : 'idle'}`} />
           <button type="button" className="task-label link" onClick={onOpenTimeline} title="Open today's timeline">
-            {tracker.activePageId ? (
+            {tracker.activeCanvasId ? (
               <>
-                <span className="status-text">{taskLabel ?? tracker.activePageId}</span>
+                <span className="status-text">{taskLabel ?? tracker.activeCanvasId}</span>
                 {tracker.paused ? <span className="status-detail">· paused ({tracker.pausedReason})</span> : elapsed ? <span className="status-detail">· {elapsed}</span> : null}
               </>
             ) : (
-              <span className="status-detail" title="Post on a page to start a task">No active task</span>
+              <span className="status-detail" title="Post on a task, press Start on one, or turn a block into a task">No active task</span>
             )}
           </button>
-          {tracker.activePageId && (
+          {tracker.activeCanvasId && (
             <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title={`Stop the active task (${kbd('mod', 'shift', '.')})`}>
               Stop
             </button>

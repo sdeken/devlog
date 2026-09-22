@@ -34,12 +34,12 @@ export interface GitEventInfo {
 }
 
 export interface WatchedRepo {
-  pageId: string
+  canvasId: string
   path: string
 }
 
 interface RepoState {
-  pageId: string
+  canvasId: string
   root: string
   logsDir: string
   /** Byte offset read so far, per reflog file. */
@@ -65,14 +65,14 @@ export class CommitWatcher extends EventEmitter {
     for (const r of list) {
       const root = path.resolve(r.path)
       if (this.exclude(root)) continue
-      wanted.set(root, { pageId: r.pageId, path: root })
+      wanted.set(root, { canvasId: r.canvasId, path: root })
     }
     for (const [root, state] of this.repos) {
       if (!wanted.has(root)) {
         state.watcher?.close()
         this.repos.delete(root)
       } else {
-        state.pageId = wanted.get(root)!.pageId
+        state.canvasId = wanted.get(root)!.canvasId
       }
     }
     for (const [root, r] of wanted) {
@@ -80,7 +80,7 @@ export class CommitWatcher extends EventEmitter {
       const logFile = await reflogPath(root)
       if (!logFile) continue
       const logsDir = path.dirname(logFile)
-      const state: RepoState = { pageId: r.pageId, root, logsDir, sizes: new Map(), watcher: null, seen: new Set() }
+      const state: RepoState = { canvasId: r.canvasId, root, logsDir, sizes: new Map(), watcher: null, seen: new Set() }
       for (const f of await listLogFiles(logsDir)) state.sizes.set(f, await fileSize(f))
       this.repos.set(root, state)
       this.attach(state)
@@ -154,14 +154,14 @@ export class CommitWatcher extends EventEmitter {
     const [, oldHash, newHash, action, message = ''] = m
     const name = path.basename(state.root)
     const event = (info: Omit<GitEventInfo, 'repoPath' | 'repoName'>): void => {
-      this.emit('event', state.pageId, { repoPath: state.root, repoName: name, ...info } satisfies GitEventInfo)
+      this.emit('event', state.canvasId, { repoPath: state.root, repoName: name, ...info } satisfies GitEventInfo)
     }
     if (ref === 'HEAD') {
       if (action.startsWith('commit') || action.startsWith('cherry-pick')) {
         if (state.seen.has(newHash)) return
         state.seen.add(newHash)
         const info = await this.describe(state.root, newHash)
-        if (info) this.emit('commit', state.pageId, info)
+        if (info) this.emit('commit', state.canvasId, info)
         return
       }
       if (action === 'checkout') {

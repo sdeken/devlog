@@ -1,16 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localDate } from '@shared/entries'
-import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
 import { addDays, buildReviewRows, computeWeekTime, formatHours, formatMinutes, roundMinutes, weekStart, type ReviewNote, type ReviewRow } from '@shared/review'
-import type { ActivityEvent, PageMeta } from '@shared/types'
+import type { ActivityEvent, CanvasMeta } from '@shared/types'
 import { api } from '@renderer/api'
 
 interface Props {
-  pages: PageMeta[]
+  canvases: CanvasMeta[]
   today: string
   focusMinSeconds: number
-  onOpenCategory: (path: string[]) => void
-  onJumpTo: (pageId: string, date: string) => void
+  onOpenCanvas: (id: string, date?: string) => void
 }
 
 type RangeKind = 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'custom'
@@ -42,7 +40,7 @@ function datesBetween(from: string, to: string): string[] {
   return out
 }
 
-export function Summary({ pages, today, focusMinSeconds, onOpenCategory, onJumpTo }: Props): React.JSX.Element {
+export function Summary({ canvases, today, focusMinSeconds, onOpenCanvas }: Props): React.JSX.Element {
   const [kind, setKind] = useState<RangeKind>('week')
   const [custom, setCustom] = useState<{ from: string; to: string }>({ from: weekStart(today), to: today })
   const [granularity, setGranularity] = useState<number>(() => {
@@ -77,13 +75,13 @@ export function Summary({ pages, today, focusMinSeconds, onOpenCategory, onJumpT
   useEffect(() => {
     let cancelled = false
     setNotes(null)
-    void Promise.all([api.entries.range(range.from, range.to), api.activity.range(range.from, range.to)]).then(([chunks, evs]) => {
+    void Promise.all([api.blocks.range(range.from, range.to), api.activity.range(range.from, range.to)]).then(([chunks, evs]) => {
       if (cancelled) return
       const flat: ReviewNote[] = []
-      for (const { pageId, day } of chunks) {
+      for (const { canvasId, day } of chunks) {
         for (const entry of day.entries) {
           const date = localDate(new Date(entry.createdAt))
-          if (date >= range.from && date <= range.to) flat.push({ pageId, date, entry })
+          if (date >= range.from && date <= range.to) flat.push({ canvasId, date, entry })
         }
       }
       setNotes(flat)
@@ -95,7 +93,7 @@ export function Summary({ pages, today, focusMinSeconds, onOpenCategory, onJumpT
   }, [range])
 
   const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates, focusMinSeconds }), [notes, events, dates, focusMinSeconds])
-  const rows = useMemo(() => buildReviewRows(pages, notes ?? [], time.byPageDay), [pages, notes, time])
+  const rows = useMemo(() => buildReviewRows(canvases, notes ?? [], time.byCanvasDay), [canvases, notes, time])
   const total = rows.reduce((n, r) => n + r.totalMinutes, 0)
   const roundedSum = rows.reduce((n, r) => n + roundMinutes(r.totalMinutes, granularity), 0)
 
@@ -117,18 +115,19 @@ export function Summary({ pages, today, focusMinSeconds, onOpenCategory, onJumpT
       return n
     })
 
+  const rowLabel = (row: ReviewRow): React.JSX.Element => (
+    <button type="button" className="link" onClick={() => onOpenCanvas(row.canvasId, dates.find((d) => row.cells.has(d)) ?? today)}>
+      {row.task ? '◉ ' : ''}
+      {row.label}
+    </button>
+  )
+
   const renderChild = (row: ReviewRow, depth: number): React.JSX.Element => (
-    <li key={row.key} className={`sum-child depth-${depth}`}>
+    <li key={row.canvasId} className={`sum-child depth-${depth}`}>
       <span className="sum-label" style={{ paddingLeft: depth * 16 }}>
-        {row.kind === 'page' && row.pageId ? (
-          <button type="button" className="link" onClick={() => onJumpTo(row.pageId!, dates.find((d) => row.cells.has(d)) ?? today)}>
-            {row.label}
-          </button>
-        ) : (
-          row.label
-        )}
+        {rowLabel(row)}
       </span>
-      <span className="sum-notes">{row.totalNotes ? `${row.totalNotes} notes` : ''}</span>
+      <span className="sum-notes">{row.totalNotes ? `${row.totalNotes} blocks` : ''}</span>
       <span className="sum-exact">{formatMinutes(row.totalMinutes)}</span>
       <span className="sum-hours">{formatHours(roundMinutes(row.totalMinutes, granularity))}</span>
       {row.children.length > 0 && <ul className="sum-children">{row.children.map((c) => renderChild(c, depth + 1))}</ul>}
@@ -174,30 +173,18 @@ export function Summary({ pages, today, focusMinSeconds, onOpenCategory, onJumpT
         <>
           <ul className="sum-list">
             {rows.map((row) => {
-              const open = expanded.has(row.key)
+              const open = expanded.has(row.canvasId)
               return (
-                <li key={row.key} className="sum-row">
+                <li key={row.canvasId} className="sum-row">
                   <div className="sum-top">
-                    <button type="button" className="sum-toggle" onClick={() => toggle(row.key)} disabled={row.children.length === 0} title={row.children.length ? (open ? 'Collapse' : 'Expand') : ''}>
+                    <button type="button" className="sum-toggle" onClick={() => toggle(row.canvasId)} disabled={row.children.length === 0} title={row.children.length ? (open ? 'Collapse' : 'Expand') : ''}>
                       {row.children.length ? (open ? '▾' : '▸') : '·'}
                     </button>
-                    <span className="sum-label">
-                      {row.kind === 'category' ? (
-                        <button type="button" className="link" onClick={() => onOpenCategory(row.path)}>
-                          {row.label}
-                        </button>
-                      ) : row.pageId === JOURNAL_PAGE_ID ? (
-                        'Journal'
-                      ) : (
-                        <button type="button" className="link" onClick={() => onJumpTo(row.pageId!, dates.find((d) => row.cells.has(d)) ?? today)}>
-                          {row.label}
-                        </button>
-                      )}
-                    </span>
+                    <span className="sum-label">{rowLabel(row)}</span>
                     <span className="sum-bar" aria-hidden="true">
                       <span style={{ width: `${total > 0 ? Math.round((row.totalMinutes / total) * 100) : 0}%` }} />
                     </span>
-                    <span className="sum-notes">{row.totalNotes ? `${row.totalNotes} notes` : ''}</span>
+                    <span className="sum-notes">{row.totalNotes ? `${row.totalNotes} blocks` : ''}</span>
                     <span className="sum-exact" title="Tracked time before rounding">
                       {formatMinutes(row.totalMinutes)}
                     </span>
@@ -212,7 +199,7 @@ export function Summary({ pages, today, focusMinSeconds, onOpenCategory, onJumpT
                 <span className="sum-toggle" />
                 <span className="sum-label">Total</span>
                 <span className="sum-bar" />
-                <span className="sum-notes">{notes.length} notes</span>
+                <span className="sum-notes">{notes.length} blocks</span>
                 <span className="sum-exact">{formatMinutes(total)}</span>
                 <span className="sum-hours">{formatHours(roundMinutes(total, granularity))}</span>
               </div>

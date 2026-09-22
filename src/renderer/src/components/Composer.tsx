@@ -11,8 +11,8 @@ import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/ext
 import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
 import { kbd } from '@renderer/keys'
 import { detectCodePaste } from '@renderer/editor/smartPaste'
-import type { PageMeta } from '@shared/types'
-import { JOURNAL_PAGE_ID, categoryPath } from '@shared/pages'
+import type { CanvasMeta } from '@shared/types'
+import { JOURNAL_ID, buildCanvasTree, flattenTree } from '@shared/canvases'
 
 export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
@@ -21,14 +21,14 @@ export interface ComposerProps {
   initialMarkdown?: string
   placeholder?: string
   autoFocus?: boolean
-  /** Page whose asset folder receives pasted images (unless `saveImage` is given). */
-  assetPageId?: string
+  /** Canvas whose asset folder receives pasted images (unless `saveImage` is given). */
+  assetCanvasId?: string
   /** Day whose asset folder receives pasted images. Defaults to today. */
   assetDate?: string
   /** Custom image sink (e.g. a wiki's asset folder). */
   saveImage?: (bytes: Uint8Array, mime: string, name: string) => Promise<{ src: string }>
-  /** Called with markdown when the user posts. Resolve to clear the editor. */
-  onSubmit: (markdown: string) => Promise<void>
+  /** Called with markdown when the user posts. Resolve to clear the editor. `task` is set for Mod+Shift+Enter. */
+  onSubmit: (markdown: string, opts?: { task?: boolean }) => Promise<void>
   /** Document mode: called (debounced) whenever the content changes. */
   onChange?: (markdown: string) => Promise<void> | void
   onCancel?: () => void
@@ -37,17 +37,17 @@ export interface ComposerProps {
   /** Persist draft under this key in localStorage (new mode). */
   draftKey?: string
   focusToken?: number
-  /** New mode: offer a page picker so a note can be posted anywhere from here. */
-  pages?: PageMeta[]
-  targetPageId?: string
-  onTargetChange?: (pageId: string) => void
+  /** New mode: offer a canvas picker so a block can be posted anywhere from here. */
+  canvases?: CanvasMeta[]
+  targetCanvasId?: string
+  onTargetChange?: (canvasId: string) => void
 }
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
-  new: `Write a note…  Enter posts, Shift+Enter new line, paste or ${kbd('mod', 'shift', 'I')} for images`,
-  edit: 'Edit note…  Enter saves, Esc cancels',
+  new: `Write a block…  Enter posts, ${kbd('mod', 'shift', 'Enter')} posts as a task, Shift+Enter new line`,
+  edit: 'Edit block…  Enter saves, Esc cancels',
   reply: 'Reply…  Enter posts, Esc cancels',
-  insert: 'New note here…  Enter posts, Esc cancels',
+  insert: 'New block here…  Enter posts, Esc cancels',
   document: 'Write anything…'
 }
 
@@ -80,7 +80,7 @@ export function Composer({
   initialMarkdown = '',
   placeholder,
   autoFocus = false,
-  assetPageId,
+  assetCanvasId,
   assetDate,
   saveImage,
   onSubmit,
@@ -89,8 +89,8 @@ export function Composer({
   onEditLast,
   draftKey,
   focusToken,
-  pages,
-  targetPageId,
+  canvases,
+  targetCanvasId,
   onTargetChange
 }: ComposerProps): React.JSX.Element {
   const [busy, setBusy] = useState(false)
@@ -99,7 +99,7 @@ export function Composer({
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [, forceRender] = useState(0)
-  const submitRef = useRef<() => boolean>(() => false)
+  const submitRef = useRef<(opts?: { task?: boolean }) => boolean>(() => false)
   const cancelRef = useRef<() => boolean>(() => false)
   const linkRef = useRef<() => boolean>(() => false)
   const editLastRef = useRef<(() => void) | undefined>(onEditLast)
@@ -149,7 +149,7 @@ export function Composer({
           const bytes = new Uint8Array(await file.arrayBuffer())
           const saved = saveImage
             ? await saveImage(bytes, file.type, file.name)
-            : await api.assets.save(assetPageId ?? 'journal', date, bytes, file.type, file.name)
+            : await api.assets.save(assetCanvasId ?? 'journal', date, bytes, file.type, file.name)
           const node = { type: 'image', attrs: { src: saved.src, alt: file.name.replace(/\.[^.]+$/, '') || 'image' } }
           if (insertPos !== null) {
             editor.chain().focus().insertContentAt(insertPos, node).run()
@@ -164,7 +164,7 @@ export function Composer({
         setUploading((n) => Math.max(0, n - files.length))
       }
     },
-    [assetPageId, assetDate, saveImage]
+    [assetCanvasId, assetDate, saveImage]
   )
   const sinkRef = useRef<(files: File[]) => void>(() => undefined)
   sinkRef.current = (files) => void uploadImages(files)
@@ -183,6 +183,7 @@ export function Composer({
       Placeholder.configure({ placeholder: placeholder ?? PLACEHOLDER[mode] }),
       SubmitKeymap.configure({
         onSubmit: () => (isDocument ? false : submitRef.current()),
+        onSubmitTask: () => (isDocument || mode !== 'new' ? false : submitRef.current({ task: true })),
         onCancel: () => (isDocument ? false : cancelRef.current()),
         onLink: () => linkRef.current(),
         onEditLast: () => {
@@ -299,7 +300,7 @@ export function Composer({
     }
   }, [isDocument])
 
-  const submit = useCallback((): boolean => {
+  const submit = useCallback((opts?: { task?: boolean }): boolean => {
     const e = editorRef.current
     if (!e || busy || uploading > 0) return true
     const markdown = e.getMarkdown().trim()
@@ -313,7 +314,7 @@ export function Composer({
       e.commands.clearContent(true)
       clearDraft(draftKey)
     }
-    onSubmit(markdown)
+    onSubmit(markdown, opts)
       .catch((err: unknown) => {
         setError(err instanceof Error ? err.message : String(err))
         if (mode === 'new' && !hasContent(e)) e.commands.setContent(snapshot)
@@ -431,21 +432,20 @@ export function Composer({
         </BubbleMenu>
       )}
       <EditorContent editor={editor} className="composer-content" />
-      {(status || (mode === 'new' && pages && onTargetChange)) && (
+      {(status || (mode === 'new' && canvases && onTargetChange)) && (
         <div className="composer-foot">
-          {mode === 'new' && pages && onTargetChange && (
-            <label className="composer-target" title="Which page this note posts to">
-              <span className="composer-target-icon">#</span>
-              <select value={targetPageId ?? JOURNAL_PAGE_ID} onChange={(ev) => onTargetChange(ev.target.value)}>
-                <option value={JOURNAL_PAGE_ID}>Journal</option>
-                {pages
-                  .filter((p) => p.id !== JOURNAL_PAGE_ID && !p.archived)
-                  .sort((a, b) => [...categoryPath(a.category), a.title].join('/').localeCompare([...categoryPath(b.category), b.title].join('/')))
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {[...categoryPath(p.category), p.title].join(' / ')}
-                    </option>
-                  ))}
+          {mode === 'new' && canvases && onTargetChange && (
+            <label className="composer-target" title="Which canvas this block posts to">
+              <span className="composer-target-icon">▤</span>
+              <select value={targetCanvasId ?? JOURNAL_ID} onChange={(ev) => onTargetChange(ev.target.value)}>
+                <option value={JOURNAL_ID}>Journal</option>
+                {flattenTree(buildCanvasTree(canvases)).map(({ canvas: c, depth }) => (
+                  <option key={c.id} value={c.id}>
+                    {'\u00a0\u00a0'.repeat(depth)}
+                    {c.task ? '◉ ' : ''}
+                    {c.title}
+                  </option>
+                ))}
               </select>
             </label>
           )}
