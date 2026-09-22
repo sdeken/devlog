@@ -18,7 +18,9 @@ tracked against; any block can become one.
   Enter posts, Shift+Enter starts a new line.
 - **Every block is a node.** Reply to a block to start a thread, hover
   between two blocks and press **+** to insert one there, double-click a
-  block (or press ↑ in the empty composer) to edit it. Blocks on past days
+  block (or press ↑ in the empty composer) to edit it, drag its grip to
+  reorder it within the day, or **Hide** it to collapse it into a one-line
+  stub. Timestamps stay out of the way until you hover. Blocks on past days
   work the same way.
 - **Canvases nest however you slice your work.** Besides the journal, make a
   canvas per client, with project canvases inside it, with task canvases
@@ -36,8 +38,8 @@ tracked against; any block can become one.
   action on hover: Devlog creates a task canvas beneath the current one,
   titled from the block, links the block to it, and starts the clock. The
   task canvas has its own surface and stream for everything that follows.
-- **One active task, tracked for you.** Posting on a task canvas (or
-  pressing **Start** in its header) makes it the active task; it stays active
+- **One active task, tracked for you.** Posting on a task canvas, or
+  **Start** in the status bar, makes it the active task; it stays active
   until you post on another task, press Stop, lock the machine, go idle or
   sleep. Devlog keeps running in the tray to watch. A block with an explicit
   duration like `[2h]` or `[45m]` overrides tracking for that window when
@@ -172,6 +174,24 @@ to it (a chip opens the task), and makes it the active task. Blocks inside a
 task canvas can be anything: more notes, pasted evidence, further tasks. A
 canvas can also be flagged as a task, or unflagged, in **Edit**.
 
+The task controls live in one place, the status bar. **Start ▾** opens a
+menu of every task (the canvas on screen, or the tasks inside it, first;
+type to filter; Enter picks the first match) plus **New task…**, which
+creates a task under the canvas on screen and starts it. **Stop** replaces
+it while a task is active.
+
+**Hide** on a block collapses it (with its thread) into a "1 hidden block"
+stub so a busy stream reads cleanly; click the stub to look inside and
+**Unhide** to bring it back. Nothing is deleted; hidden blocks stay in the
+file (`hidden=1` in the marker), in search and in the review counts.
+
+**Drag to reorder.** Hover a block and drag the grip at its left edge to
+another spot in the same day; the day's order is the file's order, so this
+is the same operation as insert-between. Timestamps do not change: the
+time on a block is when it was written, its position is where you keep it.
+Blocks cannot be dragged across days, because a day is a file; move them
+with **Move** instead.
+
 Like everything else in the repository, canvases are plain files; treat the
 repository as sensitive, because it is.
 
@@ -188,9 +208,9 @@ never lost.
 
 There is one active task at a time, and a task is a canvas with the task
 flag. The workflow: write a line or two to wrap up what you were doing, then
-either post on the task you are picking up (that makes it active), press
-**Start** in its header, or write the next thing as a new block and post it
-with ⌘⇧Enter so it becomes a task of its own. The status bar shows the active
+either post on the task you are picking up (that makes it active), pick it
+from **Start ▾** in the status bar, or write the next thing as a new block
+and post it with ⌘⇧Enter so it becomes a task of its own. The status bar shows the active
 task with a running clock and a **Stop** button (also ⌘⇧. and in the tray
 menu). Posting on the journal or on a canvas that is not a task never
 touches the clock: those are just notes.

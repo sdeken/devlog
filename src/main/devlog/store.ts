@@ -21,6 +21,7 @@ import {
   isBlankMarkdown,
   isValidDate,
   localDate,
+  moveSubtree,
   newEntryId,
   normalizeDurationMarker,
   parseDayFile,
@@ -499,6 +500,25 @@ export class DevlogStore extends EventEmitter {
     entry.updatedAt = now.toISOString()
     await this.writeDay(canvasId, day)
     return entry
+  }
+
+  /** Hide (or reveal) a block. Hidden blocks stay in the file and in search; the stream collapses them. */
+  async setEntryHidden(canvasId: string, date: string, id: string, hidden: boolean): Promise<Entry> {
+    const day = await this.readDay(canvasId, date)
+    const entry = day.entries.find((e) => e.id === id)
+    if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
+    if (hidden) entry.hidden = true
+    else delete entry.hidden
+    await this.writeDay(canvasId, day)
+    return entry
+  }
+
+  /** Reorder a top-level block (with its thread) within its day. */
+  async reorderEntry(canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Day> {
+    const day = await this.readDay(canvasId, date)
+    day.entries = moveSubtree(day.entries, id, position)
+    await this.writeDay(canvasId, day)
+    return day
   }
 
   /** Delete a block and every reply beneath it. Returns the number removed. */

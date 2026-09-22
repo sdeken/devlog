@@ -24,8 +24,11 @@ interface Props {
   onMove?: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
   /** Turn this block into a task (a task canvas beneath this one). */
   onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
+  onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onOpenCanvas?: (id: string) => void
   onReply?: () => void
+  /** Show a drag grip (the enclosing slot handles the drag events). */
+  draggable?: boolean
 }
 
 const timeFmt = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
@@ -66,8 +69,10 @@ export const EntryView = memo(function EntryView({
   onDelete,
   onMove,
   onPromote,
+  onSetHidden,
   onOpenCanvas,
-  onReply
+  onReply,
+  draggable
 }: Props) {
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -113,7 +118,7 @@ export const EntryView = memo(function EntryView({
 
   return (
     <article
-      className={`entry${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}`}
+      className={`entry${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}`}
       id={`entry-${entry.id}`}
       onDoubleClick={(ev) => {
         // Double-click on the text edits the note, unless the user is selecting text.
@@ -124,9 +129,15 @@ export const EntryView = memo(function EntryView({
       }}
     >
       <header className="entry-meta">
+        {draggable && !entry.parentId && (
+          <span className="entry-grip" draggable title="Drag to reorder within the day" aria-label="Drag handle">
+            ⋮⋮
+          </span>
+        )}
         <time dateTime={entry.createdAt} title={created.toLocaleString()}>
           {timeLabel}
         </time>
+        {entry.hidden && <span className="entry-kind">hidden</span>}
         {readOnly && (
           <span className="entry-kind" title={`Captured from ${entry.meta?.repo ?? 'git'}; read-only`}>
             commit
@@ -215,6 +226,16 @@ export const EntryView = memo(function EntryView({
               >
                 Copy
               </button>
+              {onSetHidden && !entry.parentId && (
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-xs"
+                  onClick={() => void onSetHidden(canvasId, date, entry.id, !entry.hidden)}
+                  title={entry.hidden ? 'Show this block in the stream again' : 'Collapse this block (and its thread) into a stub; nothing is deleted'}
+                >
+                  {entry.hidden ? 'Unhide' : 'Hide'}
+                </button>
+              )}
               <button type="button" className="btn btn-quiet btn-xs" onClick={() => setConfirmDelete(true)} title="Delete">
                 Delete
               </button>

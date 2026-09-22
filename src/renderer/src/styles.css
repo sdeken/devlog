@@ -2956,3 +2956,173 @@ body[data-platform='darwin'] .topbar-left {
   min-width: 0;
   overflow: hidden;
 }
+
+/* ---- Timestamps show on hover; chips and actions keep their place ---- */
+.entry-meta time {
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.entry:hover .entry-meta time,
+.entry:focus-within .entry-meta time,
+.entry-editing .entry-meta time,
+.entry-dated .entry-meta time {
+  opacity: 1;
+}
+
+/* ---- Drag to reorder ---- */
+.entry-grip {
+  cursor: grab;
+  color: var(--fg-muted);
+  font-size: 11px;
+  letter-spacing: -2px;
+  opacity: 0;
+  margin-left: -14px;
+  width: 14px;
+  user-select: none;
+}
+
+.entry:hover .entry-grip {
+  opacity: 0.7;
+}
+
+.entry-grip:active {
+  cursor: grabbing;
+}
+
+.note-slot.drop-before > .note,
+.note-slot.drop-after > .note {
+  position: relative;
+}
+
+.note-slot.drop-before > .note::before,
+.note-slot.drop-after > .note::after {
+  content: '';
+  position: absolute;
+  left: -10px;
+  right: -10px;
+  height: 2px;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.note-slot.drop-before > .note::before {
+  top: -2px;
+}
+
+.note-slot.drop-after > .note::after {
+  bottom: -2px;
+}
+
+/* ---- Hidden blocks ---- */
+.hidden-stub {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  text-align: left;
+  padding: 4px 0;
+  margin: 2px 0;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+}
+
+.hidden-stub:hover {
+  color: var(--fg);
+  background: var(--bg-2);
+}
+
+.hidden-stub.is-open {
+  border-bottom: 0;
+}
+
+.hidden-run .note-slot.is-hidden .entry-body {
+  opacity: 0.6;
+}
+
+/* ---- Start menu in the status bar ---- */
+.start-wrap {
+  position: relative;
+}
+
+/* The status bar sits above the feed and lets its popover escape, so the menu is clickable. */
+.statusbar {
+  position: relative;
+  z-index: 5;
+  overflow: visible;
+}
+
+.start-menu {
+  position: absolute;
+  bottom: 28px;
+  left: 0;
+  width: 320px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  padding: 6px;
+  z-index: 20;
+  font-size: 13px;
+  color: var(--fg);
+}
+
+.start-menu input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  color: var(--fg);
+  outline: none;
+  margin-bottom: 4px;
+}
+
+.start-menu ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.start-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 6px;
+  font: inherit;
+}
+
+.start-item:hover {
+  background: var(--bg-3);
+}
+
+.start-item-title {
+  font-weight: 500;
+}
+
+.start-item-path {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.start-empty {
+  padding: 6px 8px;
+  color: var(--fg-muted);
+}
+
+.start-new {
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  border-radius: 0 0 6px 6px;
+  color: var(--accent);
+}

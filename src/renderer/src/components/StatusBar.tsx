@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import type { SyncStatus, TrackerStatus } from '@shared/types'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { CanvasMeta, SyncStatus, TrackerStatus } from '@shared/types'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@shared/canvases'
 import { formatMinutes } from '@shared/review'
 import { kbd } from '@renderer/keys'
 
@@ -7,10 +8,76 @@ interface Props {
   status: SyncStatus | null
   tracker: TrackerStatus | null
   taskLabel: string | null
+  canvases: CanvasMeta[]
+  /** The canvas on screen, offered first when starting a task. */
+  currentCanvasId: string | null
   onSyncNow: () => void
   onOpenSettings: () => void
+  onStartTask: (canvasId: string) => void
   onStopTask: () => void
+  /** Create a new task canvas (under the current canvas) and start it. */
+  onNewTask: () => void
   onOpenTimeline: () => void
+}
+
+/** The Start menu: pick a task to make active, or make a new one. */
+function StartMenu({ canvases, currentCanvasId, onStart, onNew, onClose }: { canvases: CanvasMeta[]; currentCanvasId: string | null; onStart: (id: string) => void; onNew: () => void; onClose: () => void }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const [query, setQuery] = useState('')
+  const tasks = useMemo(() => {
+    const all = flattenTree(buildCanvasTree(canvases)).filter(({ canvas }) => canvas.task)
+    const q = query.trim().toLowerCase()
+    const list = q ? all.filter(({ canvas }) => canvasLabel(canvases, canvas.id).toLowerCase().includes(q)) : all
+    // The canvas on screen (if it is a task) or the tasks inside it come first.
+    return [...list].sort((a, b) => Number(rank(b.canvas)) - Number(rank(a.canvas)))
+    function rank(c: CanvasMeta): number {
+      if (c.id === currentCanvasId) return 2
+      if (c.parentId && c.parentId === currentCanvasId) return 1
+      return 0
+    }
+  }, [canvases, currentCanvasId, query])
+  useEffect(() => {
+    const onDown = (ev: MouseEvent): void => {
+      if (ref.current && !ref.current.contains(ev.target as Node)) onClose()
+    }
+    const onKey = (ev: KeyboardEvent): void => {
+      if (ev.key === 'Escape') onClose()
+    }
+    window.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('mousedown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [onClose])
+  return (
+    <div className="start-menu" ref={ref} role="menu">
+      <input
+        type="search"
+        autoFocus
+        placeholder="Find a task…"
+        value={query}
+        onChange={(ev) => setQuery(ev.target.value)}
+        onKeyDown={(ev) => {
+          if (ev.key === 'Enter' && tasks[0]) onStart(tasks[0].canvas.id)
+        }}
+      />
+      <ul>
+        {tasks.map(({ canvas }) => (
+          <li key={canvas.id}>
+            <button type="button" className="start-item" onClick={() => onStart(canvas.id)} title={canvasLabel(canvases, canvas.id)}>
+              <span className="start-item-title">◉ {canvas.title}</span>
+              <span className="start-item-path">{canvasLabel(canvases, canvas.id).split(' / ').slice(0, -1).join(' / ')}</span>
+            </button>
+          </li>
+        ))}
+        {tasks.length === 0 && <li className="start-empty">{query ? 'No task matches.' : 'No tasks yet.'}</li>}
+      </ul>
+      <button type="button" className="start-item start-new" onClick={onNew}>
+        + New task{currentCanvasId && currentCanvasId !== JOURNAL_ID ? ` in ${canvasLabel(canvases, currentCanvasId).split(' / ').pop()}` : ''}…
+      </button>
+    </div>
+  )
 }
 
 function ago(iso: string | null, now: number): string {
@@ -32,8 +99,9 @@ function inFuture(iso: string | null, now: number): string {
   return `${Math.round(s / 60)} min`
 }
 
-export function StatusBar({ status, tracker, taskLabel, onSyncNow, onOpenSettings, onStopTask, onOpenTimeline }: Props): React.JSX.Element {
+export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onOpenSettings, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
+  const [startOpen, setStartOpen] = useState(false)
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 5000)
     return () => clearInterval(t)
@@ -99,13 +167,34 @@ export function StatusBar({ status, tracker, taskLabel, onSyncNow, onOpenSetting
                 {tracker.paused ? <span className="status-detail">· paused ({tracker.pausedReason})</span> : elapsed ? <span className="status-detail">· {elapsed}</span> : null}
               </>
             ) : (
-              <span className="status-detail" title="Post on a task, press Start on one, or turn a block into a task">No active task</span>
+              <span className="status-detail">No active task</span>
             )}
           </button>
-          {tracker.activeCanvasId && (
+          {tracker.activeCanvasId ? (
             <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title={`Stop the active task (${kbd('mod', 'shift', '.')})`}>
               Stop
             </button>
+          ) : (
+            <span className="start-wrap">
+              <button type="button" className="btn btn-primary btn-xs" onClick={() => setStartOpen((v) => !v)} title="Start a task">
+                Start ▾
+              </button>
+              {startOpen && (
+                <StartMenu
+                  canvases={canvases}
+                  currentCanvasId={currentCanvasId}
+                  onStart={(id) => {
+                    setStartOpen(false)
+                    onStartTask(id)
+                  }}
+                  onNew={() => {
+                    setStartOpen(false)
+                    onNewTask()
+                  }}
+                  onClose={() => setStartOpen(false)}
+                />
+              )}
+            </span>
           )}
           <span className="status-sep" />
         </span>

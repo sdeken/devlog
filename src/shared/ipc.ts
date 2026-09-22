@@ -30,6 +30,8 @@ export const IPC = {
   entryDelete: 'entry:delete',
   entryMove: 'entry:move',
   entryPromote: 'entry:promote',
+  entryHide: 'entry:hide',
+  entryReorder: 'entry:reorder',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
   // activity / tracker

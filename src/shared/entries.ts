@@ -184,7 +184,7 @@ export function collectImageSrcs(markdown: string): string[] {
 // Parsing & serialising day files
 // ---------------------------------------------------------------------------
 
-const RESERVED_ATTRS = new Set(['id', 'parent', 'created', 'updated', 'kind'])
+const RESERVED_ATTRS = new Set(['id', 'parent', 'created', 'updated', 'kind', 'hidden'])
 
 function quoteAttr(v: string): string {
   return /[\s"]/.test(v) || v === '' ? `"${v.replace(/"/g, '&quot;')}"` : v
@@ -228,6 +228,7 @@ export function parseDayFile(date: string, text: string, base: string = ENTRIES_
     if (current.attrs.parent) entry.parentId = current.attrs.parent
     if (current.attrs.updated) entry.updatedAt = current.attrs.updated
     if (current.attrs.kind === 'commit' || current.attrs.kind === 'task') entry.kind = current.attrs.kind
+    if (current.attrs.hidden && /^(1|true|yes)$/i.test(current.attrs.hidden)) entry.hidden = true
     const meta: Record<string, string> = {}
     for (const [k, v] of Object.entries(current.attrs)) {
       if (!RESERVED_ATTRS.has(k)) meta[k] = v
@@ -265,6 +266,7 @@ export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
     attrs.push(`created=${e.createdAt}`)
     if (e.updatedAt) attrs.push(`updated=${e.updatedAt}`)
     if (e.kind && e.kind !== 'note') attrs.push(`kind=${e.kind}`)
+    if (e.hidden) attrs.push('hidden=1')
     for (const [k, v] of Object.entries(e.meta ?? {})) {
       if (!RESERVED_ATTRS.has(k) && /^[a-zA-Z_][\w-]*$/.test(k)) attrs.push(`${k}=${quoteAttr(v)}`)
     }
@@ -357,6 +359,31 @@ export function insertEntry(entries: Entry[], entry: Entry, position: EntryPosit
     next.push(entry)
   }
   return next
+}
+
+/**
+ * Move a top-level entry (with its thread) to another spot in the same day:
+ * after `afterId`'s thread or before `beforeId`. Timestamps are untouched;
+ * file order is display order.
+ */
+export function moveSubtree(entries: Entry[], id: string, position: { afterId?: string; beforeId?: string }): Entry[] {
+  const root = entries.find((e) => e.id === id)
+  if (!root) throw new Error(`Entry ${id} not found`)
+  if (root.parentId) throw new Error('Only top-level blocks can be reordered')
+  const ids = descendantIds(entries, id)
+  ids.add(id)
+  const moving = entries.filter((e) => ids.has(e.id))
+  const rest = entries.filter((e) => !ids.has(e.id))
+  const anchorId = position.afterId ?? position.beforeId
+  if (!anchorId) throw new Error('Nowhere to move to')
+  if (ids.has(anchorId)) return entries
+  const anchor = rest.find((e) => e.id === anchorId)
+  if (!anchor) throw new Error(`Entry ${anchorId} not found`)
+  // Anchor on the top of the anchor's thread so a drop next to a reply lands beside its root.
+  let top = anchor
+  while (top.parentId) top = rest.find((e) => e.id === top.parentId) ?? top
+  const at = position.afterId ? subtreeEndIndex(rest, top.id) + 1 : rest.indexOf(top)
+  return [...rest.slice(0, at), ...moving, ...rest.slice(at)]
 }
 
 /** Return a new list without `id` and all of its replies. */

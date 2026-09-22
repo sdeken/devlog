@@ -3,7 +3,6 @@ import { JOURNAL_ID, ancestorIds, canvasLabel } from '@shared/canvases'
 import type { Canvas, CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { api } from '@renderer/api'
 import { renderMarkdown } from '@renderer/markdown'
-import { kbd } from '@renderer/keys'
 import { Composer } from './Composer'
 import { Feed } from './Feed'
 import { Lightbox } from './Lightbox'
@@ -27,8 +26,8 @@ interface Props {
   onEditCanvas: () => void
   onNewCanvasHere: (task: boolean) => void
   onArchive: (archived: boolean) => Promise<void>
-  onStartTask: () => void
-  onStopTask: () => void
+  onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
 }
 
 /**
@@ -54,8 +53,8 @@ export function CanvasView({
   onEditCanvas,
   onNewCanvasHere,
   onArchive,
-  onStartTask,
-  onStopTask
+  onSetHidden,
+  onReorder
 }: Props): React.JSX.Element {
   const isJournal = canvas.id === JOURNAL_ID
   const [full, setFull] = useState<Canvas | null>(null)
@@ -127,17 +126,6 @@ export function CanvasView({
         <span className="spacer" />
         {!isJournal && (
           <>
-            {canvas.task &&
-              !canvas.archived &&
-              (isActive ? (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title={`Stop the clock (${kbd('mod', 'shift', '.')})`}>
-                  Stop
-                </button>
-              ) : (
-                <button type="button" className="btn btn-primary btn-xs" onClick={onStartTask} title="Make this the active task">
-                  Start
-                </button>
-              ))}
             {full && (
               <>
                 <span className={`save-state save-${saveState}`}>{saveState === 'saving' ? 'Saving…' : saveState === 'saved' ? 'Saved' : saveState === 'error' ? 'Not saved' : ''}</span>
@@ -268,6 +256,8 @@ export function CanvasView({
       onDelete={onDelete}
       onMove={onMove}
       onPromote={onPromote}
+      onSetHidden={onSetHidden}
+      onReorder={onReorder}
       onJumpTo={(id) => onOpenCanvas(id)}
       onOpenCanvas={onOpenCanvas}
     />

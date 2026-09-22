@@ -20,6 +20,8 @@ export interface Entry {
   createdAt: string
   /** ISO-8601 timestamp of the last edit (UTC), if any. */
   updatedAt?: string
+  /** Hidden blocks collapse into a stub in the stream; the text is kept. */
+  hidden?: boolean
   markdown: string
 }
 

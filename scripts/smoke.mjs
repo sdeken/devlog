@@ -239,20 +239,31 @@ try {
   await page.waitForSelector('.duration-chip', { timeout: 10_000 })
   check((await page.locator('.entry .duration-chip').first().textContent()) === '45m', 'explicit duration marker renders as a chip')
 
-  // Open the task canvas: Start/Stop live in its header.
+  // Timestamps stay out of the way until hover.
+  const firstTime = page.locator('.entry time').first()
+  check((await firstTime.evaluate((el) => getComputedStyle(el).opacity)) === '0', 'timestamps are hidden until hover')
+  await page.locator('.entry').first().hover()
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.entry time')).opacity === '1', null, { timeout: 5_000 })
+  check(true, 'hovering a block reveals its timestamp')
+
+  // Open the task canvas; Start lives in the status bar and offers the canvas on screen first.
   await page.locator('.entry-task .task-chip').first().click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Fix the login redirect")', { timeout: 10_000 })
   check((await page.locator('.breadcrumbs').textContent()).includes('Acme Corp') && (await page.locator('.breadcrumbs').textContent()).includes('Website'), 'task canvas breadcrumbs run client / project / task')
-  await page.locator('.page-head button', { hasText: 'Start' }).click()
+  check((await page.locator('.page-head button', { hasText: 'Start' }).count()) === 0, 'no Start button in the canvas header; the status bar owns it')
+  await page.locator('.statusbar button', { hasText: 'Start' }).click()
+  await page.waitForSelector('.start-menu', { timeout: 5_000 })
+  check((await page.locator('.start-menu .start-item').first().textContent()).includes('Fix the login redirect'), 'the Start menu lists the task on screen first')
+  await page.locator('.start-menu .start-item').first().click()
   await page.waitForFunction(() => document.querySelector('.task-badge.is-active') !== null, null, { timeout: 10_000 })
-  check(true, 'Start on a task canvas makes it the active task')
+  check(true, 'Start from the status bar makes the task active')
   await page.locator('.composer-new .composer-editor').click()
   await page.keyboard.type('Reproduced it: the redirect keeps the hash.')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.entry', { timeout: 10_000 })
   const taskFile = path.join(repo, 'canvases', 'fix-the-login-redirect', 'entries', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'), `${ymd}.md`)
   check((await fs.readFile(taskFile, 'utf8')).includes('Reproduced it'), 'blocks on a task canvas are stored under its own folder')
-  await page.locator('.page-head button', { hasText: 'Stop' }).click()
+  await page.locator('.task-status button', { hasText: 'Stop' }).click()
   await page.waitForFunction(() => document.querySelector('.task-status')?.textContent?.includes('No active task'), null, { timeout: 10_000 })
   await page.locator('.breadcrumbs .crumb', { hasText: 'Website' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")', { timeout: 10_000 })
@@ -278,6 +289,35 @@ try {
   const websiteBlocks = await page.locator('.entry').count()
   check(websiteBlocks === 5, `branch switch does not create a block (${websiteBlocks} blocks)`)
   await page.screenshot({ path: path.join(shots, '02c-canvas.png') })
+
+  // Hide a block: it collapses into a stub, stays in the file, and comes back.
+  const toHide = page.locator('.entry:not(.entry-task):not(.entry-commit)').first()
+  await toHide.hover()
+  await toHide.locator('button', { hasText: 'Hide' }).click()
+  await page.waitForSelector('.hidden-stub', { timeout: 10_000 })
+  check((await page.locator('.hidden-stub').textContent()).includes('1 hidden block'), 'a hidden block collapses into a stub')
+  check((await fs.readFile(acmeFile, 'utf8')).includes('hidden=1'), 'hidden flag stored in the day file; the text is kept')
+  await page.locator('.hidden-stub').click()
+  await page.waitForSelector('.note-slot.is-hidden .entry', { timeout: 5_000 })
+  const revealed = page.locator('.note-slot.is-hidden .entry').first()
+  await revealed.hover()
+  await revealed.locator('button', { hasText: 'Unhide' }).click()
+  await page.waitForFunction(() => !document.querySelector('.hidden-stub'), null, { timeout: 10_000 })
+  check(true, 'Unhide brings the block back into the stream')
+
+  // Drag the last block above the first one: order changes, timestamps do not.
+  const beforeOrder = (await fs.readFile(acmeFile, 'utf8')).match(/^### .*\n\n(.+)$/gm).map((m) => m.split('\n\n')[1])
+  const lastEntry = page.locator('.note-slot').last()
+  await lastEntry.locator('.entry').first().hover()
+  await lastEntry.locator('.entry-grip').first().dragTo(page.locator('.note-slot').first(), { targetPosition: { x: 200, y: 8 } })
+  await page.waitForFunction((first) => {
+    const bodies = [...document.querySelectorAll('.note-slot > .note > .entry .entry-body')].map((e) => e.textContent.trim())
+    return bodies[0] !== first
+  }, beforeOrder[0], { timeout: 10_000 })
+  const afterText = await fs.readFile(acmeFile, 'utf8')
+  const afterOrder = afterText.match(/^### .*\n\n(.+)$/gm).map((m) => m.split('\n\n')[1])
+  check(afterOrder[0] === beforeOrder[beforeOrder.length - 1] && afterOrder.length === beforeOrder.length, `drag and drop reorders blocks within the day (${afterOrder.map((t) => t.slice(0, 12)).join(' | ')})`)
+  check(afterText.split('created=').length === (await fs.readFile(acmeFile, 'utf8')).split('created=').length, 'reordering keeps every timestamp')
 
   // The hover "Task" action promotes an existing block.
   const plain = page.locator('.entry:not(.entry-task):not(.entry-commit)').first()

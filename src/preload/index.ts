@@ -71,6 +71,11 @@ const api = {
     remove: (canvasId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, canvasId, date, id),
     move: (fromCanvasId: string, date: string, id: string, toCanvasId: string): Promise<{ date: string; entry: Entry }> =>
       ipcRenderer.invoke(IPC.entryMove, fromCanvasId, date, id, toCanvasId),
+    /** Collapse a block into a stub (or bring it back). */
+    setHidden: (canvasId: string, date: string, id: string, hidden: boolean): Promise<Entry> => ipcRenderer.invoke(IPC.entryHide, canvasId, date, id, hidden),
+    /** Move a top-level block (with its thread) within its day. */
+    reorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Day> =>
+      ipcRenderer.invoke(IPC.entryReorder, canvasId, date, id, position),
     /** Turn an existing block into a task canvas beneath its canvas. */
     promote: (canvasId: string, date: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.entryPromote, canvasId, date, id),
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),

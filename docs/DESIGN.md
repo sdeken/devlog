@@ -120,6 +120,18 @@ where the task began, and the chip on it is the link. `#task` on the first
 line and ⌘⇧Enter are the same operation performed at post time
 (`hasTaskTag` / `stripTaskTag`), so the round trip is one keystroke.
 
+**Hiding** is a flag on the block (`hidden=1` in the marker). The stream
+collapses each run of consecutive hidden top-level blocks into one stub and
+reveals them on click; search, review and summary still see them. It is a
+reading aid, not a deletion, so it never touches the tree.
+
+**Reordering** within a day is drag-and-drop over `moveSubtree`: the block
+and its thread are lifted out of the list and spliced back after or before
+the anchor's thread. Timestamps are untouched, which is the answer to the
+"how does this work with timestamps" question: a block's time is when it was
+written and its position is where it is kept; the file already separated the
+two. Dropping is refused across days because a day is a file.
+
 **Moving** a block (with its thread) to another canvas rewrites nothing but
 the file it lives in: assets stay put and the serialised link becomes
 `../../../../../entries/2026/09/assets/x.png`, which still renders on
@@ -363,6 +375,6 @@ timeout kills a stalled network call.
 - Tags inside blocks for cross-cutting slices; canvases cover the main
   use, and search is full-text across every canvas.
 - A calendar or day picker; the timeline plus search stand in for now.
-- Drag-to-reorder blocks within a canvas. Insert-between and move cover the
-  common cases today; reordering is the likely next step once the shape of
-  research canvases settles.
+- Drag-to-reorder across days. Within a day, order is file order and
+  drag-and-drop simply rewrites it (`moveSubtree`); across days a block
+  would have to change files, which is what Move is for.

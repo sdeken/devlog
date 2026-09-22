@@ -57,7 +57,7 @@ export function App(): React.JSX.Element {
   const [hits, setHits] = useState<SearchResult | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean } | null>(null)
+  const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
   const [focusToken, setFocusToken] = useState(0)
   const [bootError, setBootError] = useState<string | null>(null)
   const [editRequest, setEditRequest] = useState<string | null>(null)
@@ -262,6 +262,22 @@ export function App(): React.JSX.Element {
     [reloadDay]
   )
 
+  const setHidden = useCallback(
+    async (id: string, date: string, entryId: string, hidden: boolean) => {
+      await api.blocks.setHidden(id, date, entryId, hidden)
+      await reloadDay(id, date)
+    },
+    [reloadDay]
+  )
+
+  const reorderEntry = useCallback(
+    async (id: string, date: string, entryId: string, position: { afterId?: string; beforeId?: string }) => {
+      const day = await api.blocks.reorder(id, date, entryId, position)
+      if (canvasIdRef.current === id) setDays((cur) => mergeDay(cur, day))
+    },
+    []
+  )
+
   const promoteEntry = useCallback(
     async (id: string, date: string, entryId: string) => {
       const res = await api.blocks.promote(id, date, entryId)
@@ -387,8 +403,8 @@ export function App(): React.JSX.Element {
               await api.canvases.archive(canvasId, archived)
               await refreshCanvases()
             }}
-            onStartTask={() => void reported(api.tracker.setTask(canvasId))}
-            onStopTask={() => void reported(api.tracker.setTask(null))}
+            onSetHidden={setHidden}
+            onReorder={reorderEntry}
           />
         )}
         {!search && !(view === 'canvas' && canvas.archived) && (
@@ -422,9 +438,13 @@ export function App(): React.JSX.Element {
           status={sync}
           tracker={tracker}
           taskLabel={tracker?.activeCanvasId ? canvasLabel(canvases, tracker.activeCanvasId) : null}
+          canvases={canvases}
+          currentCanvasId={view === 'canvas' ? canvasId : null}
           onSyncNow={() => void reported(api.sync.now())}
           onOpenSettings={() => setSettingsOpen(true)}
+          onStartTask={(id) => void reported(api.tracker.setTask(id))}
           onStopTask={() => void reported(api.tracker.setTask(null))}
+          onNewTask={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvasId !== JOURNAL_ID ? canvasId : null, task: true, start: true })}
           onOpenTimeline={() => {
             setTimelineDate(localDate(new Date()))
             setView('timeline')
@@ -455,6 +475,7 @@ export function App(): React.JSX.Element {
           onSaved={async (saved) => {
             await refreshCanvases()
             openCanvas(saved.id)
+            if (canvasDialog.start && saved.task) void reported(api.tracker.setTask(saved.id))
           }}
           onDeleted={async () => {
             setCanvasId(JOURNAL_ID)

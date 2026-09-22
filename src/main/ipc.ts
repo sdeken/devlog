@@ -135,6 +135,12 @@ export function registerIpc(deps: IpcDeps): void {
     await deps.trackerSetTask(result.canvas.id)
     return result
   })
+  ipcMain.handle(IPC.entryHide, (_e, canvasId: string, date: string, id: string, hidden: boolean) =>
+    requireStore(deps).setEntryHidden(canvasId, date, id, Boolean(hidden))
+  )
+  ipcMain.handle(IPC.entryReorder, (_e, canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) =>
+    requireStore(deps).reorderEntry(canvasId, date, id, position ?? {})
+  )
   ipcMain.handle(IPC.entryUpdate, (_e, canvasId: string, date: string, id: string, markdown: string) =>
     requireStore(deps).updateEntry(canvasId, date, id, markdown)
   )

@@ -6,6 +6,7 @@ import {
   depthOf,
   descendantIds,
   insertEntry,
+  moveSubtree,
   removeSubtree,
   subtreeEndIndex,
   localDate,
@@ -219,5 +220,31 @@ describe('threads and ordering', () => {
   it('drops dangling parent links', () => {
     const parsed = parseDayFile('2026-09-19', '<!-- devlog:entry id=zz parent=gone created=2026-09-19T01:00:00.000Z -->\nhi\n')
     expect(parsed.entries[0].parentId).toBeUndefined()
+  })
+})
+
+describe('hidden blocks and reordering', () => {
+  const e = (id: string, parentId?: string, extra: Partial<Entry> = {}): Entry => ({ id, createdAt: '2026-09-19T09:00:00.000Z', markdown: id, ...(parentId ? { parentId } : {}), ...extra })
+
+  it('round-trips the hidden flag', () => {
+    const day: Day = { date: '2026-09-19', entries: [e('a', undefined, { hidden: true }), e('b')] }
+    const text = serializeDayFile(day)
+    expect(text).toContain('id=a created=2026-09-19T09:00:00.000Z hidden=1')
+    const back = parseDayFile('2026-09-19', text)
+    expect(back.entries.map((x) => [x.id, x.hidden ?? false])).toEqual([['a', true], ['b', false]])
+  })
+
+  it('moves a thread within the day without touching timestamps', () => {
+    const list = [e('a'), e('a1', 'a'), e('b'), e('c'), e('c1', 'c')]
+    expect(moveSubtree(list, 'a', { afterId: 'b' }).map((x) => x.id)).toEqual(['b', 'a', 'a1', 'c', 'c1'])
+    expect(moveSubtree(list, 'c', { beforeId: 'a' }).map((x) => x.id)).toEqual(['c', 'c1', 'a', 'a1', 'b'])
+    // Dropping next to a reply lands beside the reply's root.
+    expect(moveSubtree(list, 'b', { afterId: 'c1' }).map((x) => x.id)).toEqual(['a', 'a1', 'c', 'c1', 'b'])
+    expect(moveSubtree(list, 'b', { beforeId: 'a1' }).map((x) => x.id)).toEqual(['b', 'a', 'a1', 'c', 'c1'])
+    // No-ops and errors.
+    expect(moveSubtree(list, 'a', { afterId: 'a1' })).toBe(list)
+    expect(() => moveSubtree(list, 'a1', { afterId: 'b' })).toThrow(/top-level/)
+    expect(() => moveSubtree(list, 'a', { afterId: 'zz' })).toThrow(/not found/)
+    expect(moveSubtree(list, 'a', { afterId: 'b' })[1].createdAt).toBe('2026-09-19T09:00:00.000Z')
   })
 })
