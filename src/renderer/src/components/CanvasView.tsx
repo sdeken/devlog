@@ -29,6 +29,7 @@ interface Props {
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   /** Link another working copy to this canvas (folder picker, then update). */
   onLinkRepo: () => void
+  onUnlinkRepo: (path: string) => void
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
 }
 
@@ -57,6 +58,7 @@ export function CanvasView({
   onArchive,
   onSetHidden,
   onLinkRepo,
+  onUnlinkRepo,
   onReorder
 }: Props): React.JSX.Element {
   const isJournal = canvas.id === JOURNAL_ID
@@ -84,6 +86,22 @@ export function CanvasView({
       cancelled = true
     }
   }, [canvas.id, isJournal])
+
+  // Linked folders that are not (or no longer) git repositories get flagged.
+  const [badRepos, setBadRepos] = useState<Record<string, string>>({})
+  const reposKey = canvas.repos.join('\n')
+  useEffect(() => {
+    let cancelled = false
+    void Promise.all(canvas.repos.map(async (r) => [r, await api.repo.inspectWorkingCopy(r)] as const)).then((results) => {
+      if (cancelled) return
+      const bad: Record<string, string> = {}
+      for (const [r, check] of results) if (!check.ok) bad[r] = check.error
+      setBadRepos(bad)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [reposKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const crumbs = useMemo(() => ancestorIds(canvases, canvas.id).reverse(), [canvases, canvas.id])
   const children = useMemo(() => canvases.filter((c) => c.parentId === canvas.id), [canvases, canvas.id])
@@ -222,8 +240,15 @@ export function CanvasView({
       {!isJournal && (
         <div className="canvas-repos">
           {canvas.repos.map((r) => (
-            <span key={r} className="repo-chip" title={`${r}\nCommits here land on the task you are on under ${canvas.title}, or on ${canvas.title} itself.`}>
-              ⎇ {r.split(/[\\/]/).filter(Boolean).pop()}
+            <span
+              key={r}
+              className={`repo-chip${badRepos[r] ? ' is-broken' : ''}`}
+              title={badRepos[r] ? `${r}\n${badRepos[r]}; nothing is being captured from it.` : `${r}\nCommits here land on the task you are on under ${canvas.title}, or on ${canvas.title} itself.`}
+            >
+              {badRepos[r] ? '⚠' : '⎇'} {r.split(/[\\/]/).filter(Boolean).pop()}
+              <button type="button" className="repo-remove" onClick={() => onUnlinkRepo(r)} title="Unlink this repository (captured commits stay)" aria-label={`Unlink ${r}`}>
+                ✕
+              </button>
             </span>
           ))}
           {!canvas.archived && (

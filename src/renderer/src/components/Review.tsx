@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localDate, previewText } from '@shared/entries'
 import { JOURNAL_ID, ancestorIds, canvasLabel } from '@shared/canvases'
-import { APP_KIND_LABEL, splitByLocalDay, type AppKind } from '@shared/activity'
+import { APP_KIND_LABEL, activeExclusions, splitByLocalDay, type AppKind } from '@shared/activity'
+import { reported } from '@renderer/toasts'
 import {
   DEFAULT_ESTIMATE,
   addDays,
@@ -38,7 +39,94 @@ function parseLocal(date: string): Date {
 
 const KIND_ORDER: AppKind[] = ['coding', 'terminal', 'meeting', 'comms', 'browser', 'devlog', 'other']
 
+const hhmm = (iso: string): string => {
+  const d = new Date(iso)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** `iso`'s local day at the given HH:MM, as an ISO instant. */
+const atTime = (iso: string, value: string): string => {
+  const d = new Date(iso)
+  const [h, m] = value.split(':').map(Number)
+  d.setHours(h, m, 0, 0)
+  return d.toISOString()
+}
+
+/**
+ * One tracked stretch in the day detail, with Trim (narrow it to the hours
+ * that were real) and Remove. Both record exclusions; the raw log is untouched.
+ */
+function SegmentRow({
+  seg,
+  label,
+  onExclude
+}: {
+  seg: { canvasId: string; start: string; end: string; minutes: number; source: string }
+  label: string
+  onExclude: (windows: Array<{ start: string; end: string }>) => Promise<void>
+}): React.JSX.Element {
+  const [trimming, setTrimming] = useState(false)
+  const [from, setFrom] = useState(hhmm(seg.start))
+  const [to, setTo] = useState(hhmm(seg.end))
+  const [error, setError] = useState<string | null>(null)
+  const editable = seg.source === 'tracked'
+
+  const saveTrim = async (): Promise<void> => {
+    const newStart = atTime(seg.start, from)
+    const newEnd = atTime(seg.start, to)
+    if (newEnd <= newStart) return setError('End must be after start')
+    if (newStart < seg.start || newEnd > seg.end) return setError(`Stay within ${hhmm(seg.start)}–${hhmm(seg.end)}`)
+    const windows: Array<{ start: string; end: string }> = []
+    if (newStart > seg.start) windows.push({ start: seg.start, end: newStart })
+    if (newEnd < seg.end) windows.push({ start: newEnd, end: seg.end })
+    if (windows.length) await onExclude(windows)
+    setTrimming(false)
+    setError(null)
+  }
+
+  if (trimming) {
+    return (
+      <li className="seg-trim">
+        <input type="time" value={from} onChange={(ev) => setFrom(ev.target.value)} aria-label="Start" />
+        <span>–</span>
+        <input type="time" value={to} onChange={(ev) => setTo(ev.target.value)} aria-label="End" />
+        <span className="review-note-text">{label}</span>
+        <button type="button" className="btn btn-primary btn-xs" onClick={() => void saveTrim()}>
+          Save
+        </button>
+        <button type="button" className="btn btn-quiet btn-xs" onClick={() => setTrimming(false)}>
+          Cancel
+        </button>
+        {error && <span className="form-error">{error}</span>}
+      </li>
+    )
+  }
+  return (
+    <li className="seg-row">
+      <time>
+        {timeFmt.format(new Date(seg.start))}–{timeFmt.format(new Date(seg.end))}
+      </time>
+      <span className="review-note-text">{label}</span>
+      <span className="review-note-minutes">
+        {formatMinutes(seg.minutes)}
+        {seg.source === 'explicit' ? ' ✎' : ''}
+      </span>
+      {editable && (
+        <span className="seg-actions">
+          <button type="button" className="btn btn-quiet btn-xs" onClick={() => setTrimming(true)} title="Keep only the part of this stretch you actually worked">
+            Trim
+          </button>
+          <button type="button" className="btn btn-quiet btn-xs" onClick={() => void onExclude([{ start: seg.start, end: seg.end }])} title="Remove this stretch from the task (the raw activity log is kept)">
+            Remove
+          </button>
+        </span>
+      )}
+    </li>
+  )
+}
+
 export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimeline }: Props): React.JSX.Element {
+  const [reload, setReload] = useState(0)
   const [start, setStart] = useState(() => weekStart(today))
   const [notes, setNotes] = useState<ReviewNote[] | null>(null)
   const [events, setEvents] = useState<ActivityEvent[]>([])
@@ -64,7 +152,21 @@ export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimel
     return () => {
       cancelled = true
     }
-  }, [start, end])
+  }, [start, end, reload])
+
+  const exclude = async (windows: Array<{ start: string; end: string }>): Promise<void> => {
+    for (const w of windows) await api.activity.exclude(w.start, w.end)
+    setReload((n) => n + 1)
+  }
+  const removedByDay = useMemo(() => {
+    const m = new Map<string, Array<{ id: string; start: string; end: string }>>()
+    for (const w of activeExclusions(events)) {
+      const d = localDate(new Date(w.start))
+      if (!m.has(d)) m.set(d, [])
+      m.get(d)!.push(w)
+    }
+    return m
+  }, [events])
 
   const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates, estimate: DEFAULT_ESTIMATE, focusMinSeconds }), [notes, events, dates, focusMinSeconds])
   const rows = useMemo(() => buildReviewRows(canvases, notes ?? [], time.byCanvasDay), [canvases, notes, time])
@@ -134,7 +236,7 @@ export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimel
       byDate.get(n.date)!.push(n)
     }
     return dates
-      .filter((d) => byDate.has(d) || (time.byCanvasDay.get(d)?.size ?? 0) > 0)
+      .filter((d) => byDate.has(d) || (time.byCanvasDay.get(d)?.size ?? 0) > 0 || removedByDay.has(d))
       .map((d) => {
         const perPage = time.byCanvasDay.get(d) ?? new Map<string, number>()
         const groups = new Map<string, { label: string; minutes: number; sub: Map<string, { label: string; minutes: number; notes: ReviewNote[] }> }>()
@@ -169,7 +271,7 @@ export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimel
             .sort((a, b) => b.minutes - a.minutes)
         }
       })
-  }, [notes, dates, byId, canvases, time])
+  }, [notes, dates, byId, canvases, time, removedByDay])
 
   return (
     <div className="feed review">
@@ -303,27 +405,42 @@ export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimel
                     ))}
                   </div>
                 ))}
-                {(segs.length > 0 || (focus && focus.total > 0)) && (
+                {(segs.length > 0 || removedByDay.has(d.date) || (focus && focus.total > 0)) && (
                   <div className="review-activity">
-                    {segs.length > 0 && (
+                    {(segs.length > 0 || removedByDay.has(d.date)) && (
                       <div className="review-activity-col">
                         <div className="review-sub-head">
                           <span>Task time</span>
                         </div>
                         <ul className="review-segments">
-                          {segs.map((sg, i) => (
-                            <li key={i}>
-                              <time>
-                                {timeFmt.format(new Date(sg.start))}–{timeFmt.format(new Date(sg.end))}
-                              </time>
-                              <span className="review-note-text">{pageLabel(sg.canvasId)}</span>
-                              <span className="review-note-minutes">
-                                {formatMinutes(sg.minutes)}
-                                {sg.source === 'explicit' ? ' ✎' : ''}
-                              </span>
-                            </li>
+                          {segs.map((sg) => (
+                            <SegmentRow key={`${sg.canvasId}-${sg.start}`} seg={sg} label={pageLabel(sg.canvasId)} onExclude={(w) => reported(exclude(w))} />
                           ))}
                         </ul>
+                        {removedByDay.has(d.date) && (
+                          <ul className="review-removed">
+                            {removedByDay.get(d.date)!.map((w) => (
+                              <li key={w.id}>
+                                <span>
+                                  Removed {timeFmt.format(new Date(w.start))}–{timeFmt.format(new Date(w.end))}
+                                </span>
+                                <button
+                                  type="button"
+                                  className="btn btn-quiet btn-xs"
+                                  onClick={() =>
+                                    void reported(
+                                      api.activity.restore(w.id, w.start).then(() => {
+                                        setReload((n) => n + 1)
+                                      })
+                                    )
+                                  }
+                                >
+                                  Restore
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
                     )}
                     {focus && focus.total > 0 && (

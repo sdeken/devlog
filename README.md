@@ -217,7 +217,17 @@ touches the clock: those are just notes.
 
 Time stops accruing while the screen is locked, the machine sleeps, or there
 has been no input for a while (default 10 minutes, adjustable), and resumes on
-the same task afterwards. Quitting Devlog stops the clock, so it keeps
+the same task afterwards. Each of those pauses the clock independently, so a
+laptop that wakes in the background while still locked stays paused until
+you unlock it. On Windows and macOS the lock state is also polled every 15
+seconds, in case the lock event itself is missed.
+
+**Fixing tracked time.** In **Weekly review**, each day's *Task time* list
+shows every tracked stretch. Hover one for **Trim** (keep only the hours you
+actually worked) or **Remove**. Corrections are recorded next to the raw
+activity log, which is never rewritten; removed stretches are listed under
+the day with **Restore**. Time from an explicit `[2h]` marker is not
+editable there: edit the block instead. Quitting Devlog stops the clock, so it keeps
 running in the tray when you close the window.
 
 When you know better than the tracker, say so in the block: `[2h] Acme sync`
@@ -248,7 +258,11 @@ permission) and `xdotool` on Linux if present.
 
 Every canvas header has a **Link a repository…** button (also under
 **Edit → Git repositories**). Pick the folder of a working copy you code in,
-not the devlog repository. Link it to the client: one client is usually one
+not the devlog repository. Devlog checks it is a git repository first (a
+subfolder resolves to its repository root) and refuses anything else. Each
+linked repository shows as a chip; ✕ on the chip unlinks it, keeping the
+commits already captured. A linked folder that is no longer a repository is
+flagged with ⚠. Link it to the client: one client is usually one
 branch at a time, and the routing below does the rest.
 
 - **History comes in.** Linking imports your own commits from the last 30

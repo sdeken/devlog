@@ -37,6 +37,8 @@ const api = {
   repo: {
     info: (): Promise<RepoInfo | null> => ipcRenderer.invoke(IPC.repoInfo),
     chooseDirectory: (): Promise<string | null> => ipcRenderer.invoke(IPC.repoChooseDirectory),
+    /** Is this folder a git working copy? Resolves subfolders to the repository root. */
+    inspectWorkingCopy: (dir: string): Promise<{ ok: true; root: string } | { ok: false; error: string }> => ipcRenderer.invoke(IPC.repoInspectWorkingCopy, dir),
     open: (root: string): Promise<RepoInfo> => ipcRenderer.invoke(IPC.repoOpen, root),
     create: (root: string, remoteUrl?: string): Promise<RepoInfo> => ipcRenderer.invoke(IPC.repoCreate, root, remoteUrl),
     setRemote: (url: string): Promise<RepoInfo | null> => ipcRenderer.invoke(IPC.repoSetRemote, url),
@@ -86,7 +88,11 @@ const api = {
       ipcRenderer.invoke(IPC.assetSave, canvasId, date, bytes, mime, name)
   },
   activity: {
-    range: (fromDate: string, toDate: string): Promise<ActivityEvent[]> => ipcRenderer.invoke(IPC.activityRange, fromDate, toDate)
+    range: (fromDate: string, toDate: string): Promise<ActivityEvent[]> => ipcRenderer.invoke(IPC.activityRange, fromDate, toDate),
+    /** Remove task time between two ISO instants; returns the correction's id. */
+    exclude: (start: string, end: string): Promise<string> => ipcRenderer.invoke(IPC.activityExclude, start, end),
+    /** Undo a removal. `start` files the undo on the same day as the removal. */
+    restore: (id: string, start: string): Promise<void> => ipcRenderer.invoke(IPC.activityRestore, id, start)
   },
   tracker: {
     status: (): Promise<TrackerStatus | null> => ipcRenderer.invoke(IPC.trackerStatus),

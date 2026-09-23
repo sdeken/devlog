@@ -96,7 +96,10 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
   const sorted = [...events].sort((a, b) => a.t.localeCompare(b.t))
   const out: TaskSegment[] = []
   let active: string | null = null
-  let paused = false
+  // Each reason pauses independently: waking from sleep while the screen is
+  // still locked must not restart the clock, and neither must input after
+  // idle while locked. Only when every reason has cleared does time accrue.
+  const pauses = new Set<'locked' | 'idle' | 'suspended'>()
   let openAt: number | null = null
   let lastSeen: number | null = null
 
@@ -105,7 +108,7 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
     openAt = null
   }
   const open = (at: number): void => {
-    if (active && !paused && openAt === null) openAt = at
+    if (active && pauses.size === 0 && openAt === null) openAt = at
   }
 
   for (const ev of sorted) {
@@ -121,7 +124,7 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
         // Fresh process: whatever was open is stale; restore the persisted task.
         openAt = null
         active = ev.canvasId ?? null
-        paused = false
+        pauses.clear()
         open(t)
         break
       case 'task':
@@ -134,19 +137,32 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
         active = null
         break
       case 'lock':
+        close(t)
+        pauses.add('locked')
+        break
       case 'idle':
+        close(t)
+        pauses.add('idle')
+        break
       case 'suspend':
         close(t)
-        paused = true
+        pauses.add('suspended')
         break
       case 'unlock':
+        // The user is demonstrably back: nothing else can still be pausing.
+        pauses.clear()
+        open(t)
+        break
       case 'active':
+        pauses.delete('idle')
+        open(t)
+        break
       case 'resume':
-        paused = false
+        pauses.delete('suspended')
         open(t)
         break
       default:
-        // heartbeat / focus keep the process alive; nothing else to do.
+        // heartbeat / focus / git / exclude keep the process alive; nothing else to do.
         break
     }
   }
@@ -155,6 +171,52 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
     close(end)
   }
   return out
+}
+
+export interface ExclusionWindow {
+  id: string
+  start: string
+  end: string
+}
+
+/** The user's time corrections still in force: exclude events not undone by a later one. */
+export function activeExclusions(events: ActivityEvent[]): ExclusionWindow[] {
+  const cancelled = new Set(events.filter((e) => e.type === 'exclude' && e.cancels).map((e) => e.cancels!))
+  const out: ExclusionWindow[] = []
+  for (const e of events) {
+    if (e.type !== 'exclude' || e.cancels || !e.id || !e.start || !e.end || cancelled.has(e.id)) continue
+    if (Number.isNaN(ms(e.start)) || Number.isNaN(ms(e.end)) || ms(e.end) <= ms(e.start)) continue
+    out.push({ id: e.id, start: e.start, end: e.end })
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start))
+}
+
+/** Cut every exclusion window out of the tracked segments (explicit ones are the user's own word and stay). */
+export function applyExclusions(segments: TaskSegment[], windows: ExclusionWindow[]): TaskSegment[] {
+  if (windows.length === 0) return segments
+  let cur = segments
+  for (const w of windows) {
+    const ws = ms(w.start)
+    const we = ms(w.end)
+    const next: TaskSegment[] = []
+    for (const seg of cur) {
+      const s = ms(seg.start)
+      const e = ms(seg.end)
+      if (seg.source !== 'tracked' || e <= ws || s >= we) {
+        next.push(seg)
+        continue
+      }
+      if (s < ws) next.push({ ...seg, end: iso(ws) })
+      if (e > we) next.push({ ...seg, start: iso(we) })
+    }
+    cur = next
+  }
+  return cur
+}
+
+/** Task segments as the views should see them: replayed, then with the user's corrections applied. */
+export function buildTrackedSegments(events: ActivityEvent[], opts: SegmentOptions = {}): TaskSegment[] {
+  return applyExclusions(buildTaskSegments(events, opts), activeExclusions(events))
 }
 
 /**

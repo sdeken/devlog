@@ -496,6 +496,7 @@ if (!gotLock) {
       onEntryAdded,
       onCanvasesChanged: refreshCommitWatchers,
       activityRange: (from, to) => activityLog.read(from, to),
+      activityAppend: (ev) => activityLog.append(ev),
       trackerStatus: () => tracker?.getStatus() ?? null,
       trackerSetTask: async (canvasId) => {
         await tracker?.setTask(canvasId)

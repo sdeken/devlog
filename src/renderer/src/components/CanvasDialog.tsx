@@ -127,8 +127,15 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
             type="button"
             className="btn btn-quiet btn-xs"
             onClick={() =>
-              void api.repo.chooseDirectory().then((dir) => {
-                if (dir && !repos.includes(dir)) setRepos([...repos, dir])
+              void api.repo.chooseDirectory().then(async (dir) => {
+                if (!dir) return
+                const check = await api.repo.inspectWorkingCopy(dir)
+                if (!check.ok) {
+                  setError(`${check.error}. Pick the folder that contains .git.`)
+                  return
+                }
+                setError(null)
+                if (!repos.includes(check.root)) setRepos([...repos, check.root])
               })
             }
           >

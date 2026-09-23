@@ -308,6 +308,19 @@ try {
   check(true, 'a commit made while a task under the linked canvas is active lands on that task')
   check((await page.locator('.entry-commit').count()) === 2, 'the routed commit does not also land on the canvas')
   await page.evaluate(() => window.devlog.tracker.setTask(null))
+
+  // Linking checks for a git repository; unlinking is one click on the chip.
+  const notRepo = path.join(tmp, 'not-a-repo')
+  await fs.mkdir(notRepo)
+  const refused = await page.evaluate((dir) => window.devlog.canvases.update('website', { repos: [dir] }).then(() => 'accepted', (e) => String(e.message ?? e)), notRepo)
+  check(refused.includes('not a git repository'), `linking a folder that is not a git repository is refused (${refused.slice(-60)})`)
+  const inspected = await page.evaluate((dir) => window.devlog.repo.inspectWorkingCopy(dir), path.join(proj, '.git'))
+  check(inspected.ok === false || inspected.root === proj, 'inspecting reports the repository root or a reason')
+  await page.locator('.repo-chip .repo-remove').first().click()
+  await page.waitForFunction(() => !document.querySelector('.repo-chip'), null, { timeout: 10_000 })
+  check(true, 'the ✕ on a repository chip unlinks it')
+  check(!(await fs.readFile(path.join(repo, 'canvases', 'website', 'canvas.md'), 'utf8')).includes('repo:'), 'unlinking removes the repo line from canvas.md; captured commits stay')
+  check((await page.locator('.entry-commit').count()) === 2, 'commit blocks survive unlinking')
   await page.screenshot({ path: path.join(shots, '02c-canvas.png') })
 
   // Hide a block: it collapses into a stub, stays in the file, and comes back.
@@ -424,6 +437,22 @@ try {
   check((await page.locator('.review-day-section').count()) === 1, 'per-day detail lists today')
   check((await page.locator('.review-group-label').first().textContent()) === 'Acme Corp', 'day detail groups by top-level canvas')
   check((await page.locator('.review-segments li').count()) >= 1, 'review shows tracked task segments for today')
+  // Correct tracked time: remove a stretch, see it listed as removed, restore it.
+  const segCount = await page.locator('.review-segments .seg-row').count()
+  check((await page.locator('.review-segments .seg-row', { hasText: '✎' }).locator('button', { hasText: 'Remove' }).count()) === 0, 'explicit [45m] time offers no Remove; the marker is the source of truth')
+  const firstSeg = page.locator('.review-segments .seg-row').filter({ has: page.locator('button', { hasText: 'Remove' }) }).first()
+  await firstSeg.hover()
+  await firstSeg.locator('button', { hasText: 'Remove' }).click()
+  await page.waitForSelector('.review-removed li', { timeout: 10_000 })
+  check((await page.locator('.review-segments .seg-row').count()) === segCount - 1, 'Remove takes the stretch out of task time')
+  const excl = await page.evaluate(async () => {
+    const d = new Date().toISOString().slice(0, 10)
+    return (await window.devlog.activity.range(d, d)).filter((e) => e.type === 'exclude').length
+  })
+  check(excl >= 1, 'the removal is recorded as a correction in the activity log; raw events are untouched')
+  await page.locator('.review-removed button', { hasText: 'Restore' }).first().click()
+  await page.waitForFunction((n) => document.querySelectorAll('.review-segments .seg-row').length === n && !document.querySelector('.review-removed li'), segCount, { timeout: 10_000 })
+  check(true, 'Restore puts the stretch back')
   await page.screenshot({ path: path.join(shots, '02d-review.png') })
 
   // 3f. Day timeline merges blocks, task switches, git events and commits.

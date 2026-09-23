@@ -3151,3 +3151,71 @@ body[data-platform='darwin'] .topbar-left {
 .repo-add {
   font-family: var(--sans);
 }
+
+.repo-chip.is-broken {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.repo-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  opacity: 0.5;
+  font-size: 11px;
+  padding: 0 0 0 2px;
+  cursor: pointer;
+}
+
+.repo-remove:hover {
+  opacity: 1;
+  color: var(--danger);
+}
+
+/* ---- Correcting tracked time in the review ---- */
+.review-segments .seg-row .seg-actions {
+  display: inline-flex;
+  gap: 2px;
+  visibility: hidden;
+}
+
+.review-segments .seg-row:hover .seg-actions,
+.review-segments .seg-row:focus-within .seg-actions {
+  visibility: visible;
+}
+
+.review-segments .seg-trim {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.seg-trim input[type='time'] {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.review-removed {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.review-removed li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-decoration-color: var(--fg-muted);
+}
+
+.review-removed li span {
+  text-decoration: line-through;
+}

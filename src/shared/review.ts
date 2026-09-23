@@ -10,7 +10,7 @@ import { JOURNAL_ID, ancestorIds } from './canvases'
 import {
   applyExplicitDurations,
   buildFocusSegments,
-  buildTaskSegments,
+  buildTrackedSegments,
   cleanFocusSegments,
   focusSummaryByDay,
   taskMinutesByDay,
@@ -147,7 +147,7 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
     }
   }
   const segOpts = { now: opts.now, heartbeatMs: opts.heartbeatMs }
-  const tracked = applyExplicitDurations(buildTaskSegments(events, segOpts), explicit)
+  const tracked = applyExplicitDurations(buildTrackedSegments(events, segOpts), explicit)
   const focusSegments = cleanFocusSegments(buildFocusSegments(events, segOpts), { minSeconds: opts.focusMinSeconds ?? 5 })
   const byCanvasDay = taskMinutesByDay(tracked)
   const method = new Map<string, DayMethod>()

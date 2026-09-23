@@ -104,3 +104,19 @@ describe('CommitWatcher', () => {
     expect(await listRecentCommits(tmp, 30)).toEqual([])
   })
 })
+
+describe('inspectWorkingCopy', () => {
+  it('accepts a repository or a folder inside one, and refuses the rest', async () => {
+    const { inspectWorkingCopy } = await import('../src/main/workingCopy')
+    const sub = path.join(repo, 'src')
+    await fs.mkdir(sub)
+    const real = await fs.realpath(repo)
+    expect(await inspectWorkingCopy(repo, null)).toEqual({ ok: true, root: real })
+    expect(await inspectWorkingCopy(sub, null)).toEqual({ ok: true, root: real })
+    const plain = path.join(tmp, 'plain')
+    await fs.mkdir(plain)
+    expect(await inspectWorkingCopy(plain, null)).toEqual({ ok: false, error: 'plain is not a git repository' })
+    expect(await inspectWorkingCopy(path.join(tmp, 'nope'), null)).toEqual({ ok: false, error: 'nope does not exist' })
+    expect(await inspectWorkingCopy(repo, real)).toMatchObject({ ok: false, error: expect.stringMatching(/devlog repository itself/) })
+  })
+})

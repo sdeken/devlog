@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  activeExclusions,
+  applyExclusions,
+  buildTrackedSegments,
   applyExplicitDurations,
   bucketizeDay,
   buildFocusSegments,
@@ -211,3 +214,55 @@ describe('focus cleanup', () => {
     expect(out.map((s) => [s.app, mins(s.start, s.end)])).toEqual([['Code', 5]])
   })
 })
+
+describe('pauses and corrections', () => {
+  it('does not restart the clock when the machine wakes while still locked', () => {
+    // Lock at 17:00, sleep, background wakes overnight, unlock next morning at 08:30.
+    const events = [
+      ev('task', T(16), { canvasId: 'acme' }),
+      ev('lock', T(17)),
+      ev('suspend', T(17, 30)),
+      ev('resume', T(19)),
+      ev('heartbeat', T(19, 5)),
+      ev('suspend', T(19, 10)),
+      ev('resume', T(23)),
+      ...Array.from({ length: 12 }, (_, i) => ev('heartbeat', T(23, i * 5))),
+      ev('unlock', T(8, 30, 15)),
+      ev('stop', T(9, 0, 15))
+    ]
+    const segs = buildTaskSegments(events, ALIVE)
+    expect(segs.map((s) => [s.canvasId, mins(s.start, s.end)])).toEqual([
+      ['acme', 60],
+      ['acme', 30]
+    ])
+  })
+
+  it('keeps idle and sleep independent: input after idle does not end a sleep, waking does not end idle', () => {
+    const events = [ev('task', T(9), { canvasId: 'a' }), ev('idle', T(10)), ev('suspend', T(10, 5)), ev('active', T(10, 10)), ev('resume', T(10, 20)), ev('stop', T(11))]
+    expect(buildTaskSegments(events, ALIVE).map((s) => mins(s.start, s.end))).toEqual([60, 40])
+  })
+
+  it('cuts removed windows out of tracked time, honours undo, and leaves explicit durations alone', () => {
+    const events: ActivityEvent[] = [
+      ev('task', T(9), { canvasId: 'a' }),
+      ev('stop', T(17)),
+      { t: T(12), type: 'exclude', id: 'x1', start: T(12), end: T(13) },
+      { t: T(15), type: 'exclude', id: 'x2', start: T(15), end: T(18) },
+      { t: T(16), type: 'exclude', id: 'x3', start: T(9), end: T(10) },
+      { t: T(16), type: 'exclude', cancels: 'x3' }
+    ]
+    expect(activeExclusions(events).map((w) => w.id)).toEqual(['x1', 'x2'])
+    const segs = buildTrackedSegments(events, ALIVE)
+    expect(segs.map((s) => [hm(s.start), hm(s.end)])).toEqual([
+      ['9:00', '12:00'],
+      ['13:00', '15:00']
+    ])
+    const explicit = applyExclusions([{ canvasId: 'a', start: T(12), end: T(13), source: 'explicit' }], activeExclusions(events))
+    expect(explicit).toHaveLength(1)
+  })
+})
+
+function hm(iso: string): string {
+  const d = new Date(iso)
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
+}

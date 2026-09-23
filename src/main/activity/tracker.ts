@@ -30,6 +30,8 @@ export class Tracker extends EventEmitter {
   private heartbeat: NodeJS.Timeout | null = null
   private idlePoll: NodeJS.Timeout | null = null
   private idle = false
+  /** Every reason the clock is currently paused; time accrues only when empty. */
+  private pauses = new Set<'locked' | 'idle' | 'suspended'>()
   private running = false
   private settings: Settings
 
@@ -50,6 +52,8 @@ export class Tracker extends EventEmitter {
   async start(): Promise<void> {
     if (this.running) return
     this.running = true
+    this.pauses.clear()
+    this.idle = false
     const persisted = await this.loadState()
     this.status.activeCanvasId = persisted.activeCanvasId
     this.status.tracking = this.settings.trackingEnabled
@@ -147,13 +151,23 @@ export class Tracker extends EventEmitter {
 
   private pollIdle(): void {
     const threshold = Math.max(0, this.settings.idleMinutes) * 60
-    if (threshold === 0) return
     let state: string
     try {
-      state = powerMonitor.getSystemIdleState(threshold)
+      // With idle detection off, a huge threshold still reports "locked".
+      state = powerMonitor.getSystemIdleState(threshold || 7 * 24 * 3600)
     } catch {
       return
     }
+    // Backstop for a missed lock-screen/unlock-screen event. Windows and macOS
+    // report "locked" here; elsewhere the state never says so, so skip.
+    if (process.platform === 'win32' || process.platform === 'darwin') {
+      if (state === 'locked' && !this.pauses.has('locked')) {
+        this.pause('locked')
+        return
+      }
+      if (state !== 'locked' && state !== 'unknown' && this.pauses.has('locked')) this.resume('locked')
+    }
+    if (threshold === 0) return
     if (state === 'idle' && !this.idle) {
       this.idle = true
       this.pause('idle')
@@ -173,7 +187,9 @@ export class Tracker extends EventEmitter {
 
   private pause(reason: 'locked' | 'idle' | 'suspended'): void {
     const type = reason === 'locked' ? 'lock' : reason === 'idle' ? 'idle' : 'suspend'
+    if (this.pauses.has(reason)) return
     void this.record({ type })
+    this.pauses.add(reason)
     if (!this.status.paused) {
       this.status.paused = true
       this.status.pausedReason = reason
@@ -181,14 +197,24 @@ export class Tracker extends EventEmitter {
     this.emitStatus()
   }
 
+  /**
+   * Clear one reason for pausing. Unlocking clears them all (the user is
+   * back); waking from sleep or input after idle clears only its own, so a
+   * machine that wakes while still locked stays paused.
+   */
   private resume(reason: 'locked' | 'idle' | 'suspended'): void {
     const type = reason === 'locked' ? 'unlock' : reason === 'idle' ? 'active' : 'resume'
     void this.record({ type })
-    // Idle can end while still locked; only clear the pause that caused it.
-    if (this.status.paused && (this.status.pausedReason === reason || reason === 'locked')) {
+    if (reason === 'locked') {
+      this.pauses.clear()
+      this.idle = false
+    } else this.pauses.delete(reason)
+    if (this.status.paused && this.pauses.size === 0) {
       this.status.paused = false
       this.status.pausedReason = null
       this.status.since = this.status.activeCanvasId ? new Date().toISOString() : null
+    } else if (this.status.paused) {
+      this.status.pausedReason = this.pauses.has('locked') ? 'locked' : this.pauses.has('suspended') ? 'suspended' : 'idle'
     }
     this.emitStatus()
   }

@@ -407,10 +407,24 @@ export function App(): React.JSX.Element {
             onLinkRepo={() =>
               void reported(
                 api.repo.chooseDirectory().then(async (dir) => {
-                  if (!dir || canvas.repos.includes(dir)) return
-                  await api.canvases.update(canvasId, { repos: [...canvas.repos, dir] })
+                  if (!dir) return
+                  const check = await api.repo.inspectWorkingCopy(dir)
+                  if (!check.ok) {
+                    showToast(`${check.error}. Pick the folder that contains .git.`)
+                    return
+                  }
+                  if (canvas.repos.includes(check.root)) return
+                  await api.canvases.update(canvasId, { repos: [...canvas.repos, check.root] })
                   await refreshCanvases()
-                  showToast(`Linked ${dir.split(/[\\/]/).filter(Boolean).pop()}; importing recent commits…`)
+                  showToast(`Linked ${check.root.split(/[\\/]/).filter(Boolean).pop()}; importing recent commits…`)
+                })
+              )
+            }
+            onUnlinkRepo={(path) =>
+              void reported(
+                api.canvases.update(canvasId, { repos: canvas.repos.filter((r) => r !== path) }).then(async () => {
+                  await refreshCanvases()
+                  showToast(`Unlinked ${path.split(/[\\/]/).filter(Boolean).pop()}`)
                 })
               )
             }

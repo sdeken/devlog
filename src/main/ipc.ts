@@ -6,6 +6,8 @@ import type { DevlogStore } from './devlog/store'
 import type { SyncManager } from './devlog/sync'
 import type { SettingsStore } from './settings'
 import { simpleGit } from 'simple-git'
+import { randomUUID } from 'node:crypto'
+import { inspectWorkingCopy } from './workingCopy'
 
 export interface IpcDeps {
   settings: SettingsStore
@@ -20,6 +22,8 @@ export interface IpcDeps {
   onEntryAdded: (canvasId: string, entry: Entry) => Promise<void>
   onCanvasesChanged: () => Promise<void>
   activityRange: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
+  /** Append a user correction to the activity log (filed on the day it applies to). */
+  activityAppend: (ev: ActivityEvent) => Promise<void>
   trackerStatus: () => TrackerStatus | null
   trackerSetTask: (canvasId: string | null) => Promise<void>
   updateStatus: () => UpdateStatus
@@ -47,6 +51,7 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(IPC.repoInfo, () => deps.repoInfo())
   ipcMain.handle(IPC.repoChooseDirectory, () => deps.chooseDirectory())
+  ipcMain.handle(IPC.repoInspectWorkingCopy, (_e, dir: string) => inspectWorkingCopy(dir, deps.getStore()?.root ?? null))
   ipcMain.handle(IPC.repoOpen, (_e, root: string) => deps.openRepo(root))
   ipcMain.handle(IPC.repoCreate, async (_e, root: string, remoteUrl?: string) => {
     const info = await deps.openRepo(root, { create: true })
@@ -76,12 +81,19 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.canvasesList, () => requireStore(deps).listCanvases())
   ipcMain.handle(IPC.canvasGet, (_e, id: string) => requireStore(deps).readCanvas(id))
   ipcMain.handle(IPC.canvasCreate, async (_e, input: CanvasInput) => {
-    const canvas = await requireStore(deps).createCanvas(input)
+    const store = requireStore(deps)
+    if (input.repos) input = { ...input, repos: await checkNewRepos(input.repos, [], store.root) }
+    const canvas = await store.createCanvas(input)
     await deps.onCanvasesChanged()
     return canvas
   })
   ipcMain.handle(IPC.canvasUpdate, async (_e, id: string, patch: Partial<CanvasInput>) => {
-    const canvas = await requireStore(deps).updateCanvas(id, patch)
+    const store = requireStore(deps)
+    if (patch.repos) {
+      const existing = (await store.readCanvas(id)).repos
+      patch = { ...patch, repos: await checkNewRepos(patch.repos, existing, store.root) }
+    }
+    const canvas = await store.updateCanvas(id, patch)
     const active = deps.trackerStatus()?.activeCanvasId
     if (active === id && patch.task === false) await deps.trackerSetTask(null)
     await deps.onCanvasesChanged()
@@ -156,6 +168,19 @@ export function registerIpc(deps: IpcDeps): void {
   )
 
   ipcMain.handle(IPC.activityRange, (_e, fromDate: string, toDate: string) => deps.activityRange(fromDate, toDate))
+  // Time corrections: "no task time counts between start and end", and undoing one.
+  ipcMain.handle(IPC.activityExclude, async (_e, start: string, end: string) => {
+    const s = new Date(start)
+    const e = new Date(end)
+    if (Number.isNaN(s.getTime()) || Number.isNaN(e.getTime()) || e <= s) throw new Error('Choose an end time after the start time')
+    const id = randomUUID()
+    await deps.activityAppend({ t: s.toISOString(), type: 'exclude', id, start: s.toISOString(), end: e.toISOString() })
+    return id
+  })
+  ipcMain.handle(IPC.activityRestore, async (_e, id: string, start: string) => {
+    const s = new Date(start)
+    await deps.activityAppend({ t: Number.isNaN(s.getTime()) ? new Date().toISOString() : s.toISOString(), type: 'exclude', cancels: String(id) })
+  })
   ipcMain.handle(IPC.trackerStatus, () => deps.trackerStatus())
   ipcMain.handle(IPC.trackerSetTask, (_e, canvasId: string | null) => deps.trackerSetTask(canvasId))
 
@@ -185,6 +210,21 @@ export function registerIpc(deps: IpcDeps): void {
     else if (action === 'maximize') (win.isMaximized() ? win.unmaximize() : win.maximize())
     else win.close()
   })
+}
+
+/** Validate repositories being added (existing entries are kept as they are, so a broken one can still be removed). */
+async function checkNewRepos(repos: string[], existing: string[], devlogRoot: string): Promise<string[]> {
+  const out: string[] = []
+  for (const r of repos) {
+    if (existing.includes(r)) {
+      out.push(r)
+      continue
+    }
+    const check = await inspectWorkingCopy(r, devlogRoot)
+    if (!check.ok) throw new Error(check.error)
+    if (!out.includes(check.root) && !existing.includes(check.root)) out.push(check.root)
+  }
+  return out
 }
 
 async function setRemote(root: string, url: string): Promise<void> {

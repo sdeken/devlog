@@ -186,6 +186,21 @@ five minutes is the liveness signal: segment building treats a gap of more
 than two heartbeats as "the app was not running", so a crash cannot inflate a
 task by a weekend.
 
+Pauses are tracked per reason (locked, idle, suspended) both in the tracker
+and in the replay. The clock runs only when none applies: waking from sleep
+clears only "suspended", input after idle clears only "idle", and unlocking
+clears everything because the user is demonstrably back. An earlier version
+kept a single paused flag, so a laptop that woke in the background while
+locked restarted the task and booked the whole night; since time is always
+recomputed from the raw log, fixing the replay fixed past days too.
+
+**Corrections** are `exclude` events in the activity log (`start`, `end`,
+`id`), filed on the day they apply to, and undone by a later event with
+`cancels: <id>`. `buildTrackedSegments` replays, then cuts every active
+exclusion out of the tracked segments; explicit `[2h]` segments are left
+alone because the marker is the user's own statement. The raw events are
+never edited, so any correction can be reversed.
+
 `src/shared/activity.ts` is pure and replays the stream into **task
 segments** (task → next task/stop/pause, resumed on unpause) and **focus
 segments** (focus → next focus/pause/stop). Explicit durations are applied

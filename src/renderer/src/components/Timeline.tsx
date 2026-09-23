@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { localDate, previewText } from '@shared/entries'
 import { canvasLabel } from '@shared/canvases'
-import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTaskSegments, cleanFocusSegments, type TimelineBucket } from '@shared/activity'
+import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTrackedSegments, cleanFocusSegments, type TimelineBucket } from '@shared/activity'
 import { addDays, formatMinutes } from '@shared/review'
 import type { ActivityEvent, CanvasMeta, Entry } from '@shared/types'
 import { api } from '@renderer/api'
@@ -102,7 +102,7 @@ export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate,
     return bucketizeDay({
       date,
       intervalMinutes: interval,
-      taskSegments: buildTaskSegments(events),
+      taskSegments: buildTrackedSegments(events),
       focusSegments: cleanFocusSegments(buildFocusSegments(events), { minSeconds: focusMinSeconds }),
       notes,
       events

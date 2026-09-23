@@ -6,6 +6,7 @@ export const IPC = {
   // repository lifecycle
   repoInfo: 'repo:info',
   repoChooseDirectory: 'repo:chooseDirectory',
+  repoInspectWorkingCopy: 'repo:inspectWorkingCopy',
   repoOpen: 'repo:open',
   repoCreate: 'repo:create',
   repoSetRemote: 'repo:setRemote',
@@ -36,6 +37,8 @@ export const IPC = {
   assetSave: 'asset:save',
   // activity / tracker
   activityRange: 'activity:range',
+  activityExclude: 'activity:exclude',
+  activityRestore: 'activity:restore',
   trackerStatus: 'tracker:status',
   trackerSetTask: 'tracker:setTask',
   // updates
