@@ -404,6 +404,16 @@ export function App(): React.JSX.Element {
               await refreshCanvases()
             }}
             onSetHidden={setHidden}
+            onLinkRepo={() =>
+              void reported(
+                api.repo.chooseDirectory().then(async (dir) => {
+                  if (!dir || canvas.repos.includes(dir)) return
+                  await api.canvases.update(canvasId, { repos: [...canvas.repos, dir] })
+                  await refreshCanvases()
+                  showToast(`Linked ${dir.split(/[\\/]/).filter(Boolean).pop()}; importing recent commits…`)
+                })
+              )
+            }
             onReorder={reorderEntry}
           />
         )}

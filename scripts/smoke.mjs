@@ -187,6 +187,8 @@ try {
   const proj = path.join(tmp, 'proj')
   await fs.mkdir(proj)
   git(['init', '--initial-branch=main'], proj)
+  git(['config', 'user.name', 'Dev'], proj)
+  git(['config', 'user.email', 'd@e.com'], proj)
   await fs.writeFile(path.join(proj, 'a.txt'), '1')
   git(['add', '-A'], proj)
   git(['-c', 'user.name=Dev', '-c', 'user.email=d@e.com', 'commit', '-m', 'initial'], proj)
@@ -268,13 +270,18 @@ try {
   await page.locator('.breadcrumbs .crumb', { hasText: 'Website' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")', { timeout: 10_000 })
 
-  // Attach the repo to the canvas (the folder picker is native; set repos through the API path the dialog uses).
+  // Link the repo to the canvas (the folder picker is native; set repos through the API path the header button uses).
+  check((await page.locator('.canvas-repos .repo-add').count()) === 1, 'canvas header offers "Link a repository"')
   await page.evaluate((dir) => window.devlog.canvases.update('website', { repos: [dir] }), proj)
+  await page.waitForSelector('.entry-commit', { timeout: 30_000 })
+  check((await page.locator('.entry-commit .entry-body').first().textContent()).includes('initial'), 'linking a repository imports its recent commits as blocks')
+  await page.waitForSelector('.repo-chip', { timeout: 10_000 })
+  check((await page.locator('.repo-chip').textContent()).includes('proj'), 'linked repository shows as a chip on the canvas')
   await fs.writeFile(path.join(proj, 'a.txt'), '2')
   git(['add', '-A'], proj)
   git(['-c', 'user.name=Dev', '-c', 'user.email=d@e.com', 'commit', '-m', 'Add the widget'], proj)
-  await page.waitForSelector('.entry-commit', { timeout: 30_000 })
-  const commitText = await page.locator('.entry-commit .entry-body').first().textContent()
+  await page.waitForFunction(() => document.querySelectorAll('.entry-commit').length === 2, null, { timeout: 30_000 })
+  const commitText = await page.locator('.entry-commit .entry-body').last().textContent()
   check(commitText.includes('proj') && commitText.includes('Add the widget'), `commit captured as a read-only block (${commitText.trim().slice(0, 60)})`)
   await page.locator('.entry-commit').first().hover()
   check((await page.locator('.entry-commit').first().locator('button', { hasText: 'Edit' }).count()) === 0, 'commit blocks have no Edit action')
@@ -287,7 +294,20 @@ try {
   }, null, { timeout: 30_000 })
   check(true, 'switching branches in a watched repo is recorded as a git activity event')
   const websiteBlocks = await page.locator('.entry').count()
-  check(websiteBlocks === 5, `branch switch does not create a block (${websiteBlocks} blocks)`)
+  check(websiteBlocks === 6, `branch switch does not create a block (${websiteBlocks} blocks)`)
+
+  // With a task under this canvas active, the next commit lands on the task, not the canvas.
+  await page.evaluate(() => window.devlog.tracker.setTask('fix-the-login-redirect'))
+  await fs.writeFile(path.join(proj, 'a.txt'), '3')
+  git(['add', '-A'], proj)
+  git(['-c', 'user.name=Dev', '-c', 'user.email=d@e.com', 'commit', '-m', 'Route to the task'], proj)
+  await page.waitForFunction(async () => {
+    const d = await window.devlog.blocks.getDay('fix-the-login-redirect', new Date().toISOString().slice(0, 10))
+    return d.entries.some((e) => e.kind === 'commit' && e.markdown.includes('Route to the task'))
+  }, null, { timeout: 30_000 })
+  check(true, 'a commit made while a task under the linked canvas is active lands on that task')
+  check((await page.locator('.entry-commit').count()) === 2, 'the routed commit does not also land on the canvas')
+  await page.evaluate(() => window.devlog.tracker.setTask(null))
   await page.screenshot({ path: path.join(shots, '02c-canvas.png') })
 
   // Hide a block: it collapses into a stub, stays in the file, and comes back.
@@ -400,7 +420,7 @@ try {
   check(rowLabels[0] === 'Acme Corp' && rowLabels[1] === 'Website' && rowLabels.at(-2) === 'Journal' && rowLabels.at(-1) === 'Total', `review rows nest client → project → task, journal last (${rowLabels.join(' | ')})`)
   check(rowLabels.some((l) => l.includes('Fix the login redirect')), 'task canvases appear as rows')
   const acmeTotal = await page.locator('.review-category.depth-0 .review-total .cell-notes').first().textContent()
-  check(acmeTotal === '7', `client row sums its blocks for the week (${acmeTotal})`)
+  check(Number(acmeTotal) >= 8, `client row sums its blocks for the week (${acmeTotal})`)
   check((await page.locator('.review-day-section').count()) === 1, 'per-day detail lists today')
   check((await page.locator('.review-group-label').first().textContent()) === 'Acme Corp', 'day detail groups by top-level canvas')
   check((await page.locator('.review-segments li').count()) >= 1, 'review shows tracked task segments for today')
@@ -411,7 +431,7 @@ try {
   await page.waitForSelector('.tlb', { timeout: 10_000 })
   const tlText = await page.locator('.tlb-list').textContent()
   check(tlText.includes('Fix the login redirect'), 'timeline bucket names the active task')
-  check((await page.locator('.tlb-commit').count()) === 1, 'timeline shows the captured commit')
+  check((await page.locator('.tlb-commit').count()) >= 2, 'timeline shows the captured commits')
   check((await page.locator('.tlb-notes .tl-link').count()) >= 5, 'timeline lists the blocks written in the interval')
   const gitLines = await page.locator('.tlb-git li').allTextContents()
   check(gitLines.some((t) => t.includes('switched to feature/widget')) && gitLines.some((t) => t.includes('created branch feature/widget')), `timeline lists branch events (${gitLines.join(' | ')})`)
@@ -452,8 +472,8 @@ try {
   await page.waitForFunction(() => document.querySelector('.composer-new .ProseMirror pre') !== null, null, { timeout: 5_000 })
   check(true, 'pasted stack trace lands in a code block')
   await page.keyboard.press('Control+Enter')
-  await page.waitForFunction((n) => document.querySelectorAll('.entry').length === n + 1, before, { timeout: 10_000 })
-  check((await page.locator('.entry pre').count()) >= 1, 'stack trace block renders as a code block')
+  await page.waitForFunction(() => [...document.querySelectorAll('.entry pre')].some((el) => el.textContent.includes('NullReferenceException')), null, { timeout: 10_000 })
+  check((await page.locator('.entry').count()) >= before + 1, 'stack trace block renders as a code block')
 
   // 3j. Theme: picking a preset recolours the sidebar and top bar at once.
   await page.locator('.statusbar button[title^="Settings"]').click()

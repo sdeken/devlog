@@ -148,8 +148,10 @@ export interface Settings {
   idleMinutes: number
   /** Keep the activity log inside the devlog repository (synced) instead of locally. */
   activityInRepo: boolean
-  /** Capture commits from page repositories as read-only notes. */
+  /** Capture commits from canvas repositories as read-only blocks. */
   captureCommits: boolean
+  /** When a repository is linked, import this many days of the user's own commits. 0 disables. */
+  commitBackfillDays: number
   /** Download releases in the background and restart into them at a quiet moment. */
   autoUpdate: boolean
   /** Foreground windows held for less than this many seconds are folded into their neighbour in views. */
@@ -181,6 +183,7 @@ export const DEFAULT_SETTINGS: Settings = {
   idleMinutes: 10,
   activityInRepo: false,
   captureCommits: true,
+  commitBackfillDays: 30,
   autoUpdate: true,
   focusMinSeconds: 5,
   theme: { preset: 'graphite' }

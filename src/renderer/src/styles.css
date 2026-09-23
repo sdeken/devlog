@@ -3126,3 +3126,28 @@ body[data-platform='darwin'] .topbar-left {
   border-radius: 0 0 6px 6px;
   color: var(--accent);
 }
+
+/* ---- Linked repositories on a canvas ---- */
+.canvas-repos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 12px;
+  font-family: var(--mono);
+  color: var(--fg-muted);
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+}
+
+.repo-add {
+  font-family: var(--sans);
+}

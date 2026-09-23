@@ -2,14 +2,14 @@ import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerMonitor, scre
 import path from 'node:path'
 import { promises as fs } from 'node:fs'
 import { IPC, type MenuCommand } from '@shared/ipc'
-import type { AttachedImage, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
-import { JOURNAL_ID, canvasLabel } from '@shared/canvases'
+import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
+import { JOURNAL_ID, canvasLabel, isWithin } from '@shared/canvases'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@shared/entries'
 import { DevlogStore } from './devlog/store'
 import { ActivityLog } from './activity/log'
 import { Tracker } from './activity/tracker'
-import { CommitWatcher, commitMarkdown, type CommitInfo, type GitEventInfo } from './activity/commits'
+import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { Updater } from './updates'
 import { SyncManager, type SyncOptions } from './devlog/sync'
@@ -44,6 +44,10 @@ let quitting = false
 let canvasLabels = new Map<string, string>()
 /** Canvas id → task flag, so posting on a non-task never starts the clock. */
 let taskCanvases = new Set<string>()
+/** Every canvas, for routing commits to the active task beneath the linked canvas. */
+let allCanvases: CanvasMeta[] = []
+/** "canvasId\0repoPath" pairs already watched; a new pair triggers a history backfill. */
+let knownRepos: Set<string> | null = null
 let updater: Updater | null = null
 let screenLocked = false
 /** Editors with unsaved text, as reported by the renderer. */
@@ -147,7 +151,7 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   nextCommits.on('event', (canvasId: string, info: GitEventInfo) => {
     if (!settings.get().trackingEnabled) return
     void activityLog
-      .append({ t: new Date().toISOString(), type: 'git', canvasId, repo: info.repoName, action: info.action, branch: info.branch, from: info.from, detail: info.detail })
+      .append({ t: new Date().toISOString(), type: 'git', canvasId: routeCommit(canvasId), repo: info.repoName, action: info.action, branch: info.branch, from: info.from, detail: info.detail })
       .catch((err) => console.error('git event log failed', err))
   })
   commits = nextCommits
@@ -158,7 +162,14 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   return info!
 }
 
-async function refreshCommitWatchers(): Promise<void> {
+/** Refreshes run one at a time so a repository linked during a refresh is backfilled exactly once. */
+let refreshChain: Promise<void> = Promise.resolve()
+function refreshCommitWatchers(): Promise<void> {
+  refreshChain = refreshChain.then(() => refreshCommitWatchersNow()).catch((err) => console.error('commit watcher refresh failed', err))
+  return refreshChain
+}
+
+async function refreshCommitWatchersNow(): Promise<void> {
   if (!store || !commits) return
   if (!settings.get().captureCommits) {
     const canvases = await store.listCanvases()
@@ -169,6 +180,7 @@ async function refreshCommitWatchers(): Promise<void> {
     return
   }
   const canvases = await store.listCanvases()
+  allCanvases = canvases
   canvasLabels = new Map(canvases.map((c) => [c.id, canvasLabel(canvases, c.id)]))
   taskCanvases = new Set(canvases.filter((c) => c.task && !c.archived).map((c) => c.id))
   updateTray(tracker?.getStatus() ?? null)
@@ -178,11 +190,56 @@ async function refreshCommitWatchers(): Promise<void> {
     for (const r of c.repos) list.push({ canvasId: c.id, path: r })
   }
   await commits.setRepos(list)
+
+  // A repository linked since the last refresh gets its recent history imported.
+  // Links on archived canvases count as known, so unarchiving is not a re-link.
+  const pairs = new Set(canvases.flatMap((c) => c.repos.map((r) => `${c.id}\0${r}`)))
+  const fresh = knownRepos ? list.filter((r) => !knownRepos!.has(`${r.canvasId}\0${r.path}`)) : []
+  knownRepos = pairs
+  for (const r of fresh) void backfillCommits(r.canvasId, r.path)
 }
 
-/** A commit landed in a canvas's repository: add it as a read-only block. */
-async function onCommit(canvasId: string, info: CommitInfo): Promise<void> {
+/**
+ * Where a commit from a repository linked to `canvasId` belongs: the active
+ * task when it lies beneath that canvas (one branch per client, so the task
+ * you are on is the work the commit is for), otherwise the canvas itself.
+ */
+function routeCommit(canvasId: string): string {
+  const active = tracker?.getStatus().activeCanvasId
+  if (active && active !== canvasId && isWithin(allCanvases, active, canvasId)) return active
+  return canvasId
+}
+
+/** Import the user's recent commits from a newly linked repository, dated when they were made. */
+async function backfillCommits(canvasId: string, repoPath: string): Promise<void> {
   if (!store) return
+  const days = settings.get().commitBackfillDays
+  if (days <= 0) return
+  try {
+    const list = await listRecentCommits(repoPath, days)
+    let added = 0
+    for (const info of list) {
+      const when = new Date(info.time)
+      if (Number.isNaN(when.getTime())) continue
+      const day = await store.readDay(canvasId, localDate(when))
+      if (day.entries.some((e) => e.kind === 'commit' && e.meta?.hash === info.hash)) continue
+      await store.addEntry(canvasId, commitMarkdown(info), { date: localDate(when) }, when, {
+        kind: 'commit',
+        meta: { repo: info.repoPath, hash: info.hash, branch: info.branch ?? '', author: info.author }
+      })
+      added++
+    }
+    if (added > 0) send(IPC.evEntriesChanged, { canvasId })
+    console.log(`backfilled ${added} commit(s) from ${repoPath} into ${canvasId}`)
+  } catch (err) {
+    console.error('commit backfill failed', err)
+  }
+}
+
+/** A commit landed in a linked repository: add it as a read-only block on the task you are on, or the canvas. */
+async function onCommit(linkedCanvasId: string, info: CommitInfo): Promise<void> {
+  if (!store) return
+  const canvasId = routeCommit(linkedCanvasId)
   try {
     const { date } = await store.addEntry(
       canvasId,

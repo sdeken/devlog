@@ -27,6 +27,8 @@ interface Props {
   onNewCanvasHere: (task: boolean) => void
   onArchive: (archived: boolean) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  /** Link another working copy to this canvas (folder picker, then update). */
+  onLinkRepo: () => void
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
 }
 
@@ -54,6 +56,7 @@ export function CanvasView({
   onNewCanvasHere,
   onArchive,
   onSetHidden,
+  onLinkRepo,
   onReorder
 }: Props): React.JSX.Element {
   const isJournal = canvas.id === JOURNAL_ID
@@ -213,6 +216,20 @@ export function CanvasView({
               }}
               dangerouslySetInnerHTML={{ __html: renderMarkdown(surfaceText) }}
             />
+          )}
+        </div>
+      )}
+      {!isJournal && (
+        <div className="canvas-repos">
+          {canvas.repos.map((r) => (
+            <span key={r} className="repo-chip" title={`${r}\nCommits here land on the task you are on under ${canvas.title}, or on ${canvas.title} itself.`}>
+              ⎇ {r.split(/[\\/]/).filter(Boolean).pop()}
+            </span>
+          ))}
+          {!canvas.archived && (
+            <button type="button" className="child-chip child-add repo-add" onClick={onLinkRepo} title="Link a working copy: its commits become blocks here, branch switches and pushes show on the timeline">
+              {canvas.repos.length ? '+ repository' : '+ Link a repository…'}
+            </button>
           )}
         </div>
       )}

@@ -246,11 +246,20 @@ permission) and `xdotool` on Linux if present.
 
 ## Working copies: commits as blocks, branches as events
 
-Give a canvas its repositories (**Edit → Git repositories**); these are the
-working copies you code in, not the devlog repository. Devlog watches each
-repository's reflogs and, on every commit, adds a read-only block to the
-canvas: repo, branch, short hash and message. Reply to it, move it or delete
-it, but not edit it.
+Every canvas header has a **Link a repository…** button (also under
+**Edit → Git repositories**). Pick the folder of a working copy you code in,
+not the devlog repository. Link it to the client: one client is usually one
+branch at a time, and the routing below does the rest.
+
+- **History comes in.** Linking imports your own commits from the last 30
+  days (Settings → *Import commit history when linking*; 0 turns it off),
+  dated when they were made, so the stream is not empty from day one.
+- **New commits land where you are working.** Devlog watches the
+  repository's reflogs and, on every commit, adds a read-only block: repo,
+  branch, short hash and message. If the active task sits beneath the linked
+  canvas (a task under that client), the block goes on the task; otherwise on
+  the linked canvas itself. Reply to it, move it or delete it, but not edit
+  it.
 
 Everything else git records is captured as an activity event rather than a
 block, so the stream stays readable: creating a branch, switching branches

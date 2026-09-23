@@ -3,7 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { CommitWatcher, commitMarkdown, reflogPath, type CommitInfo, type GitEventInfo } from '../src/main/activity/commits'
+import { CommitWatcher, commitMarkdown, listRecentCommits, reflogPath, type CommitInfo, type GitEventInfo } from '../src/main/activity/commits'
 
 let tmp: string
 let repo: string
@@ -84,5 +84,23 @@ describe('CommitWatcher', () => {
     watcher.on('commit', (x) => seen.push(x))
     await watcher.checkAll()
     expect(seen).toHaveLength(0)
+  })
+
+  it('lists the user\'s own recent commits, oldest first, for backfilling', async () => {
+    const git = simpleGit({ baseDir: repo })
+    await git.addConfig('user.name', 'T')
+    await git.addConfig('user.email', 't@e.com')
+    await fs.writeFile(path.join(repo, 'a.txt'), '2')
+    await git.add('-A')
+    await git.commit('mine')
+    await fs.writeFile(path.join(repo, 'a.txt'), '3')
+    await git.add('-A')
+    await simpleGit({ baseDir: repo, config: ['user.name=Other', 'user.email=o@e.com'] }).commit('theirs')
+    const list = await listRecentCommits(repo, 30)
+    expect(list.map((c) => c.subject)).toEqual(['initial', 'mine'])
+    expect(list[0]).toMatchObject({ repoName: 'proj', author: 'T', branch: 'main' })
+    expect(list[0].time).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+    expect(await listRecentCommits(repo, 0)).toEqual([])
+    expect(await listRecentCommits(tmp, 30)).toEqual([])
   })
 })

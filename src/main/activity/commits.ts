@@ -272,6 +272,45 @@ async function fileSize(file: string): Promise<number> {
 }
 
 /** Markdown body for a captured commit note. */
+/**
+ * The user's own commits from the last `days` days, oldest first, for
+ * backfilling a freshly linked repository. "Own" means the repository's
+ * configured user.email; without one, every commit is returned.
+ */
+export async function listRecentCommits(root: string, days: number): Promise<CommitInfo[]> {
+  if (days <= 0) return []
+  const git = simpleGit({ baseDir: root })
+  let email = ''
+  try {
+    email = (await git.raw(['config', 'user.email'])).trim()
+  } catch {
+    /* no identity configured */
+  }
+  let branch: string | null = null
+  try {
+    branch = (await git.revparse(['--abbrev-ref', 'HEAD'])).trim() || null
+  } catch {
+    /* detached or empty */
+  }
+  const args = ['log', `--since=${days}.days`, '--no-merges', '--format=%H%x1f%an%x1f%aI%x1f%s%x1f%b%x1e']
+  if (email) args.push(`--author=${email}`)
+  let raw = ''
+  try {
+    raw = await git.raw(args)
+  } catch {
+    return [] // empty repository
+  }
+  const out: CommitInfo[] = []
+  for (const rec of raw.split('\x1e')) {
+    const t = rec.replace(/^\s+/, '')
+    if (!t) continue
+    const [hash, author, time, subject, body] = t.split('\x1f')
+    if (!hash || !/^[0-9a-f]{40}$/.test(hash)) continue
+    out.push({ repoPath: root, repoName: path.basename(root), hash, shortHash: hash.slice(0, 7), subject: subject ?? '', body: (body ?? '').trim(), author: author ?? '', branch, time })
+  }
+  return out.reverse()
+}
+
 export function commitMarkdown(info: CommitInfo): string {
   const head = `⎇ **${info.repoName}**${info.branch ? ` \`${info.branch}\`` : ''} · \`${info.shortHash}\` — ${info.subject}`
   return info.body ? `${head}\n\n${info.body}` : head

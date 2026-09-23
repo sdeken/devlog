@@ -202,6 +202,12 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from canvas
             repositories as read-only blocks
           </label>
+          <div className="field-grid">
+            <label htmlFor="backfill" title="When you link a repository, this many days of your own commits are imported, dated when they were made. 0 imports nothing.">
+              Import commit history when linking (days)
+            </label>
+            <input id="backfill" type="number" min={0} max={3650} value={form.commitBackfillDays} disabled={!form.captureCommits} onChange={(ev) => set('commitBackfillDays', Number(ev.target.value))} />
+          </div>
           <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
         </section>
 

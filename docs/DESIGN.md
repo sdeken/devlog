@@ -212,7 +212,15 @@ cherry-pick on `HEAD` is resolved with `git show` and emitted as a commit;
 `checkout: moving from A to B` on `HEAD`, `branch: Created` under
 `refs/heads/`, `update by push` under `refs/remotes/`, and merge, rebase,
 pull, reset and stash messages are emitted as events with a `GitAction`.
-The main process turns commits into `kind=commit` blocks with
+A repository is linked to a canvas, and the commit lands on the active task
+when that task lies beneath the linked canvas (`routeCommit`), otherwise on
+the canvas itself. This is what "link repositories to clients" means in
+practice: one client is one branch at a time, and the task you are on is the
+work the commit belongs to. Linking also imports the user's own commits from
+the last N days (`listRecentCommits`, filtered by the repository's
+`user.email`, dated at commit time, de-duplicated by hash) so a freshly
+linked canvas already shows the recent work; the watcher then takes over
+for anything new. The main process turns commits into `kind=commit` blocks with
 `repo`/`hash`/`branch`/`author` attributes in the marker (the store refuses
 `updateEntry` on such blocks and de-duplicates by hash) and everything else
 into `type: 'git'` activity events tagged with the canvas, so they show on the
