@@ -133,7 +133,7 @@ try {
   await page.keyboard.press('Control+End')
   await page.keyboard.type(' (edited!)')
   await page.keyboard.press('Enter')
-  await page.waitForSelector('.entry-edited', { timeout: 10_000 })
+  await page.waitForSelector('.entry-edited', { state: 'attached', timeout: 10_000 })
   const text3 = await fs.readFile(dayFile, 'utf8')
   check(text3.includes('(edited!)') && text3.includes(' updated='), 'edit persisted with an updated timestamp')
 
@@ -238,18 +238,26 @@ try {
   await pageEditor.click()
   await page.keyboard.type('[45m] retro-logged call')
   await page.keyboard.press('Enter')
-  await page.waitForSelector('.duration-chip', { timeout: 10_000 })
+  await page.waitForSelector('.duration-chip', { state: 'attached', timeout: 10_000 })
   check((await page.locator('.entry .duration-chip').first().textContent()) === '45m', 'explicit duration marker renders as a chip')
 
-  // Timestamps stay out of the way until hover.
-  const firstTime = page.locator('.entry time').first()
-  check((await firstTime.evaluate((el) => getComputedStyle(el).opacity)) === '0', 'timestamps are hidden until hover')
-  await page.locator('.entry').first().hover()
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.entry time')).opacity === '1', null, { timeout: 5_000 })
-  check(true, 'hovering a block reveals its timestamp')
+  // The block header (time, actions) floats over what is above and takes no space.
+  await page.mouse.move(5, 5)
+  const layout = await page.locator('.note-slot > .note > .entry').first().evaluate((el) => {
+    const meta = el.querySelector('.entry-meta')
+    const body = el.querySelector('.entry-body')
+    return { visibility: getComputedStyle(meta).visibility, position: getComputedStyle(meta).position, bodyOffset: body.getBoundingClientRect().top - el.getBoundingClientRect().top }
+  })
+  check(layout.visibility === 'hidden' && layout.position === 'absolute', `timestamps are hidden until hover (${layout.visibility}, ${layout.position})`)
+  check(layout.bodyOffset <= 10, `the header takes no vertical space (body starts ${Math.round(layout.bodyOffset)}px into the block)`)
+  await page.locator('.note-slot > .note > .entry').first().hover()
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.note-slot > .note > .entry > .entry-meta')).visibility === 'visible', null, { timeout: 5_000 })
+  check(true, 'hovering a block reveals its timestamp over the block above')
+  check((await page.locator('.entry .entry-kind').count()) === 0, 'no text labels on blocks; kinds are shown by the leading brace')
+  check((await page.locator('.entry-task > .entry-brace.brace-task').count()) === 2, 'task blocks carry an accent brace')
 
-  // Open the task canvas; Start lives in the status bar and offers the canvas on screen first.
-  await page.locator('.entry-task .task-chip').first().click()
+  // Open the task canvas from its brace; Start lives in the status bar and offers the canvas on screen first.
+  await page.locator('.entry-task > .entry-brace').first().click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Fix the login redirect")', { timeout: 10_000 })
   check((await page.locator('.breadcrumbs').textContent()).includes('Acme Corp') && (await page.locator('.breadcrumbs').textContent()).includes('Website'), 'task canvas breadcrumbs run client / project / task')
   check((await page.locator('.page-head button', { hasText: 'Start' }).count()) === 0, 'no Start button in the canvas header; the status bar owns it')
@@ -273,9 +281,19 @@ try {
   // Link the repo to the canvas (the folder picker is native; set repos through the API path the header button uses).
   check((await page.locator('.canvas-repos .repo-add').count()) === 1, 'canvas header offers "Link a repository"')
   await page.evaluate((dir) => window.devlog.canvases.update('website', { repos: [dir] }), proj)
-  await page.waitForSelector('.entry-commit', { timeout: 30_000 })
-  check((await page.locator('.entry-commit .entry-body').first().textContent()).includes('initial'), 'linking a repository imports its recent commits as blocks')
+  // The header button refreshes the UI itself; after a direct API call, reopen the canvas.
+  await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
+  await page.locator('.canvas-tree .canvas-link', { hasText: 'Website' }).first().click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")')
   await page.waitForSelector('.repo-chip', { timeout: 10_000 })
+  await page.waitForTimeout(1500)
+  check((await page.locator('.entry-commit').count()) === 0, 'linking does not import history unless asked')
+  const imported = await page.evaluate((dir) => window.devlog.repo.importHistory('website', dir, 30), proj)
+  await page.waitForSelector('.entry-commit', { timeout: 30_000 })
+  check(imported === 1 && (await page.locator('.entry-commit .entry-body').first().textContent()).includes('initial'), `importing history on request adds your recent commits (${imported})`)
+  check((await page.locator('.entry-commit > .entry-brace.brace-auto').count()) === 1, 'automatic blocks carry a muted brace')
+  check((await page.evaluate((dir) => window.devlog.repo.importHistory('website', dir, 30), proj)) === 0, 'importing twice adds nothing')
   check((await page.locator('.repo-chip').textContent()).includes('proj'), 'linked repository shows as a chip on the canvas')
   await fs.writeFile(path.join(proj, 'a.txt'), '2')
   git(['add', '-A'], proj)
@@ -320,7 +338,10 @@ try {
   await page.waitForFunction(() => !document.querySelector('.repo-chip'), null, { timeout: 10_000 })
   check(true, 'the ✕ on a repository chip unlinks it')
   check(!(await fs.readFile(path.join(repo, 'canvases', 'website', 'canvas.md'), 'utf8')).includes('repo:'), 'unlinking removes the repo line from canvas.md; captured commits stay')
-  check((await page.locator('.entry-commit').count()) === 2, 'commit blocks survive unlinking')
+  const afterUnlink = await page
+    .waitForFunction(() => document.querySelectorAll('.entry-commit').length === 2, null, { timeout: 5_000 })
+    .then(() => 2, async () => page.locator('.entry-commit').count())
+  check(afterUnlink === 2, `commit blocks survive unlinking (${afterUnlink})`)
   await page.screenshot({ path: path.join(shots, '02c-canvas.png') })
 
   // Hide a block: it collapses into a stub, stays in the file, and comes back.
@@ -342,7 +363,14 @@ try {
   const beforeOrder = (await fs.readFile(acmeFile, 'utf8')).match(/^### .*\n\n(.+)$/gm).map((m) => m.split('\n\n')[1])
   const lastEntry = page.locator('.note-slot').last()
   await lastEntry.locator('.entry').first().hover()
-  await lastEntry.locator('.entry-grip').first().dragTo(page.locator('.note-slot').first(), { targetPosition: { x: 200, y: 8 } })
+  // Drag like a person: press on the grip, start moving while still over the block, then travel.
+  const grip = await lastEntry.locator('.entry-grip').first().boundingBox()
+  const target = await page.locator('.note-slot').first().boundingBox()
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(grip.x + grip.width / 2 + 4, grip.y + grip.height / 2 + 6, { steps: 4 })
+  await page.mouse.move(target.x + 200, target.y + 8, { steps: 12 })
+  await page.mouse.up()
   await page.waitForFunction((first) => {
     const bodies = [...document.querySelectorAll('.note-slot > .note > .entry .entry-body')].map((e) => e.textContent.trim())
     return bodies[0] !== first

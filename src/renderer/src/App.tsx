@@ -8,6 +8,7 @@ import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { CanvasView } from './components/CanvasView'
 import { CanvasDialog } from './components/CanvasDialog'
+import { LinkRepoDialog } from './components/LinkRepoDialog'
 import { Review } from './components/Review'
 import { Summary } from './components/Summary'
 import { QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
@@ -59,6 +60,7 @@ export function App(): React.JSX.Element {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
   const [focusToken, setFocusToken] = useState(0)
+  const [linkRepo, setLinkRepo] = useState<{ canvasId: string; root: string } | null>(null)
   const [bootError, setBootError] = useState<string | null>(null)
   const [editRequest, setEditRequest] = useState<string | null>(null)
   const searchRef = useRef<HTMLInputElement | null>(null)
@@ -413,10 +415,11 @@ export function App(): React.JSX.Element {
                     showToast(`${check.error}. Pick the folder that contains .git.`)
                     return
                   }
-                  if (canvas.repos.includes(check.root)) return
-                  await api.canvases.update(canvasId, { repos: [...canvas.repos, check.root] })
-                  await refreshCanvases()
-                  showToast(`Linked ${check.root.split(/[\\/]/).filter(Boolean).pop()}; importing recent commits…`)
+                  if (canvas.repos.includes(check.root)) {
+                    showToast('That repository is already linked here')
+                    return
+                  }
+                  setLinkRepo({ canvasId, root: check.root })
                 })
               )
             }
@@ -488,6 +491,25 @@ export function App(): React.JSX.Element {
       )}
       {settingsOpen && (
         <SettingsDialog settings={settings} repo={repo} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onRepoChanged={(r) => setRepo(r)} onPreview={applyTheme} />
+      )}
+      {linkRepo && (
+        <LinkRepoDialog
+          repoPath={linkRepo.root}
+          canvasTitle={canvases.find((c) => c.id === linkRepo.canvasId)?.title ?? 'this canvas'}
+          defaultDays={settings.commitBackfillDays}
+          onClose={() => setLinkRepo(null)}
+          onLink={async (importDays) => {
+            const target = canvases.find((c) => c.id === linkRepo.canvasId)
+            if (!target) return
+            const name = linkRepo.root.split(/[\\/]/).filter(Boolean).pop()
+            await api.canvases.update(target.id, { repos: [...target.repos, linkRepo.root] })
+            await refreshCanvases()
+            if (importDays) {
+              const n = await api.repo.importHistory(target.id, linkRepo.root, importDays)
+              showToast(`Linked ${name}; imported ${n} commit${n === 1 ? '' : 's'}`)
+            } else showToast(`Linked ${name}`)
+          }}
+        />
       )}
       {canvasDialog && (
         <CanvasDialog

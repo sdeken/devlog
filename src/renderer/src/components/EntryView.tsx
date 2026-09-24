@@ -118,7 +118,7 @@ export const EntryView = memo(function EntryView({
 
   return (
     <article
-      className={`entry${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}`}
+      className={`entry${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}${confirmDelete || moving ? ' is-busy' : ''}`}
       id={`entry-${entry.id}`}
       onDoubleClick={(ev) => {
         // Double-click on the text edits the note, unless the user is selecting text.
@@ -128,6 +128,16 @@ export const EntryView = memo(function EntryView({
         setEditing(true)
       }}
     >
+      {readOnly && <span className="entry-brace brace-auto" title={`Captured automatically from ${entry.meta?.repo ?? 'git'}; read-only`} aria-label="Automatic block" />}
+      {isTask && taskCanvasId && (
+        <button
+          type="button"
+          className="entry-brace brace-task"
+          onClick={() => onOpenCanvas?.(taskCanvasId)}
+          title={`Task: ${taskLabel ?? 'open the task canvas'}`}
+          aria-label={`Open task ${taskLabel ?? ''}`}
+        />
+      )}
       <header className="entry-meta">
         {draggable && !entry.parentId && (
           <span className="entry-grip" draggable title="Drag to reorder within the day" aria-label="Drag handle">
@@ -137,12 +147,6 @@ export const EntryView = memo(function EntryView({
         <time dateTime={entry.createdAt} title={created.toLocaleString()}>
           {timeLabel}
         </time>
-        {entry.hidden && <span className="entry-kind">hidden</span>}
-        {readOnly && (
-          <span className="entry-kind" title={`Captured from ${entry.meta?.repo ?? 'git'}; read-only`}>
-            commit
-          </span>
-        )}
         {isTask && taskCanvasId && (
           <button type="button" className="task-chip" onClick={() => onOpenCanvas?.(taskCanvasId)} title="Open the task canvas">
             ◉ {taskLabel ?? 'task'}

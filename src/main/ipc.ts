@@ -28,6 +28,9 @@ export interface IpcDeps {
   trackerSetTask: (canvasId: string | null) => Promise<void>
   updateStatus: () => UpdateStatus
   updateCheck: () => Promise<void>
+  updateInstall: () => Promise<void>
+  /** Import the user's own commits from the last `days` days of a linked repository. */
+  importCommitHistory: (canvasId: string, repoPath: string, days: number) => Promise<number>
   setEditorBusy: (busy: boolean) => void
 }
 
@@ -186,6 +189,12 @@ export function registerIpc(deps: IpcDeps): void {
 
   ipcMain.handle(IPC.updateStatus, () => deps.updateStatus())
   ipcMain.handle(IPC.updateCheck, () => deps.updateCheck())
+  ipcMain.handle(IPC.updateInstall, () => deps.updateInstall())
+  ipcMain.handle(IPC.repoImportHistory, async (_e, canvasId: string, repoPath: string, days: number) => {
+    const canvas = await requireStore(deps).readCanvas(canvasId)
+    if (!canvas.repos.includes(repoPath)) throw new Error('Link the repository to this canvas first')
+    return deps.importCommitHistory(canvasId, repoPath, Math.max(1, Math.min(3650, Math.round(Number(days) || 0))))
+  })
   ipcMain.on(IPC.editorBusy, (_e, busy: boolean) => deps.setEditorBusy(Boolean(busy)))
 
   ipcMain.handle(IPC.syncNow, () => deps.getSync()?.syncNow('manual') ?? null)

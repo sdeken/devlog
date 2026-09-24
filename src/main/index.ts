@@ -46,8 +46,6 @@ let canvasLabels = new Map<string, string>()
 let taskCanvases = new Set<string>()
 /** Every canvas, for routing commits to the active task beneath the linked canvas. */
 let allCanvases: CanvasMeta[] = []
-/** "canvasId\0repoPath" pairs already watched; a new pair triggers a history backfill. */
-let knownRepos: Set<string> | null = null
 let updater: Updater | null = null
 let screenLocked = false
 /** Editors with unsaved text, as reported by the renderer. */
@@ -191,12 +189,6 @@ async function refreshCommitWatchersNow(): Promise<void> {
   }
   await commits.setRepos(list)
 
-  // A repository linked since the last refresh gets its recent history imported.
-  // Links on archived canvases count as known, so unarchiving is not a re-link.
-  const pairs = new Set(canvases.flatMap((c) => c.repos.map((r) => `${c.id}\0${r}`)))
-  const fresh = knownRepos ? list.filter((r) => !knownRepos!.has(`${r.canvasId}\0${r.path}`)) : []
-  knownRepos = pairs
-  for (const r of fresh) void backfillCommits(r.canvasId, r.path)
 }
 
 /**
@@ -210,11 +202,9 @@ function routeCommit(canvasId: string): string {
   return canvasId
 }
 
-/** Import the user's recent commits from a newly linked repository, dated when they were made. */
-async function backfillCommits(canvasId: string, repoPath: string): Promise<void> {
-  if (!store) return
-  const days = settings.get().commitBackfillDays
-  if (days <= 0) return
+/** Import the user's recent commits from a linked repository, dated when they were made. Returns how many were added. */
+async function backfillCommits(canvasId: string, repoPath: string, days: number): Promise<number> {
+  if (!store || days <= 0) return 0
   try {
     const list = await listRecentCommits(repoPath, days)
     let added = 0
@@ -231,8 +221,10 @@ async function backfillCommits(canvasId: string, repoPath: string): Promise<void
     }
     if (added > 0) send(IPC.evEntriesChanged, { canvasId })
     console.log(`backfilled ${added} commit(s) from ${repoPath} into ${canvasId}`)
+    return added
   } catch (err) {
     console.error('commit backfill failed', err)
+    throw err
   }
 }
 
@@ -502,6 +494,10 @@ if (!gotLock) {
         await tracker?.setTask(canvasId)
       },
       updateStatus: () => updater?.getStatus() ?? { state: 'unavailable', currentVersion: app.getVersion(), availableVersion: null, checkedAt: null, error: null },
+      importCommitHistory: (canvasId, repoPath, days) => backfillCommits(canvasId, repoPath, days),
+      updateInstall: async () => {
+        await updater?.requestInstall()
+      },
       updateCheck: async () => {
         await updater?.check()
       },

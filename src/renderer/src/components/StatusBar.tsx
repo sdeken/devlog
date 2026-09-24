@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CanvasMeta, SyncStatus, TrackerStatus } from '@shared/types'
+import type { CanvasMeta, SyncStatus, TrackerStatus, UpdateStatus } from '@shared/types'
+import { api } from '@renderer/api'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@shared/canvases'
 import { formatMinutes } from '@shared/review'
 import { kbd } from '@renderer/keys'
@@ -102,6 +103,11 @@ function inFuture(iso: string | null, now: number): string {
 export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onOpenSettings, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
   const [startOpen, setStartOpen] = useState(false)
+  const [update, setUpdate] = useState<UpdateStatus | null>(null)
+  useEffect(() => {
+    void api.updates.status().then(setUpdate)
+    return api.updates.onStatus(setUpdate)
+  }, [])
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 5000)
     return () => clearInterval(t)
@@ -212,6 +218,30 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
         </span>
       )}
       <span className="spacer" />
+      {update && (update.state === 'downloaded' || update.state === 'downloading' || update.state === 'installing') && (
+        <span className="update-status">
+          {update.state === 'installing' ? (
+            <span className="status-detail">Restarting into {update.availableVersion}…</span>
+          ) : update.installRequested ? (
+            <span className="status-detail">
+              Updating to {update.availableVersion} as soon as it downloads{update.progress !== undefined ? ` (${update.progress}%)` : ''}…
+            </span>
+          ) : (
+            <button
+              type="button"
+              className="btn btn-primary btn-xs"
+              onClick={() => void api.updates.installNow()}
+              title={
+                update.state === 'downloaded'
+                  ? `Version ${update.availableVersion} is ready. Devlog commits and pushes, then restarts into it.`
+                  : `Version ${update.availableVersion} is downloading${update.progress !== undefined ? ` (${update.progress}%)` : ''}; Devlog restarts into it as soon as it finishes.`
+              }
+            >
+              Update now{update.availableVersion ? ` to ${update.availableVersion}` : ''}
+            </button>
+          )}
+        </span>
+      )}
       <button type="button" className="btn btn-quiet btn-xs" onClick={onSyncNow} disabled={!status || dot === 'busy'} title={`Commit and push now (${kbd('mod', 'shift', 'S')})`}>
         Sync now
       </button>

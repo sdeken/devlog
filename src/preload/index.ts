@@ -38,6 +38,8 @@ const api = {
     info: (): Promise<RepoInfo | null> => ipcRenderer.invoke(IPC.repoInfo),
     chooseDirectory: (): Promise<string | null> => ipcRenderer.invoke(IPC.repoChooseDirectory),
     /** Is this folder a git working copy? Resolves subfolders to the repository root. */
+    /** Import your own commits from the last `days` days of a repository linked to the canvas. Resolves to how many were added. */
+    importHistory: (canvasId: string, repoPath: string, days: number): Promise<number> => ipcRenderer.invoke(IPC.repoImportHistory, canvasId, repoPath, days),
     inspectWorkingCopy: (dir: string): Promise<{ ok: true; root: string } | { ok: false; error: string }> => ipcRenderer.invoke(IPC.repoInspectWorkingCopy, dir),
     open: (root: string): Promise<RepoInfo> => ipcRenderer.invoke(IPC.repoOpen, root),
     create: (root: string, remoteUrl?: string): Promise<RepoInfo> => ipcRenderer.invoke(IPC.repoCreate, root, remoteUrl),
@@ -102,6 +104,8 @@ const api = {
   updates: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke(IPC.updateStatus),
     check: (): Promise<void> => ipcRenderer.invoke(IPC.updateCheck),
+    /** Restart into the downloaded update now (or as soon as it finishes downloading). */
+    installNow: (): Promise<void> => ipcRenderer.invoke(IPC.updateInstall),
     onStatus: (cb: (status: UpdateStatus) => void): Unsubscribe => on(IPC.evUpdateStatus, cb),
     /** Tell main an editor holds unsaved text so an update restart waits. */
     setEditorBusy: (busy: boolean): void => ipcRenderer.send(IPC.editorBusy, busy)

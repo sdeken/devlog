@@ -150,7 +150,7 @@ export interface Settings {
   activityInRepo: boolean
   /** Capture commits from canvas repositories as read-only blocks. */
   captureCommits: boolean
-  /** When a repository is linked, import this many days of the user's own commits. 0 disables. */
+  /** Days offered when importing a linked repository's history (the import itself is opt-in per link). */
   commitBackfillDays: number
   /** Download releases in the background and restart into them at a quiet moment. */
   autoUpdate: boolean
@@ -297,6 +297,8 @@ export interface UpdateStatus {
   availableVersion: string | null
   /** Download progress percent while downloading. */
   progress?: number
+  /** The user pressed "Update now" while the download was still running. */
+  installRequested?: boolean
   checkedAt: string | null
   error: string | null
 }

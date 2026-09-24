@@ -203,10 +203,10 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             repositories as read-only blocks
           </label>
           <div className="field-grid">
-            <label htmlFor="backfill" title="When you link a repository, this many days of your own commits are imported, dated when they were made. 0 imports nothing.">
-              Import commit history when linking (days)
+            <label htmlFor="backfill" title="When you link a repository you can choose to import your own recent commits; this is the number of days offered.">
+              Days of history offered when linking
             </label>
-            <input id="backfill" type="number" min={0} max={3650} value={form.commitBackfillDays} disabled={!form.captureCommits} onChange={(ev) => set('commitBackfillDays', Number(ev.target.value))} />
+            <input id="backfill" type="number" min={1} max={3650} value={form.commitBackfillDays} disabled={!form.captureCommits} onChange={(ev) => set('commitBackfillDays', Number(ev.target.value))} />
           </div>
           <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
         </section>

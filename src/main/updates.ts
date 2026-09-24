@@ -45,6 +45,7 @@ export class Updater extends EventEmitter {
     autoUpdater.on('update-downloaded', (info: UpdateInfo) => {
       this.downloadedAt = Date.now()
       this.set({ state: 'downloaded', availableVersion: info.version, progress: undefined, checkedAt: new Date().toISOString() })
+      if (this.status.installRequested) void this.installNow('the user asked to update now')
     })
     autoUpdater.on('error', (err) => this.set({ state: this.status.state === 'downloaded' ? 'downloaded' : 'error', error: shortError(err) }))
   }
@@ -115,6 +116,16 @@ export class Updater extends EventEmitter {
     const decision = shouldInstallNow(ctx)
     if (!decision.install) return
     await this.installNow(decision.reason)
+  }
+
+  /**
+   * "Update now": install immediately if the update is downloaded, or as soon
+   * as the download finishes. Skips the quiet-moment policy; the shutdown
+   * work (final commit and push) still runs first.
+   */
+  async requestInstall(): Promise<void> {
+    if (this.status.state === 'downloaded') return this.installNow('the user asked to update now')
+    if (this.status.state === 'downloading') this.set({ installRequested: true })
   }
 
   async installNow(reason: string): Promise<void> {

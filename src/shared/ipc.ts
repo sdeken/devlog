@@ -7,6 +7,7 @@ export const IPC = {
   repoInfo: 'repo:info',
   repoChooseDirectory: 'repo:chooseDirectory',
   repoInspectWorkingCopy: 'repo:inspectWorkingCopy',
+  repoImportHistory: 'repo:importHistory',
   repoOpen: 'repo:open',
   repoCreate: 'repo:create',
   repoSetRemote: 'repo:setRemote',
@@ -44,6 +45,7 @@ export const IPC = {
   // updates
   updateStatus: 'updates:status',
   updateCheck: 'updates:check',
+  updateInstall: 'updates:install',
   editorBusy: 'editor:busy',
   // sync
   syncNow: 'sync:now',

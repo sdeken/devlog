@@ -20,6 +20,7 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
   const [parentId, setParentId] = useState<string>(canvas?.parentId ?? (initialParentId && initialParentId !== JOURNAL_ID ? initialParentId : '') ?? '')
   const [task, setTask] = useState(canvas?.task ?? initialTask ?? false)
   const [repos, setRepos] = useState<string[]>(canvas?.repos ?? [])
+  const [importHistory, setImportHistory] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
@@ -48,6 +49,10 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
     try {
       const input = { title, parentId: parentId || null, task, repos }
       const saved = canvas ? await api.canvases.update(canvas.id, input) : await api.canvases.create(input)
+      if (importHistory) {
+        const settings = await api.settings.get()
+        for (const r of saved.repos.filter((x) => !(canvas?.repos ?? []).includes(x))) await api.repo.importHistory(saved.id, r, settings.commitBackfillDays)
+      }
       onSaved(saved)
       onClose()
     } catch (err) {
@@ -141,6 +146,12 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
           >
             + Add repository folder…
           </button>
+          {repos.some((r) => !(canvas?.repos ?? []).includes(r)) && (
+            <label className="check">
+              <input type="checkbox" checked={importHistory} onChange={(ev) => setImportHistory(ev.target.checked)} /> Import my recent commits from the newly added
+              repositories (days set in Settings)
+            </label>
+          )}
           <p className="hint">The working copies you code in. Commits land here as read-only blocks; branch switches and pushes show on the timeline.</p>
         </div>
         {canvas && (

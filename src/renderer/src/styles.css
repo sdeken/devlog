@@ -3219,3 +3219,139 @@ body[data-platform='darwin'] .topbar-left {
 .review-removed li span {
   text-decoration: line-through;
 }
+
+.link-days {
+  width: 64px;
+  margin: 0 6px;
+  padding: 2px 6px;
+  font: inherit;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.modal-link-repo h2 {
+  word-break: break-word;
+}
+
+/* ---- Block header floats over whatever is above; it takes no space ---- */
+.entry {
+  position: relative;
+}
+
+.entry:hover,
+.entry:focus-within,
+.entry.is-busy {
+  z-index: 3;
+}
+
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta {
+  position: absolute;
+  top: -13px;
+  left: 10px;
+  right: 10px;
+  min-height: 22px;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta > * {
+  pointer-events: auto;
+}
+
+.entry:not(.entry-editing):not(.entry-dated):hover > .entry-meta,
+.entry:not(.entry-editing):not(.entry-dated):focus-within > .entry-meta,
+.entry:not(.entry-editing):not(.entry-dated).is-busy > .entry-meta {
+  visibility: visible;
+}
+
+/* The header's pieces sit on small plates so they read over text. */
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta time,
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta .duration-chip,
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta .entry-edited,
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta .task-chip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 6px;
+  line-height: 18px;
+  opacity: 1;
+}
+
+.entry:not(.entry-editing):not(.entry-dated) > .entry-meta .entry-actions {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 1px 2px;
+}
+
+.entry-meta time {
+  opacity: 1;
+}
+
+.entry-grip {
+  background: var(--bg);
+  border-radius: 4px;
+}
+
+/* Replaces the old task stripe; the brace carries that meaning now. */
+.entry-task {
+  border-left: 0;
+  padding-left: 10px;
+}
+
+/* ---- Leading brace: automatic blocks (muted) and task blocks (accent, opens the task) ---- */
+.entry-brace {
+  position: absolute;
+  left: -7px;
+  top: 8px;
+  bottom: 8px;
+  width: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  --brace: var(--border-strong);
+}
+
+.entry-brace::before,
+.entry-brace::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  width: 5px;
+  height: calc(50% - 1px);
+  border-left: 2px solid var(--brace);
+}
+
+.entry-brace::before {
+  top: 0;
+  border-top: 2px solid var(--brace);
+  border-top-left-radius: 6px;
+  border-bottom-right-radius: 0;
+}
+
+.entry-brace::after {
+  bottom: 0;
+  border-bottom: 2px solid var(--brace);
+  border-bottom-left-radius: 6px;
+}
+
+/* The point of the brace, halfway down, facing the gutter. */
+.entry-brace {
+  background: linear-gradient(var(--brace), var(--brace)) 0 50% / 5px 2px no-repeat;
+}
+
+.brace-auto {
+  --brace: color-mix(in srgb, var(--fg-muted) 55%, transparent);
+}
+
+.brace-task {
+  --brace: var(--accent);
+  cursor: pointer;
+}
+
+.brace-task:hover {
+  --brace: color-mix(in srgb, var(--accent) 70%, var(--fg));
+}

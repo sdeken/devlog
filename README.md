@@ -20,8 +20,11 @@ tracked against; any block can become one.
   between two blocks and press **+** to insert one there, double-click a
   block (or press ↑ in the empty composer) to edit it, drag its grip to
   reorder it within the day, or **Hide** it to collapse it into a one-line
-  stub. Timestamps stay out of the way until you hover. Blocks on past days
-  work the same way.
+  stub. Timestamps and actions take no space: on hover they float over
+  whatever sits above the block. Blocks you wrote have no marker; blocks the
+  app created carry a leading brace, muted for captured commits and in the
+  accent colour for task blocks (click it to open the task). Blocks on past
+  days work the same way.
 - **Canvases nest however you slice your work.** Besides the journal, make a
   canvas per client, with project canvases inside it, with task canvases
   inside those; or flatter, or deeper. The sidebar is the tree. "Website"
@@ -265,9 +268,9 @@ commits already captured. A linked folder that is no longer a repository is
 flagged with ⚠. Link it to the client: one client is usually one
 branch at a time, and the routing below does the rest.
 
-- **History comes in.** Linking imports your own commits from the last 30
-  days (Settings → *Import commit history when linking*; 0 turns it off),
-  dated when they were made, so the stream is not empty from day one.
+- **History, if you want it.** The link dialog offers to import your own
+  commits from the last 30 days (the number is in Settings), dated when they
+  were made. It is off by default; linking alone only captures new commits.
 - **New commits land where you are working.** Devlog watches the
   repository's reflogs and, on every commit, adds a read-only block: repo,
   branch, short hash and message. If the active task sits beneath the linked
@@ -370,7 +373,10 @@ the app is not in use: the screen is locked, the window is hidden or
 unfocused and there has been no input for a while, or an update has been
 waiting for a day and you pause typing. An open edit, reply, insert or an
 unsaved surface change always holds the restart. There is no prompt; Settings
-shows the version and update state and has a switch to turn it off. The
+shows the version and update state and has a switch to turn it off. When an
+update is available, **Update now** in the status bar restarts into it right
+away (or as soon as the download finishes), after the usual final commit and
+push. The
 active task survives the restart, so tracking loses only a few seconds.
 
 To cut a release, bump the version and tag it:
