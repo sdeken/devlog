@@ -35,7 +35,7 @@ An npm package whose `package.json` has a `devlog` field:
     "displayName": "Jira time export",
     "renderer": "dist/renderer.js",  // optional: block renderers (sandboxed)
     "contributes": {
-      "exporters": [{ "id": "jira", "label": "Jira worklogs" }],
+      "destinations": [{ "id": "jira", "label": "Jira worklogs" }],
       "canvasFields": [{ "key": "issue", "label": "Jira issue", "placeholder": "ACME-123" }],
       "settings": [{ "key": "baseUrl", "label": "Jira URL" }],
       "secrets": [{ "key": "token", "label": "API token" }]
@@ -49,7 +49,7 @@ An npm package whose `package.json` has a `devlog` field:
   app refuses a package with runtime `dependencies`. Installing is then
   "fetch one tarball, check its hash, unpack", with no dependency tree to
   resolve, audit or trust.
-- **`contributes`** declares everything the app shows (exporters in the
+- **`contributes`** declares everything the app shows (destinations in the
   review, fields in the canvas dialog, settings, secret prompts) so the UI can
   be built without running the extension.
 - **`permissions`** are shown to the user before first activation and
@@ -91,7 +91,8 @@ already the notebook's manifest.
   `ext.@sdeken/devlog-jira.issue: ACME-123`. They follow the canvas through
   renames and moves, and the canvas dialog shows them as ordinary fields
   (from `contributes.canvasFields`). Task canvases inherit from the nearest
-  ancestor that sets one, like time already rolls up in the review.
+  ancestor that sets one, like time already rolls up in the review. Mappings
+  and rules that change over time are dated (see `TIMESHEETS.md`).
   *Prerequisite:* the `canvas.md` parser currently drops unknown keys; it
   must preserve them.
 
@@ -139,7 +140,7 @@ The app makes that trust explicit and hard to grant by accident:
 
 Two halves, both optional:
 
-- **Main half** (`main`): exporters, commands, anything that talks to
+- **Main half** (`main`): destinations, commands, anything that talks to
   the network. Runs in an Electron `utilityProcess` per extension: a crash
   or hang cannot take the app down, and it can be restarted or disabled. It
   talks to the app over a message channel exposing the API below.
@@ -157,7 +158,7 @@ export function activate(ctx: DevlogContext): void | Promise<void>
 interface DevlogContext {
   devlog: {
     canvases(): Promise<CanvasMeta[]>                  // with this extension's canvas fields
-    week(start: string): Promise<TimeRow[]>            // the review's rows: date × canvas, minutes, source
+    timesheet(weekStart: string): Promise<Timesheet>   // the approved timesheet (see TIMESHEETS.md)
     blocks(canvasId: string, date: string): Promise<Entry[]>
     addBlock?(canvasId: string, markdown: string, opts: { kind: string; meta?: Record<string, string> }): Promise<Entry> // needs writeBlocks
   }
@@ -165,35 +166,26 @@ interface DevlogContext {
   secrets: { get(key: string): Promise<string | undefined>; set(key: string, value: string): Promise<void> }
   local: { get<T>(key: string): T | undefined; set(key: string, value: unknown): Promise<void> }
   ui: { notify(message: string): void; confirm(message: string): Promise<boolean> }
-  exporters: { register(id: string, exporter: Exporter): void }
+  destinations: { register(id: string, destination: Destination): void }
   commands: { register(id: string, label: string, run: () => Promise<void>): void }
 }
 
-interface Exporter {
-  /** Rows this exporter can take, with the target each maps to (issue key, project…). */
-  plan(rows: TimeRow[], ledger: LedgerEntry[]): Promise<PlannedExport[]>
-  /** Send; return the external id per row so the ledger can prevent resubmission. */
-  submit(planned: PlannedExport[]): Promise<ExportResult[]>
+interface Destination {
+  /** Group an approved timesheet's entries into this system's lines (mapping, grouping, rules). */
+  lines(sheet: Timesheet, settings: DatedSettings, sent: SentRecord[]): Promise<DestinationPreview>
+  /** Send the lines; return an external id per line for the record. */
+  submit(lines: DestinationLine[]): Promise<SubmitResult[]>
 }
 ```
 
 ## Time export (#2)
 
-1. In the weekly review, **Export** lists the exporters this devlog enables.
-2. The app gives the exporter the review's rows (same rounding as the review)
-   and the ledger; the exporter plans rows → targets, subtracting what was
-   already sent.
-3. Preview: day, target, hours, and optionally a comment built from that
-   day's blocks. Nothing is sent before the user confirms.
-4. Submit; the result per row goes into the **export ledger**, which is
-   non-secret and lives in the devlog as append-only JSON lines
-   (`exports/<extension>/YYYY/MM.jsonl`, union-merged like the activity
-   log): target, day, minutes, external id. Pressing Export again, or on
-   another machine, sends only the difference (or nothing).
-
-Jira: `POST /rest/api/3/issue/{key}/worklog` with an API token. CMS: depends
-on what it accepts (API, form post, or browser automation as a last resort);
-its exporter is where that knowledge lives.
+See `TIMESHEETS.md`. Time goes through a weekly **timesheet** (core): a
+synopsis you review and shuffle, rounded once to quarter hours, stored in a
+managed *Timesheets* canvas together with a record of every submission.
+Extensions contribute **destinations** (Jira by task with start times, CMS
+by client with a weekly cap): mapping fields, grouping, destination rules,
+and sending.
 
 ## Custom block kinds (#3)
 
@@ -209,10 +201,11 @@ its exporter is where that knowledge lives.
 1. Core plumbing: `devlog.json` extensions + lockfile, preserving unknown
    `canvas.md` keys, `safeStorage` secret store, `pacote` install into user
    data, consent prompt, `utilityProcess` host, `@devlog/extension-api` with
-   a test harness. A trivial example extension (CSV exporter, #4) proves the
+   a test harness. A trivial example extension proves the
    loop end to end.
-2. Export flow in the review: preview, ledger, retries. Jira exporter.
-3. CMS exporter.
+2. Timesheets in core and the app: draft, grid, managed canvas, send
+   record (`TIMESHEETS.md`); CSV destination.
+3. Jira and CMS destinations.
 4. Renderer half: sandboxed block renderers; then Outlook as the first real
    custom block kind.
 
@@ -229,7 +222,5 @@ its exporter is where that knowledge lives.
    permission model is cheap; hard network allow-listing is not (it needs
    the network to go through the app). Is "shown and consented, enforced
    where cheap" enough for extensions you write yourself?
-4. **Ledger granularity.** One ledger line per day × target (proposed), or
-   per submission batch?
-5. **Scheduled exports.** Only by button (proposed), or also "every Friday
+4. **Scheduled exports.** Only by button (proposed), or also "every Friday
    at 17:00, ask me"?
