@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { buildTree, type EntryNode } from '@devlog/core'
+import { buildTree, previewText, type EntryNode } from '@devlog/core'
 import { JOURNAL_ID, canvasLabel } from '@devlog/core'
 import type { CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { Composer } from './Composer'
@@ -160,6 +160,23 @@ function HiddenGroup({ count, open, onToggle }: { count: number; open: boolean; 
   )
 }
 
+/** Completed todos ticked off in a row, folded into one line; click to see the blocks. */
+function DoneGroup({ nodes, open, onToggle }: { nodes: EntryNode[]; open: boolean; onToggle: () => void }): React.JSX.Element {
+  const titles = nodes.map((n) => previewText(n.entry.markdown.replace(/^\s*✓\s*/, ''), 80))
+  return (
+    <button type="button" className={`done-stub${open ? ' is-open' : ''}`} onClick={onToggle} title={open ? 'Collapse again' : titles.join('\n')}>
+      <span className="entry-brace brace-auto" aria-hidden="true" />
+      <span className="done-count">
+        {open ? '▾' : '▸'} ✓ {nodes.length} todos done
+      </span>
+      {!open && <span className="done-titles">{titles.join(' · ')}</span>}
+    </button>
+  )
+}
+
+/** A completed-todo block with nothing hanging off it: these fold together when they come in a row. */
+const isFoldableDone = (node: EntryNode): boolean => node.entry.kind === 'done' && !node.entry.hidden && node.children.length === 0
+
 function DayGroup({
   day,
   isToday,
@@ -194,16 +211,30 @@ function DayGroup({
   const [drop, setDrop] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
   const dragging = useRef<string | null>(null)
 
-  // Consecutive hidden roots collapse into one stub, keyed by the first id in the run.
-  const items: Array<{ kind: 'node'; node: EntryNode; index: number } | { kind: 'hidden'; key: string; nodes: EntryNode[]; index: number }> = []
+  // Consecutive hidden roots collapse into one stub, and so do consecutive completed todos;
+  // each run is keyed by its first id.
+  type Run = { kind: 'hidden' | 'done'; key: string; nodes: EntryNode[]; index: number }
+  const items: Array<{ kind: 'node'; node: EntryNode; index: number } | Run> = []
   for (let i = 0; i < roots.length; i++) {
     const node = roots[i]
-    if (node.entry.hidden) {
-      const prev = items[items.length - 1]
-      if (prev && prev.kind === 'hidden') prev.nodes.push(node)
-      else items.push({ kind: 'hidden', key: node.entry.id, nodes: [node], index: i })
-    } else items.push({ kind: 'node', node, index: i })
+    const runKind = node.entry.hidden ? 'hidden' : isFoldableDone(node) ? 'done' : null
+    const prev = items[items.length - 1]
+    if (runKind && prev && prev.kind === runKind) prev.nodes.push(node)
+    else if (runKind) items.push({ kind: runKind, key: node.entry.id, nodes: [node], index: i })
+    else items.push({ kind: 'node', node, index: i })
   }
+  // A single completed todo shows as the block it is.
+  for (let i = 0; i < items.length; i++) {
+    const item = items[i]
+    if (item.kind === 'done' && item.nodes.length === 1) items[i] = { kind: 'node', node: item.nodes[0], index: item.index }
+  }
+  const toggle = (key: string): void =>
+    setRevealed((s) => {
+      const n = new Set(s)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      return n
+    })
 
   const onDragOver = (ev: React.DragEvent<HTMLDivElement>, id: string): void => {
     if (!onReorder || !dragging.current || dragging.current === id) return
@@ -276,21 +307,21 @@ function DayGroup({
       </div>
       {items.map((item) => {
         if (item.kind === 'node') return renderNode(item.node, item.index)
+        if (item.kind === 'done') {
+          const key = `done:${item.key}`
+          const open = revealed.has(key)
+          return (
+            <div key={key} className="done-run">
+              <InsertGap canvasId={canvasId} date={day.date} position={item.index === 0 ? { beforeId: item.key } : { afterId: roots[item.index - 1].entry.id }} onAdd={onAdd} />
+              <DoneGroup nodes={item.nodes} open={open} onToggle={() => toggle(key)} />
+              {open && item.nodes.map((node, j) => renderNode(node, item.index + j, ' is-done-run'))}
+            </div>
+          )
+        }
         const open = revealed.has(item.key)
         return (
           <div key={`hidden-${item.key}`} className="hidden-run">
-            <HiddenGroup
-              count={item.nodes.length}
-              open={open}
-              onToggle={() =>
-                setRevealed((s) => {
-                  const n = new Set(s)
-                  if (n.has(item.key)) n.delete(item.key)
-                  else n.add(item.key)
-                  return n
-                })
-              }
-            />
+            <HiddenGroup count={item.nodes.length} open={open} onToggle={() => toggle(item.key)} />
             {open && item.nodes.map((node, j) => renderNode(node, item.index + j, ' is-hidden'))}
           </div>
         )

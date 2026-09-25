@@ -651,6 +651,22 @@ try {
   await page.locator('.todo-panel .todo-done-toggle').click()
   check((await page.locator('.todo-panel .todo.is-done').count()) === 1, 'it is listed under Done')
 
+  // Ticking several in a row folds their done blocks into one line in the stream.
+  await page.locator('.todo-panel .todo:not(.is-done)', { hasText: 'Renew the staging certificate' }).locator('.todo-check').check()
+  await page.waitForSelector('.done-stub', { timeout: 10_000 })
+  check((await page.locator('.done-stub .done-count').textContent()).includes('2 todos done'), 'two done blocks in a row fold into one line')
+  check((await page.locator('.done-stub .done-titles').textContent()).includes('Send Dana the redirect list · Renew the staging certificate'), 'the folded line names the todos')
+  check((await page.locator('.done-run .entry').count()) === 0, 'folded, the individual done blocks are out of the way')
+  await page.locator('.done-stub').scrollIntoViewIfNeeded()
+  await page.screenshot({ path: path.join(shots, '02g0-done-folded.png') })
+  await page.locator('.done-stub').click()
+  await page.waitForFunction(() => document.querySelectorAll('.done-run .entry').length === 2, null, { timeout: 5_000 })
+  check(true, 'clicking the line shows the individual done blocks')
+  await page.locator('.done-stub').click()
+  await page.locator('.todo-panel .todo.is-done', { hasText: 'Renew the staging certificate' }).locator('.todo-check').uncheck()
+  await page.waitForFunction(() => !document.querySelector('.done-stub'), null, { timeout: 10_000 })
+  check((await page.locator('.entry').last().locator('.entry-body').textContent()).includes('✓ Send Dana the redirect list'), 'unticking leaves a single done block, shown as itself')
+
   // Scope: "Here" is this canvas and what is inside it; the journal shows everything.
   await page.evaluate(() => window.devlog.todos.add('journal', ['Water the plants']))
   await page.locator('.todo-panel .todo-scope').click()

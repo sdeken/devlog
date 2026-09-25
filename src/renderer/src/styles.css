@@ -3042,6 +3042,50 @@ body[data-platform='darwin'] .topbar-left {
   opacity: 0.6;
 }
 
+/* Completed todos ticked off in a row: one quiet line, like an automatic block. */
+.done-stub {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: left;
+  /* Lines up with ordinary blocks (.entry). */
+  padding: 8px 10px;
+  margin: 0 -10px;
+  width: calc(100% + 20px);
+  border-radius: 8px;
+}
+
+.done-stub .entry-brace {
+  top: 6px;
+  bottom: 6px;
+}
+
+.done-stub:hover {
+  color: var(--fg);
+  background: var(--bg-2);
+}
+
+.done-count {
+  flex: none;
+  font-weight: 600;
+}
+
+.done-titles {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
 /* ---- Start menu in the status bar ---- */
 .start-wrap {
   position: relative;
