@@ -116,36 +116,44 @@ existing devlog** (a clone from another machine).
 
 ```
 README.md
+devlog.json                       ← { "format": 2 }: the storage format
 entries/                          ← the journal
   2026/
     09/
       2026-09-19.md
       assets/
         2026-09-19-143201-a1b2.png
+  todos.md                        ← the journal's todo list
 canvases/
-  acme-corp/                      ← a canvas (a client)
-    canvas.md                     ← title, parent, task flag, repos, archived flag + the surface
-    assets/                       ← images pasted into the surface
-    entries/2026/09/2026-09-19.md ← its stream, same day-file format
-  website/                        ← another canvas, parent: acme-corp
-    canvas.md
-    entries/…
-  fix-the-login-redirect/         ← a task canvas, parent: website
-    canvas.md                     ← task: true
-    entries/…
+  k3/                             ← shard: the first two characters of the id
+    k3m9x2q7vd/                   ← a canvas (a client, "Acme Corp")
+      canvas.md                   ← title, parent, task flag, repos, archived flag + the surface
+      todos.md                    ← its todo list
+      assets/                     ← images pasted into the surface
+      entries/2026/09/2026-09-19.md ← its stream, same day-file format
+  7w/
+    7wq0dz4hbe/                   ← "Website", parent: k3m9x2q7vd
+    …
+activity/
+  desktop-4f1a/2026/09/2026-09-19.jsonl  ← activity log, one folder per machine
+  laptop-9c02/…
 ```
 
-Canvas folders are flat and named by a slug of the title (made unique with
-`-2`, `-3`…); the hierarchy is the `parent` line in `canvas.md`, so renaming
-or moving a canvas never moves files or breaks history. `canvas.md` is a
-short front-matter block followed by the surface:
+Canvases are named by a random 10-character id (lowercase letters and digits,
+without the easily confused i, l, o and u) and filed in a folder named after
+its first two characters, so no folder ever holds more than a few hundred
+entries however many years of clients and tasks pile up. Titles, the
+hierarchy (the `parent` line) and everything else live in `canvas.md`, so
+renaming or moving a canvas never moves files or breaks history. `canvas.md`
+is a short front-matter block followed by the surface:
 
 ```markdown
 ---
 title: Website
-parent: acme-corp
+parent: k3m9x2q7vd
 created: 2026-09-19T10:00:00.000Z
 repo: C:\src\acme-site
+alias: website
 ---
 
 Marketing site rebuild. Weekly sync on Tuesdays.
@@ -153,8 +161,37 @@ Marketing site rebuild. Weekly sync on Tuesdays.
 - Tracker: https://issues.example.com/acme
 ```
 
-A devlog written by Devlog 0.2 (with `pages/` and `categories/`) is migrated
-into this layout the first time it is opened; nothing is thrown away.
+`alias` lines record ids a canvas had before (see *Upgrading* below), so old
+activity logs and links still find it.
+
+### Upgrading older devlogs
+
+Devlog 0.4 changed the storage layout (format 2 above). Opening an older
+devlog upgrades it once, automatically:
+
+1. **Pull first** (when a remote is configured and reachable), so the upgrade
+   covers everything already pushed from your other machines.
+2. **Migrate.** Canvases move from `canvases/<slug>/` to
+   `canvases/<xx>/<id>/`; every reference (parents, task links, todo links,
+   image paths in blocks and surfaces) is rewritten; block files are
+   rewritten in the new block format; the old folder name becomes an
+   `alias`. The new tree is built in `.devlog-migrate/` and swapped in at the
+   end, so an interrupted upgrade is rolled back (or finished) on the next
+   open rather than left half done.
+3. **Commit** it as its own commit, `devlog: migrate to storage format 2`,
+   and push.
+
+The migration is deterministic: an upgraded canvas's id is derived from its
+old folder name, so two machines that upgrade the same history produce
+byte-identical files. If another machine already pushed the upgrade, this one
+just pulls it; if this machine also has unsynced changes from before the
+upgrade, it migrates them the same way and merges, instead of replaying them
+onto the moved files. Devlog 0.2 devlogs (`pages/` and `categories/`) go
+through the same upgrade.
+
+**Update the app on every machine before opening the devlog there:** Devlog
+0.3 cannot read the new layout (it would show an empty sidebar; nothing is
+lost, but it would not see new work either).
 
 ## Canvases, surfaces and tasks
 
@@ -224,7 +261,7 @@ collapses to a thin strip showing the open count.
   writes a read-only "✓ …" block into today's stream on that canvas, marked
   with the automatic brace. Unticking the same day removes that block again.
 
-Todos are blocks, stored per canvas in `canvases/<id>/todos.md` (the
+Todos are blocks, stored per canvas in `canvases/<xx>/<id>/todos.md` (the
 journal's in `entries/todos.md`) in the same format as day files, comments
 included. They are searched along with everything else.
 
@@ -278,9 +315,17 @@ session that you alt-tabbed out of and back into five times shows as 20
 minutes of Outlook.
 
 Everything the tracker sees goes to an append-only activity log, one JSON
-file per day (`activity/YYYY/MM/YYYY-MM-DD.jsonl`). By default it lives in the
-app's data folder; Settings can move it into the devlog repository so it syncs
-(window titles included, so consider what they contain). Recorded events:
+file per day and one folder per machine
+(`activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl`, where `<machine>` is the host
+name plus a short id kept in the app's data folder). By default it lives in
+the devlog repository, so the review and timeline add up time from every
+machine you work on (window titles included, so consider what they contain);
+Settings can keep it on this machine only. Each machine only appends to its
+own files, so syncing never conflicts. Each machine's events are replayed on
+their own (locking the laptop does not pause the desktop), and where two
+machines both tracked time at once, the task picked or machine woken most
+recently wins, so no minute is counted twice. Removing time in the review
+applies whichever machine tracked it. Recorded events:
 task switches, lock/unlock, idle/active, sleep/wake, app start/stop, a
 heartbeat, foreground-window changes (process name and window title, which
 for browsers is the active tab), and git events from watched repositories. Focus tracking uses a small PowerShell helper
@@ -351,31 +396,39 @@ recorded" line. Click a block to open it on its canvas.
 A day file looks like this:
 
 ```markdown
+<!-- devlog:format 2 -->
 # 2026-09-19
 
 <!-- devlog:entry id=k3j9d2ab created=2026-09-19T14:32:01.000Z -->
-### 14:32
-
 Started on the git sync. Pull before push, rebase on conflicts.
 
 ![shot](assets/2026-09-19-143201-a1b2.png)
 
 <!-- devlog:entry id=p0q1r2s3 parent=k3j9d2ab created=2026-09-19T15:02:00.000Z -->
-#### ↳ 15:02
-
 A reply in the thread under the first note.
 
-<!-- devlog:entry id=q8v1m0zz created=2026-09-19T17:45:00.000Z updated=2026-09-19T17:50:12.000Z -->
-### 17:45
-
-Done. **Ship it.**
+<!-- devlog:entry id=q8v1m0zz created=2026-09-19T17:45:00.000Z updated=2026-09-19T17:50:12.000Z kind=task canvas=7wq0dz4hbe -->
+Fix the login redirect
 ```
 
-The HTML comment carries each block's id, optional `parent`, kind
-(`commit`, or `task` with the task canvas's id) and timestamps, and is
-invisible when rendered; the time heading is regenerated from the timestamp
-(`↳` and a deeper heading level mark replies). File order is display order,
-so inserted blocks stay where you put them.
+The HTML comment carries each block's id, optional `parent`, kind (`commit`,
+`done`, or `task` with the task canvas's id), `hidden` flag and timestamps,
+and is invisible when rendered. It is the only structure in the file: a line
+in a block that looks like a marker is escaped with one extra backslash on
+disk (and unescaped on reading), so nothing you type or paste can split or
+merge blocks. File order is display order, so inserted blocks stay where you
+put them. Files written before format 2 also carried a time heading per block
+(`### 14:32`); those are still read.
+
+## Search and the local index
+
+Listings, timelines and search are served from a small SQLite database in
+the app's data folder (`index/`), not from the repository, with a trigram
+full-text index so search finds any substring, in blocks, todos and
+surfaces, newest first. It is only a cache: the store updates it with every
+write, and it re-reads files that changed on disk when a devlog is opened,
+after a pull, and when the window regains focus (so edits made outside the
+app show up too). Delete it any time; it is rebuilt from the files.
 
 ## Sync behaviour
 
@@ -384,11 +437,13 @@ so inserted blocks stay where you put them.
 | Post / edit / delete / paste  | File written immediately; a commit is scheduled (default 30s) |
 | Every N minutes (default 5)   | Commit if dirty, fetch, pull `--rebase` if behind, push        |
 | **Sync now** (⌘⇧S)            | Same, immediately                                             |
-| App start                     | Pull (if a remote is configured)                              |
+| App start                     | Pull (if a remote is configured); upgrade an older layout first |
 | App quit                      | Commit and push pending changes (up to 20s)                   |
 
 The status bar shows the current state (uncommitted changes, committing,
-pushing, up to date, error) and the branch. Errors such as a failed push are
+pushing, up to date, error) and the branch; the activity log is committed
+with every sync but does not count as uncommitted changes. A pull that
+conflicts is backed out (never left half-rebased) and reported. Errors such as a failed push are
 shown and retried on the next tick; nothing is ever lost because the files are
 already on disk.
 
@@ -428,6 +483,7 @@ macOS builds still run but will not self-update.
 npm run typecheck   # main + renderer
 npm test            # unit tests: file format, store, git sync (uses a local bare remote)
 npm run smoke       # builds, then drives the real app with Playwright (needs a display; use xvfb-run on Linux)
+node scripts/smoke-migrate.mjs  # after a build: opens a Devlog 0.3 repository and checks the upgrade
 npm run screens     # builds, seeds a demo devlog and screenshots every view in light and dark mode
 ```
 
@@ -440,16 +496,19 @@ Code map:
 
 | Path                              | Purpose                                                        |
 | --------------------------------- | -------------------------------------------------------------- |
-| `src/shared/entries.ts`           | Day-file format: parse/serialize, path helpers, image rewriting |
-| `src/shared/canvases.ts`          | Canvas files, slugs, hierarchy helpers, legacy layout parsing |
+| `packages/core/`                 | `@devlog/core`: the data layer; the only code that touches a devlog repository |
+| `packages/core/src/format/`       | Block and canvas file formats, ids, hierarchy helpers          |
+| `packages/core/src/node/store.ts` | `DevlogStore`: canvases, blocks, todos, assets                 |
+| `packages/core/src/node/repoIndex.ts` | `RepoIndex`: SQLite cache for listings and full-text search |
+| `packages/core/src/node/migrate.ts` | Storage format upgrades, including across machines         |
+| `packages/core/src/node/sync.ts`  | `SyncManager`: commit / pull / push scheduler on `simple-git`  |
+| `packages/core/src/node/activityLog.ts` | Per-machine append-only activity log                   |
 | `src/shared/theme.ts`             | Colour presets and derived theme variables                     |
 | `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
-| `src/main/activity/`              | Activity log, tracker (lock/idle/focus), commit watcher         |
+| `src/main/activity/`              | Tracker (lock/idle/focus), commit watcher                      |
 | `src/main/updates.ts`             | Silent auto-update via electron-updater and GitHub Releases    |
 | `src/shared/updates.ts`           | Pure "is now a good moment to restart" policy                  |
-| `src/main/devlog/store.ts`        | Reads/writes entries and assets inside the repo                |
-| `src/main/devlog/sync.ts`         | Commit / pull / push scheduler on top of `simple-git`          |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |
 | `src/main/ipc.ts`, `src/preload/` | IPC surface exposed to the renderer as `window.devlog`         |
 | `src/renderer/src/components/`    | React UI: top bar, sidebar tree, canvas view, composer, settings |

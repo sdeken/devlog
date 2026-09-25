@@ -21,12 +21,23 @@
                            │ ipcRenderer.invoke / events
 ┌──────────────────────────▼───────────────────────────────┐
 │ main                                                      │
-│  DevlogStore   reads/writes day files + assets            │
-│  SyncManager   simple-git: commit / fetch / rebase / push │
-│  protocol      devlog://asset/<repo path>  → file bytes   │
-│  SettingsStore userData/settings.json                     │
+│  @devlog/core/node (packages/core) — the only code that   │
+│  touches the repository:                                  │
+│    DevlogStore   canvases, blocks, todos, assets          │
+│    RepoIndex     SQLite cache: listings + full-text search│
+│    SyncManager   simple-git: commit / fetch / rebase / push│
+│    ActivityLog   per-machine JSON-lines log               │
+│    migrate       storage format upgrades                  │
+│  Tracker, CommitWatcher, protocol, SettingsStore, updater │
 └───────────────────────────────────────────────────────────┘
 ```
+
+The data layer is its own package, `@devlog/core`, with no Electron
+dependency: a pure entry (types, file formats, hierarchy helpers, also used
+by the renderer) and a Node entry (store, index, sync, activity log,
+migrations). The desktop app is one client of it; an API server or CLI could
+be another. Keeping every file-format rule and every write in one unit-tested
+package is the point: nothing else opens a day file.
 
 The renderer never touches the file system. It sends Markdown strings and
 image bytes over IPC; the main process owns all paths, git and the asset
@@ -36,37 +47,45 @@ outside the open repository.
 
 ## Storage format
 
+- `devlog.json` – `{ "format": 2 }`, the storage format version.
 - `entries/YYYY/MM/YYYY-MM-DD.md` – the journal, one file per local day.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
-- `canvases/<id>/canvas.md` + `canvases/<id>/entries/…` – every other
-  canvas, in the same day-file layout (see **Canvases** below).
+- `canvases/<xx>/<id>/canvas.md` + `…/entries/…` + `…/todos.md` – every
+  other canvas, in the same day-file layout (see **Canvases** below).
+- `activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl` – the activity log.
 
-Each block is delimited by
-`<!-- devlog:entry id=… [parent=…] created=… [updated=…] -->`.
+Each block file starts with `<!-- devlog:format 2 -->` and each block is
+delimited by
+`<!-- devlog:entry id=… [parent=…] created=… [updated=…] [kind=…] [hidden=1] [key=value…] -->`.
 Reasons for this over alternatives:
 
 - **One file per day, not per post.** Reads naturally on GitHub and in an
   editor; commits are "today's page changed" rather than a pile of tiny
   files. Per-post metadata still needs to live somewhere, hence the marker.
 - **HTML comment marker, not a heading convention.** Headings are user
-  content; a comment is invisible when rendered and unlikely to be typed by
-  hand. The `### HH:MM` line after it is purely cosmetic and regenerated.
+  content; a comment is invisible when rendered. The marker is the *only*
+  structure: format 1 also wrote a cosmetic `### HH:MM` heading after each
+  marker, which meant a user's own H3 at the top of a block could be taken
+  for it. Format 2 drops the heading, and any body line that looks like a
+  marker (`<!-- devlog:…`, possibly after backslashes) gets one more leading
+  backslash on disk and loses it on reading, so no text can split or merge
+  blocks. A seeded fuzz test round-trips hostile bodies.
 - **Day-relative image paths on disk, repo-relative in memory.** On disk
   `![shot](assets/x.png)` renders on GitHub. In memory everything is
   normalised to `entries/2026/09/assets/x.png` so the renderer and the asset
   protocol can resolve an image without knowing which file it came from, and
   an image pasted at 23:59 still resolves when the post lands in the next
   day's file (`../09/assets/x.png`).
-- Parsing tolerates hand edits: missing ids get generated, missing time
-  headings are fine, CRLF is fine, dangling `parent` links become top-level
-  notes, and anything before the first marker is ignored rather than
-  destroyed.
+- Parsing tolerates hand edits: missing ids get generated, CRLF is fine,
+  dangling `parent` links become top-level notes, and anything before the
+  first marker is ignored rather than destroyed. Format 1 files are still
+  read (their time headings are dropped).
 
 ### Notes as nodes
 
 Notes form a tree: a flat, ordered list where a reply carries `parentId`.
 File order is display order; nothing is sorted by time. The helpers in
-`src/shared/entries.ts` (`insertEntry`, `removeSubtree`, `buildTree`) are the
+`packages/core/src/format/blocks.ts` (`insertEntry`, `removeSubtree`, `buildTree`) are the
 only code that reasons about positions:
 
 - **Reply** → appended after the last descendant of the parent, so a thread
@@ -85,17 +104,22 @@ There is one container type. A **canvas** has a title, an optional parent,
 a task flag, a list of repositories, an archived flag, a *surface* (free
 markdown) and a *stream* (day files of blocks). The journal is the built-in
 root canvas whose stream lives at `entries/`; every other canvas lives under
-`canvases/<id>/` with `canvas.md` holding a tiny `key: value` front matter
+`canvases/<xx>/<id>/` with `canvas.md` holding a tiny `key: value` front matter
 followed by the surface markdown. No YAML library: the parser accepts
 `key: value` lines and quoted values only.
 
-Ids are slugs of the title made unique (`website`, `website-2`), and the
-hierarchy is `parent: <id>` in the front matter, not the folder path. This
-was a deliberate trade against a nested directory tree: ids are what the
-activity log, task blocks and tracker state point at, and a rename or a move
-under a different client must not invalidate a month of time records or
-relocate files in git. `canvasPath` / `canvasLabel` in
-`src/shared/canvases.ts` walk parents for display, `buildCanvasTree` nests
+Ids are random: 10 characters from `0-9a-z` minus `i l o u` (about 50
+bits), so two machines creating canvases offline never collide, and a
+canvas folder lives in a shard named after the id's first two characters,
+which keeps every directory small for decades of task canvases. (Format 1
+used title slugs in one flat folder: readable, but they collided across
+machines and made `canvases/` one enormous directory.) The hierarchy is
+`parent: <id>` in the front matter, not the folder path. This was a
+deliberate trade against a nested directory tree: ids are what the activity
+log, task blocks and tracker state point at, and a rename or a move under a
+different client must not invalidate a month of time records or relocate
+files in git. `alias: <old id>` lines keep older ids resolvable. `canvasPath` / `canvasLabel` in
+`packages/core/src/format/canvases.ts` walk parents for display, `buildCanvasTree` nests
 for the sidebar (non-tasks before tasks, then by title), and a canvas whose
 parent has gone simply shows at the top level.
 
@@ -162,15 +186,50 @@ returns archived hits with a badge. Archiving a canvas flags every canvas
 beneath it; unarchiving reverses the same set. Keeping it a flag means git
 history stays linear and a mistaken archive is a one-line change.
 
-**Migration.** Devlog 0.2 stored `pages/<slug>/page.md` with a category path
-string, and `categories/<slugs>/wiki.md` per path node. `migrateLegacyLayout`
-runs once when such a repository is opened: each category path becomes a
-chain of canvases (ids slugged from the full path, `acme-corp-web`), wiki
-text and assets become that canvas's surface, and each page folder moves to
-`canvases/<slug>/` with its parent set to the deepest category canvas and
-its description as the surface. Day files move untouched; their relative
-image links are the same depth in both layouts. The activity log keeps its
-old `pageId` field and is read as `canvasId`.
+**Migrations** (`packages/core/src/node/migrate.ts`) run when a repository
+is opened, before anything reads it. Devlog 0.2's `pages/` + `categories/`
+become format 1 canvases (category paths become chains of canvases, wikis
+become surfaces); format 1 becomes format 2:
+
+- **Staged and swapped.** The new `canvases/` and `entries/` trees are built
+  in `.devlog-migrate/` (git-ignored); the old ones are moved aside to
+  `.devlog-migrate-old/`, the new ones moved in, and `devlog.json` written
+  last. On the next open, leftovers are rolled back (no manifest yet) or
+  cleaned up (manifest present), so an interrupted upgrade never leaves a
+  half-migrated tree.
+- **Deterministic.** A migrated canvas's id is a hash of its old folder name
+  (collisions resolved in sorted order), and every file is re-serialised
+  canonically, so two machines migrating the same history get byte-identical
+  trees. That is what makes the multi-machine story work:
+  `upgradeRepository` pulls first when the remote is still format 1; pulls
+  only, when another machine already pushed the upgrade and this one has
+  nothing unsynced; and otherwise merges the remote's last format 1 commit
+  (an ordinary merge), migrates, records the remote's migration commit as
+  merged with `-s ours` (our tree is the same migration of a superset of its
+  history) and merges the remote. The obvious alternative, rebasing old
+  commits onto the migrated remote, "succeeds" because git follows the
+  renames, and splices format 1 text into format 2 files; a test covers it.
+- **References rewritten**: parents, task and todo links, and root-relative
+  image paths into moved canvases; old ids become `alias` lines, which the
+  store (`resolveCanvasId`, `aliasMap`), the tracker's persisted task and the
+  activity reader follow.
+
+### The local index
+
+`RepoIndex` is a SQLite database (Node's built-in `node:sqlite`, so no native
+module to rebuild per Electron version) in user data, keyed by the
+repository path. Tables: files (path, size, mtime), canvases (+ aliases),
+days (canvas, date, count), blocks (the parsed entry as JSON plus a
+lower-cased copy) and a contentless FTS5 table with the trigram tokenizer, so
+search is substring search like the file scan it replaced; queries under
+three characters fall back to `instr` over the lower-cased column. The store
+writes through to it synchronously after every file write, and serves
+listings and search from it once a first refresh has completed; before that
+it reads files. `refresh()` stats the known layout (not the whole repo) and
+re-parses what changed, skipping any file the store rewrote while it was
+reading. A schema version or repository change, or a corrupt file, just
+rebuilds it. The tests compare every listing and search answer from an
+indexed store with one that scans the files.
 
 ### Active task and the activity log
 
@@ -190,10 +249,18 @@ with `GetForegroundWindow` on Windows, an `osascript` loop on macOS, `xdotool`
 on Linux. They emit only on change; the tracker writes a `focus` event with
 process name and title. There are no native modules.
 
-Events go to `ActivityLog`: JSON lines, one file per local day, under
-`activity/` in user data or, by setting, in the repository. Writes never
-trigger the sync debounce (they would cause a commit every 30 s); the
-interval sync picks them up when they live in the repo. A `heartbeat` every
+Events go to `ActivityLog`: JSON lines, one file per local day, one folder
+per machine (`activity/<host>-<id>/…`, the folder name kept in
+`userData/machine.json`), in the repository by default or in user data by
+setting. A machine only ever appends to its own files, so logs never
+conflict in git. Reading merges every machine (and the pre-0.4 shared
+`activity/YYYY/…` layout) and tags each event with its machine; the
+segment builders replay each machine separately (a lock on the laptop must
+not pause the desktop) and then flatten overlaps, the later-starting segment
+winning, so time is never counted twice. Exclusions apply globally. Writes
+never trigger the sync debounce (they would cause a commit every 30 s) and do
+not count as unsaved work in the status (`quietPaths`); the interval sync
+commits them. A `heartbeat` every
 five minutes is the liveness signal: segment building treats a gap of more
 than two heartbeats as "the app was not running", so a crash cannot inflate a
 task by a weekend.
@@ -398,8 +465,9 @@ quitting can't hang on a dead network).
 
 Failure handling is deliberately boring: any error becomes
 `state: 'error'` with a short message in the status bar, and the next tick
-tries again. Rebase conflicts are reported with a hint to resolve in the
-repo; the app never force-pushes or rewrites history. `GIT_TERMINAL_PROMPT=0`
+tries again. A conflicting rebase is aborted (the tree is never left
+mid-rebase) and reported with a hint to resolve in the repo; the app never
+force-pushes or rewrites history. `GIT_TERMINAL_PROMPT=0`
 guarantees git cannot block on a credential prompt, and a 90 s silence
 timeout kills a stalled network call.
 
