@@ -525,7 +525,57 @@ try {
   check((await page.locator('.sum-children .sum-label').first().textContent()).includes('Website'), 'summary rows expand into projects')
   await page.screenshot({ path: path.join(shots, '02f-summary.png') })
 
-  // 3h. Quick switcher jumps to a canvas by fuzzy name.
+  // 3g'. Speed: with a busy day of window switching from a second machine, the review and summary still open quickly.
+  const busyDir = path.join(repo, 'activity', 'busy-machine-0000', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'))
+  await fs.mkdir(busyDir, { recursive: true })
+  const dayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  const span = Math.max(60_000, Date.now() - dayStart - 60_000)
+  const busy = [JSON.stringify({ t: new Date(dayStart).toISOString(), type: 'start', canvasId: null })]
+  for (let i = 0; i < 6000; i++) {
+    const t = new Date(dayStart + Math.floor((span * (i + 1)) / 6001)).toISOString()
+    busy.push(JSON.stringify(i % 50 ? { t, type: 'focus', app: `app${i % 7}`, title: `window ${i % 23}` } : { t, type: 'heartbeat' }))
+  }
+  await fs.writeFile(path.join(busyDir, `${ymd}.jsonl`), `${busy.join('\n')}\n`)
+  for (const [label, sel] of [
+    ['Weekly review', '.review-table'],
+    ['Summary', '.sum-list']
+  ]) {
+    await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+    await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
+    const t0 = Date.now()
+    await page.locator('.sidebar-views .view-link', { hasText: label }).click()
+    await page.waitForSelector(sel, { timeout: 60_000 })
+    const took = Date.now() - t0
+    check(took < 3000, `${label} opens quickly with a busy day of activity from two machines (${took} ms)`)
+  }
+  await fs.rm(path.join(repo, 'activity', 'busy-machine-0000'), { recursive: true, force: true })
+
+  // 3g''. Back and forward: Alt+← / Alt+→ walk the places visited (Journal → Weekly review → Summary).
+  await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
+  await page.locator('.sidebar-views .view-link', { hasText: 'Weekly review' }).click()
+  await page.waitForSelector('.review-table', { timeout: 10_000 })
+  await page.locator('.sidebar-views .view-link', { hasText: 'Summary' }).click()
+  await page.waitForSelector('.sum-list', { timeout: 10_000 })
+  await page.keyboard.press('Alt+ArrowLeft')
+  await page.waitForSelector('.review-table', { timeout: 10_000 })
+  check(true, 'Alt+← goes back to the weekly review')
+  await page.keyboard.press('Alt+ArrowLeft')
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")', { timeout: 10_000 })
+  check(true, 'Alt+← again goes back to the journal')
+  await page.keyboard.press('Alt+ArrowRight')
+  await page.waitForSelector('.review-table', { timeout: 10_000 })
+  check(true, 'Alt+→ goes forward again')
+  await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
+  await page.locator('.composer-new .composer-editor').click()
+  await page.keyboard.press('Alt+ArrowLeft')
+  await page.waitForSelector('.review-table', { timeout: 10_000 })
+  check(true, 'Alt+← works while typing in the composer')
+  await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
+
+
   await page.keyboard.press('Control+k')
   await page.waitForSelector('.switcher input', { timeout: 5_000 })
   await page.keyboard.type('websit')
@@ -626,6 +676,19 @@ try {
   check((await page.locator('.todo-expand-count').textContent()) === '2', 'collapsed, the panel still shows the open count')
   await page.locator('.todo-expand').click()
   await page.waitForSelector('.todo-panel:not(.is-collapsed)')
+  // Resizing: drag the panel's left edge; double-click resets it.
+  const panelWidth = async () => Math.round((await page.locator('.todo-panel').boundingBox()).width)
+  const panelBefore = await panelWidth()
+  const handle = await page.locator('.todo-resize').boundingBox()
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + 200)
+  await page.mouse.down()
+  await page.mouse.move(handle.x + handle.width / 2 - 60, handle.y + 200, { steps: 6 })
+  await page.mouse.up()
+  const wider = await panelWidth()
+  check(wider >= panelBefore + 50 && wider <= panelBefore + 70, `dragging the left edge widens the todo panel (${panelBefore} → ${wider} px)`)
+  check((await page.evaluate(() => localStorage.getItem('devlog:todos:width'))) === String(wider), 'the width is remembered')
+  await page.locator('.todo-resize').dblclick()
+  check((await panelWidth()) === 300, 'double-clicking the edge resets the width')
 
   await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')

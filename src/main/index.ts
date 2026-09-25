@@ -608,6 +608,8 @@ if (!gotLock) {
       summary: menuCmd('summary'),
       switcher: menuCmd('switcher'),
       timeline: menuCmd('timeline'),
+      back: menuCmd('back'),
+      forward: menuCmd('forward'),
       stopTask: () => void tracker?.setTask(null),
       quit: quitApp,
       attachImage: async () => {

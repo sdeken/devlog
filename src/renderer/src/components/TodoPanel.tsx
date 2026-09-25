@@ -20,6 +20,33 @@ interface Props {
 type Lists = Array<{ canvasId: string; entries: Entry[] }>
 
 const COLLAPSE_KEY = 'devlog:todos:collapsed'
+const WIDTH_KEY = 'devlog:todos:width'
+const DEFAULT_WIDTH = 300
+const MIN_WIDTH = 220
+const MAX_WIDTH = 720
+
+/** Keep the panel between its minimum and half the window. */
+function clampWidth(w: number): number {
+  const max = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)))
+  return Math.round(Math.min(max, Math.max(MIN_WIDTH, w)))
+}
+
+function readWidth(): number {
+  try {
+    const n = Number(localStorage.getItem(WIDTH_KEY))
+    return n > 0 ? clampWidth(n) : DEFAULT_WIDTH
+  } catch {
+    return DEFAULT_WIDTH
+  }
+}
+
+function writeWidth(w: number): void {
+  try {
+    localStorage.setItem(WIDTH_KEY, String(w))
+  } catch {
+    /* ignore */
+  }
+}
 const SCOPE_KEY = 'devlog:todos:all'
 const DRAG_MIME = 'application/x-devlog-todo'
 const timeFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -227,6 +254,31 @@ function TodoItem({
  */
 export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, onCanvasesChanged }: Props): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSE_KEY))
+  const [width, setWidth] = useState(readWidth)
+  const widthRef = useRef(width)
+  widthRef.current = width
+  const setAndSaveWidth = (w: number): void => {
+    const next = clampWidth(w)
+    setWidth(next)
+    writeWidth(next)
+  }
+  // Drag the left edge to resize; the width is remembered on this machine.
+  const startResize = (ev: React.PointerEvent<HTMLDivElement>): void => {
+    if (ev.button !== 0) return
+    ev.preventDefault()
+    const startX = ev.clientX
+    const startWidth = widthRef.current
+    document.body.classList.add('is-resizing')
+    const move = (e: PointerEvent): void => setWidth(clampWidth(startWidth + (startX - e.clientX)))
+    const up = (): void => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      document.body.classList.remove('is-resizing')
+      writeWidth(widthRef.current)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
   const [all, setAll] = useState(() => readFlag(SCOPE_KEY))
   const [lists, setLists] = useState<Lists | null>(null)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -333,7 +385,26 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
   )
 
   return (
-    <aside className="todo-panel">
+    <aside className="todo-panel" style={{ width }}>
+      <div
+        className="todo-resize"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the to-do panel"
+        aria-valuenow={width}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        tabIndex={0}
+        title="Drag to resize · double-click to reset"
+        onPointerDown={startResize}
+        onDoubleClick={() => setAndSaveWidth(DEFAULT_WIDTH)}
+        onKeyDown={(ev) => {
+          if (ev.key === 'ArrowLeft') setAndSaveWidth(width + 20)
+          else if (ev.key === 'ArrowRight') setAndSaveWidth(width - 20)
+          else return
+          ev.preventDefault()
+        }}
+      />
       <header className="todo-head">
         <span className="todo-title">To do</span>
         <span className="todo-open-count">{openCount}</span>

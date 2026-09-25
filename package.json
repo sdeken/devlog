@@ -1,6 +1,6 @@
 {
   "name": "devlog",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "A git-backed developer log with a Slack-style WYSIWYG Markdown composer",
   "main": "./out/main/index.js",
   "author": "Stephen Deken",

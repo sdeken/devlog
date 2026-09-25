@@ -28,6 +28,21 @@ const TIMELINE_DAYS = 10
 
 type View = 'canvas' | 'review' | 'summary' | 'timeline'
 
+/** A place in the app, for back / forward. */
+interface Place {
+  view: View
+  canvasId: string
+  timelineDate: string
+}
+
+/** Only what the view shows counts: the open canvas matters on a canvas, the date on the timeline. */
+function samePlace(a: Place, b: Place): boolean {
+  if (a.view !== b.view) return false
+  if (a.view === 'canvas') return a.canvasId === b.canvasId
+  if (a.view === 'timeline') return a.timelineDate === b.timelineDate
+  return true
+}
+
 /** Replace or insert one day in an ascending timeline; drop it when empty. */
 function mergeDay(days: Day[], day: Day): Day[] {
   const rest = days.filter((d) => d.date !== day.date)
@@ -67,6 +82,62 @@ export function App(): React.JSX.Element {
   const searchRef = useRef<HTMLInputElement | null>(null)
   const canvasIdRef = useRef(canvasId)
   canvasIdRef.current = canvasId
+  const canvasesRef = useRef(canvases)
+  canvasesRef.current = canvases
+
+  // Back / forward (Alt+←/→, the mouse's side buttons): every place visited, like a browser.
+  const nav = useRef<{ stack: Place[]; index: number; restoring: Place | null }>({ stack: [], index: -1, restoring: null })
+  useEffect(() => {
+    const here: Place = { view, canvasId, timelineDate }
+    const h = nav.current
+    if (h.restoring) {
+      const target = h.restoring
+      h.restoring = null
+      if (samePlace(target, here)) return
+    }
+    if (h.index >= 0 && samePlace(h.stack[h.index], here)) return
+    h.stack = [...h.stack.slice(0, h.index + 1), here].slice(-100)
+    h.index = h.stack.length - 1
+  }, [view, canvasId, timelineDate])
+  const goRef = useRef<(delta: 1 | -1) => void>(() => undefined)
+  goRef.current = (delta) => {
+    const h = nav.current
+    let i = h.index + delta
+    // Skip places that no longer exist (a canvas deleted since).
+    while (i >= 0 && i < h.stack.length && h.stack[i].view === 'canvas' && !canvasesRef.current.some((c) => c.id === h.stack[i].canvasId)) i += delta
+    if (i < 0 || i >= h.stack.length) return
+    h.index = i
+    const place = h.stack[i]
+    h.restoring = place
+    setSearch('')
+    setView(place.view)
+    setCanvasId(place.canvasId)
+    setTimelineDate(place.timelineDate)
+  }
+  useEffect(() => {
+    const onMouse = (ev: MouseEvent): void => {
+      if (ev.button !== 3 && ev.button !== 4) return
+      ev.preventDefault()
+      goRef.current(ev.button === 3 ? -1 : 1)
+    }
+    // Captured on the window, so it runs before the editor sees the key.
+    const mac = navigator.platform.toLowerCase().includes('mac')
+    const onKey = (ev: KeyboardEvent): void => {
+      const plain = !ev.ctrlKey && !ev.shiftKey
+      const back = mac ? ev.metaKey && !ev.altKey && plain && ev.key === '[' : ev.altKey && !ev.metaKey && plain && ev.key === 'ArrowLeft'
+      const forward = mac ? ev.metaKey && !ev.altKey && plain && ev.key === ']' : ev.altKey && !ev.metaKey && plain && ev.key === 'ArrowRight'
+      if (!back && !forward) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      goRef.current(back ? -1 : 1)
+    }
+    window.addEventListener('mouseup', onMouse)
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('mouseup', onMouse)
+      window.removeEventListener('keydown', onKey, true)
+    }
+  }, [])
 
   const canvas = useMemo(() => canvases.find((c) => c.id === canvasId) ?? JOURNAL, [canvases, canvasId])
   const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId) ?? JOURNAL, [canvases, targetCanvasId])
@@ -117,6 +188,7 @@ export function App(): React.JSX.Element {
     const offRepo = api.repo.onChanged((info) => {
       setRepo(info)
       setCanvasId(JOURNAL_ID)
+      nav.current = { stack: [], index: -1, restoring: null }
     })
     const offSync = api.sync.onStatus((st) => setSync(st))
     const offTracker = api.tracker.onStatus((st) => setTracker(st))
@@ -133,6 +205,8 @@ export function App(): React.JSX.Element {
         setTimelineDate(localDate(new Date()))
         setView('timeline')
       }
+      if (cmd === 'back') goRef.current(-1)
+      if (cmd === 'forward') goRef.current(1)
     })
     const offAttach = api.onAttachImages((images) => {
       const sink = getActiveComposer()
