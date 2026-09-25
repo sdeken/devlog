@@ -28,7 +28,46 @@ export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'
 
 const MARKER_RE = /^<!--\s*devlog:entry\s+([^>]*?)\s*-->\s*$/
+const FORMAT_RE = /^<!--\s*devlog:format\s+(\d+)\s*-->\s*$/
+/** v1 files carry a derived `### HH:MM` heading after each marker; v2 files do not. */
 const TIME_HEADING_RE = /^#{3,6}\s+(?:↳\s+)?\d{1,2}:\d{2}(?::\d{2})?\s*$/
+/** A body line that could be mistaken for one of our markers (optionally already escaped). */
+const MARKERISH_RE = /^(\s*)(\\*)(<!--\s*devlog:)/i
+
+/**
+ * Current block file format.
+ *
+ * v1: `# title`, then per block a marker and a derived `### HH:MM` heading.
+ * v2: a `<!-- devlog:format 2 -->` header line, `# title`, then per block
+ *     only the marker. Body lines that start like a devlog marker are escaped
+ *     with one extra leading backslash, so no text can split a block.
+ */
+export const BLOCK_FORMAT = 2
+
+/** Escape body lines that look like devlog markers (v2). Reversible by `unescapeMarkerLines`. */
+export function escapeMarkerLines(body: string): string {
+  return body
+    .split('\n')
+    .map((line) => line.replace(MARKERISH_RE, (_m, ws: string, slashes: string, rest: string) => `${ws}\\${slashes}${rest}`))
+    .join('\n')
+}
+
+export function unescapeMarkerLines(body: string): string {
+  return body
+    .split('\n')
+    .map((line) => line.replace(MARKERISH_RE, (_m, ws: string, slashes: string, rest: string) => `${ws}${slashes.slice(1)}${rest}`))
+    .join('\n')
+}
+
+/** Format version of a block file's text: 2 when it carries the v2 header, else 1. */
+export function blockFileFormat(text: string): number {
+  for (const line of text.split(/\r?\n/, 5)) {
+    const m = FORMAT_RE.exec(line)
+    if (m) return Number(m[1])
+    if (MARKER_RE.test(line)) break
+  }
+  return 1
+}
 const TITLE_RE = /^#\s+\d{4}-\d{2}-\d{2}\s*$/
 
 // ---------------------------------------------------------------------------
@@ -217,15 +256,20 @@ export function parseDayFile(date: string, text: string, base: string = ENTRIES_
  */
 export function parseBlockFile(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): Entry[] {
   const lines = text.split(/\r?\n/)
+  const v2 = blockFileFormat(text) >= 2
   const entries: Entry[] = []
   let current: { attrs: Record<string, string>; lines: string[] } | null = null
 
   const flush = (): void => {
     if (!current) return
     let body = current.lines
-    // Drop the derived time heading that immediately follows the marker.
-    const firstIdx = body.findIndex((l) => l.trim() !== '')
-    if (firstIdx !== -1 && TIME_HEADING_RE.test(body[firstIdx])) body = body.slice(firstIdx + 1)
+    if (v2) {
+      body = body.map((l) => l.replace(MARKERISH_RE, (_m, ws: string, slashes: string, rest: string) => `${ws}${slashes.slice(1)}${rest}`))
+    } else {
+      // v1: drop the derived time heading that immediately follows the marker.
+      const firstIdx = body.findIndex((l) => l.trim() !== '')
+      if (firstIdx !== -1 && TIME_HEADING_RE.test(body[firstIdx])) body = body.slice(firstIdx + 1)
+    }
     body = trimBlankLines(body)
     const createdAt = current.attrs.created ?? fallbackCreatedAt
     const entry: Entry = {
@@ -269,11 +313,10 @@ export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
   return serializeBlockFile(day.entries, dayDir(day.date, base), `# ${day.date}`)
 }
 
-/** Serialise any file of blocks under a title line. Image paths are written relative to `dir`. */
+/** Serialise any file of blocks (format v2) under a title line. Image paths are written relative to `dir`. */
 export function serializeBlockFile(entries: Entry[], dir: string, title: string): string {
-  const parts: string[] = [title, '']
+  const parts: string[] = [`<!-- devlog:format ${BLOCK_FORMAT} -->`, title, '']
   for (const e of entries) {
-    const depth = depthOf(entries, e.id)
     const attrs = [`id=${e.id}`]
     if (e.parentId) attrs.push(`parent=${e.parentId}`)
     attrs.push(`created=${e.createdAt}`)
@@ -284,10 +327,7 @@ export function serializeBlockFile(entries: Entry[], dir: string, title: string)
       if (!RESERVED_ATTRS.has(k) && /^[a-zA-Z_][\w-]*$/.test(k)) attrs.push(`${k}=${quoteAttr(v)}`)
     }
     parts.push(`<!-- devlog:entry ${attrs.join(' ')} -->`)
-    const level = '#'.repeat(Math.min(3 + depth, 6))
-    parts.push(`${level} ${depth > 0 ? '↳ ' : ''}${localTime(new Date(e.createdAt))}`)
-    parts.push('')
-    const body = toRelativeFrom(e.markdown, dir).replace(/\s+$/, '')
+    const body = escapeMarkerLines(toRelativeFrom(e.markdown, dir).replace(/\s+$/, ''))
     if (body) {
       parts.push(body)
       parts.push('')

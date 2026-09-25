@@ -38,8 +38,8 @@ describe('DevlogStore', () => {
     expect(day.entries.map((e) => e.markdown)).toEqual(['Morning: started on the git sync', 'Evening: **done**'])
 
     const file = await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')
-    expect(file).toContain('### 09:05')
-    expect(file).toContain('### 17:45')
+    expect(file.startsWith('<!-- devlog:format 2 -->\n# 2026-09-19\n')).toBe(true)
+    expect(file).not.toContain('### ')
 
     const updated = await store.updateEntry('journal', '2026-09-19', a.entry.id, 'Morning: rewrote it', new Date(2026, 8, 19, 10))
     expect(updated.updatedAt).toBeTruthy()
@@ -73,8 +73,7 @@ describe('DevlogStore', () => {
 
     const file = await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')
     expect(file).toContain(`parent=${a.entry.id}`)
-    expect(file).toContain('#### ↳ 08:00')
-    expect(file).toContain('##### ↳ 11:00')
+    expect(file).toContain(`parent=${r1.entry.id}`)
 
     expect(await store.deleteEntry('journal', '2026-09-19', a.entry.id)).toBe(3)
     expect((await store.readDay('journal', '2026-09-19')).entries.map((e) => e.markdown)).toEqual(['first', 'between', 'B'])
@@ -374,7 +373,7 @@ describe('canvases in the store', () => {
       ['todo', 'Check the CDN rules']
     ])
     const file = await fs.readFile(path.join(root, 'canvases/acme/todos.md'), 'utf8')
-    expect(file.startsWith('# Todos')).toBe(true)
+    expect(file.startsWith('<!-- devlog:format 2 -->\n# Todos')).toBe(true)
     expect(file).toContain('kind=todo')
 
     const reply = await store.addTodoReply(acme.id, added[0].id, 'Waiting on their ops team', when)

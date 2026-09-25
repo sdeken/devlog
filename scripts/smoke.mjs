@@ -148,7 +148,7 @@ try {
   await page.waitForSelector('.thread .entry', { timeout: 10_000 })
   check((await page.locator('.thread .entry .markdown-body').first().textContent()).includes('a threaded reply'), 'reply renders nested under its parent')
   const text4 = await fs.readFile(dayFile, 'utf8')
-  check(/<!-- devlog:entry id=\w+ parent=\w+ created=/.test(text4) && text4.includes('#### ↳'), 'reply stored with parent link and nested heading')
+  check(/<!-- devlog:entry id=\w+ parent=\w+ created=/.test(text4) && text4.startsWith('<!-- devlog:format 2 -->') && !/^#{3,6} /m.test(text4), 'reply stored with a parent link in a v2 file (no time headings)')
 
   const gaps = page.locator('.note-slot .gap')
   await gaps.nth(1).hover()
@@ -360,7 +360,9 @@ try {
   check(true, 'Unhide brings the block back into the stream')
 
   // Drag the last block above the first one: order changes, timestamps do not.
-  const beforeOrder = (await fs.readFile(acmeFile, 'utf8')).match(/^### .*\n\n(.+)$/gm).map((m) => m.split('\n\n')[1])
+  // Top-level blocks in file order: the first body line after each marker without a parent.
+  const topLevel = (text) => [...text.matchAll(/^<!-- devlog:entry (?![^>]*parent=)[^>]*-->\n(.+)$/gm)].map((m) => m[1])
+  const beforeOrder = topLevel(await fs.readFile(acmeFile, 'utf8'))
   const lastEntry = page.locator('.note-slot').last()
   await lastEntry.locator('.entry').first().hover()
   // Drag like a person: press on the grip, start moving while still over the block, then travel.
@@ -376,7 +378,7 @@ try {
     return bodies[0] !== first
   }, beforeOrder[0], { timeout: 10_000 })
   const afterText = await fs.readFile(acmeFile, 'utf8')
-  const afterOrder = afterText.match(/^### .*\n\n(.+)$/gm).map((m) => m.split('\n\n')[1])
+  const afterOrder = topLevel(afterText)
   check(afterOrder[0] === beforeOrder[beforeOrder.length - 1] && afterOrder.length === beforeOrder.length, `drag and drop reorders blocks within the day (${afterOrder.map((t) => t.slice(0, 12)).join(' | ')})`)
   check(afterText.split('created=').length === (await fs.readFile(acmeFile, 'utf8')).split('created=').length, 'reordering keeps every timestamp')
 
