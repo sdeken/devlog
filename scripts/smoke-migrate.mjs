@@ -152,11 +152,24 @@ try {
   check((await page.locator('.entry-task .task-chip').first().textContent()).includes('Website'), 'journal task blocks link to the migrated canvas')
 
   // Search runs off the local index.
+  const fillStart = Date.now()
   await page.locator('.topbar-search').fill('kickoff')
+  const fillMs = Date.now() - fillStart
+  if (fillMs > 2000) console.log(`  [diag] typing into search took ${fillMs} ms`)
   await page.waitForSelector('.hit', { timeout: 20_000 }).catch(async (err) => {
-    const sub = await page.locator('.feed-sub').first().textContent().catch(() => '(no header)')
+    const sub = await page.locator('.feed-sub').first().textContent({ timeout: 1000 }).catch(() => '(no header)')
     const api = await page.evaluate(() => window.devlog.blocks.search('kickoff')).catch((e) => String(e))
-    throw new Error(`no search hit shown (header: ${sub}; API: ${JSON.stringify(api).slice(0, 300)})`, { cause: err })
+    const state = await page.evaluate(() => ({
+      value: document.querySelector('.topbar-search')?.value,
+      active: document.activeElement?.className,
+      modal: Boolean(document.querySelector('.modal, .modal-backdrop')),
+      welcome: Boolean(document.querySelector('.welcome')),
+      title: document.querySelector('.page-head .crumb.is-current')?.textContent,
+      composer: document.querySelector('.composer-new .composer-editor')?.textContent,
+      searchView: Boolean(document.querySelector('.feed .hit, .feed-sub'))
+    })).catch((e) => String(e))
+    await page.screenshot({ path: path.join(tmp, 'search-failure.png') }).catch(() => undefined)
+    throw new Error(`no search hit shown (header: ${sub}; page: ${JSON.stringify(state)}; API: ${JSON.stringify(api).slice(0, 300)})`, { cause: err })
   })
   check((await page.locator('.hit').count()) === 1, 'search finds the migrated block')
   const indexFiles = await fs.readdir(path.join(userData, 'index'))
