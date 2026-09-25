@@ -23,7 +23,7 @@ import {
   toRelativeFrom,
   toRootRelative,
   toRootRelativeFrom
-} from '../src/format/blocks'
+} from '../src/index'
 import type { Day, Entry } from '../src/types'
 
 describe('paths', () => {
@@ -87,9 +87,9 @@ describe('day file format', () => {
 
   it('serialises to readable markdown with entry markers', () => {
     const text = serializeDayFile(day)
-    expect(text.startsWith('<!-- devlog:format 2 -->\n# 2026-09-19\n\n<!-- devlog:entry id=aaaaaaaa created=2026-09-19T14:32:00.000Z -->\n')).toBe(true)
-    expect(text).not.toMatch(/^#{3,6} /m) // v2 writes no time headings
-    expect(text).toContain('<!-- devlog:entry id=bbbbbbbb created=2026-09-19T15:10:00.000Z updated=2026-09-19T15:12:00.000Z -->')
+    expect(text.startsWith('<!-- devlog:format 3 -->\n# 2026-09-19\n\n<!-- devlog:add id=aaaaaaaa pos=a0 at=2026-09-19T14:32:00.000Z -->\n')).toBe(true)
+    expect(text).not.toMatch(/^#{3,6} /m) // no derived time headings
+    expect(text).toContain('<!-- devlog:add id=bbbbbbbb pos=a1 at=2026-09-19T15:10:00.000Z updated=2026-09-19T15:12:00.000Z -->')
     expect(text).toContain('![shot](assets/2026-09-19-151000-ab12.png)')
     expect(text).not.toContain('entries/2026/09/assets')
   })
@@ -194,8 +194,8 @@ describe('threads and ordering', () => {
   it('serialises replies with parent links and parses them back in order', () => {
     const day: Day = { date: '2026-09-19', entries: base }
     const text = serializeDayFile(day)
-    expect(text).toContain('<!-- devlog:entry id=aa parent=a created=')
-    expect(text).toContain('<!-- devlog:entry id=aaa parent=aa created=')
+    expect(text).toContain('<!-- devlog:add id=aa parent=a pos=a0 at=')
+    expect(text).toContain('<!-- devlog:add id=aaa parent=aa pos=a0 at=')
     const parsed = parseDayFile('2026-09-19', text)
     expect(parsed.entries).toEqual(base)
   })
@@ -233,7 +233,7 @@ describe('hidden blocks and reordering', () => {
   it('round-trips the hidden flag', () => {
     const day: Day = { date: '2026-09-19', entries: [e('a', undefined, { hidden: true }), e('b')] }
     const text = serializeDayFile(day)
-    expect(text).toContain('id=a created=2026-09-19T09:00:00.000Z hidden=1')
+    expect(text).toContain('id=a pos=a0 at=2026-09-19T09:00:00.000Z hidden=1')
     const back = parseDayFile('2026-09-19', text)
     expect(back.entries.map((x) => [x.id, x.hidden ?? false])).toEqual([['a', true], ['b', false]])
   })
@@ -269,7 +269,7 @@ describe('pasting todos', () => {
   })
 })
 
-describe('format v2 safety', () => {
+describe('marker safety', () => {
   const one = (markdown: string): Entry => ({ id: 'aaaaaaaa', createdAt: '2026-09-19T14:32:00.000Z', markdown })
   const roundTrip = (markdown: string): string[] => parseDayFile('2026-09-19', serializeDayFile({ date: '2026-09-19', entries: [one(markdown)] })).entries.map((x) => x.markdown)
 
@@ -293,7 +293,7 @@ describe('format v2 safety', () => {
     ].join('\n')
     expect(roundTrip(tricky)).toEqual([tricky])
     const text = serializeDayFile({ date: '2026-09-19', entries: [one(tricky)] })
-    expect(text.match(/^<!-- devlog:entry /gm)).toHaveLength(1)
+    expect(text.match(/^<!-- devlog:/gm)).toHaveLength(2) // the format header and one record
   })
 
   it('escapes and unescapes marker-like lines losslessly', () => {
@@ -319,8 +319,11 @@ describe('format v2 safety', () => {
     const v1 = '# 2026-09-19\n\n<!-- devlog:entry id=aaaaaaaa created=2026-09-19T14:32:00.000Z -->\n### 14:32\n\nhello\n'
     expect(blockFileFormat(v1)).toBe(1)
     expect(parseDayFile('2026-09-19', v1).entries.map((x) => x.markdown)).toEqual(['hello'])
-    const v2 = serializeDayFile(parseDayFile('2026-09-19', v1))
+    const v3 = serializeDayFile(parseDayFile('2026-09-19', v1))
+    expect(blockFileFormat(v3)).toBe(3)
+    expect(v3).not.toContain('### 14:32')
+    const v2 = '<!-- devlog:format 2 -->\n# 2026-09-19\n\n<!-- devlog:entry id=aaaaaaaa created=2026-09-19T14:32:00.000Z -->\n### 14:32\n\n\\<!-- devlog:entry kept -->\n'
     expect(blockFileFormat(v2)).toBe(2)
-    expect(v2).not.toContain('### 14:32')
+    expect(parseDayFile('2026-09-19', v2).entries.map((x) => x.markdown)).toEqual(['### 14:32\n\n<!-- devlog:entry kept -->'])
   })
 })

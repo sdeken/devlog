@@ -72,6 +72,36 @@ async function formatOneRepo(base: string): Promise<void> {
   await write(base, 'entries/2026/09/assets/j.png', 'j')
 }
 
+const V2_ID = 'k3m9x2q7vd'
+
+/** A format 2 devlog, as Devlog 0.4 wrote it. */
+async function formatTwoRepo(base: string): Promise<void> {
+  await write(base, 'devlog.json', '{\n  "format": 2\n}\n')
+  await write(base, `${canvasDir(V2_ID)}/canvas.md`, '---\ntitle: Acme\ncreated: 2026-09-01T00:00:00.000Z\nalias: acme\n---\n')
+  await write(
+    base,
+    `${canvasDir(V2_ID)}/entries/2026/09/2026-09-19.md`,
+    [
+      '<!-- devlog:format 2 -->',
+      '# 2026-09-19',
+      '',
+      '<!-- devlog:entry id=aaaaaaaa created=2026-09-19T09:00:00.000Z -->',
+      'kickoff ![s](assets/pic.png)',
+      '',
+      '\\<!-- devlog:entry pasted -->',
+      '',
+      '<!-- devlog:entry id=bbbbbbbb parent=aaaaaaaa created=2026-09-19T09:30:00.000Z hidden=1 -->',
+      'a hidden reply',
+      '',
+      '<!-- devlog:entry id=cccccccc created=2026-09-19T10:00:00.000Z kind=done todo=tttttttt -->',
+      '✓ Check the CDN',
+      ''
+    ].join('\n')
+  )
+  await write(base, `${canvasDir(V2_ID)}/todos.md`, '<!-- devlog:format 2 -->\n# Todos\n\n<!-- devlog:entry id=tttttttt created=2026-09-18T09:00:00.000Z kind=todo done=2026-09-19T10:00:00.000Z -->\nCheck the CDN\n')
+  await write(base, 'entries/2026/09/2026-09-19.md', '<!-- devlog:format 2 -->\n# 2026-09-19\n\n<!-- devlog:entry id=jjjjjjjj created=2026-09-19T08:00:00.000Z kind=task canvas=k3m9x2q7vd -->\nAcme work\n')
+}
+
 async function tree(base: string): Promise<Record<string, string>> {
   const out: Record<string, string> = {}
   const walk = async (dir: string): Promise<void> => {
@@ -94,9 +124,9 @@ describe('storage migration', () => {
     const report = await migrateRepository(root)
     const acme = migratedCanvasId('acme-corp')
     const web = migratedCanvasId('website')
-    expect(report).toEqual({ from: 1, to: 2, canvases: { 'acme-corp': acme, website: web }, files: 3 })
+    expect(report).toEqual({ from: 1, to: 3, canvases: { 'acme-corp': acme, website: web }, files: 3 })
     expect(acme).toMatch(/^[0-9a-hjkmnp-tv-z]{10}$/)
-    expect(await readStorageFormat(root)).toBe(2)
+    expect(await readStorageFormat(root)).toBe(3)
     expect(await needsMigration(root)).toBe(false)
     await expect(fs.stat(path.join(root, 'canvases/acme-corp'))).rejects.toThrow()
     await expect(fs.stat(path.join(root, OLD_DIR))).rejects.toThrow()
@@ -127,7 +157,7 @@ describe('storage migration', () => {
     )
     expect(day.entries[1].meta).toEqual({ hash: 'deadbeef', repo: 'acme' })
     const file = await fs.readFile(path.join(root, canvasDir(web), 'entries/2026/09/2026-09-19.md'), 'utf8')
-    expect(file.startsWith('<!-- devlog:format 2 -->\n# 2026-09-19\n')).toBe(true)
+    expect(file.startsWith('<!-- devlog:format 3 -->\n# 2026-09-19\n')).toBe(true)
     expect(file).not.toContain('### 09:00')
     expect(await fs.readFile(path.join(root, canvasDir(web), 'entries/2026/09/assets/pic.png'), 'utf8')).toBe('pic')
 
@@ -151,7 +181,7 @@ describe('storage migration', () => {
     expect(await tree(b)).toEqual(await tree(a))
   })
 
-  it('leaves a fresh format 2 repository alone', async () => {
+  it('leaves a fresh repository alone', async () => {
     const store = new DevlogStore(root)
     await store.initLayout()
     expect(await needsMigration(root)).toBe(false)
@@ -160,7 +190,7 @@ describe('storage migration', () => {
     expect((await store.listCanvases()).map((x) => x.id)).toEqual(['journal', c.id])
   })
 
-  it('does not stamp an existing format 1 repository as format 2 on open', async () => {
+  it('does not stamp an existing format 1 repository as current on open', async () => {
     await formatOneRepo(root)
     await new DevlogStore(root).initLayout()
     expect(await readStorageFormat(root)).toBe(1)
@@ -181,7 +211,7 @@ describe('storage migration', () => {
     expect(await recoverInterruptedMigration(root)).toBe('rolled-back')
     expect(await tree(root)).toEqual(before)
     // …and the next open migrates normally.
-    expect((await migrateRepository(root))?.to).toBe(2)
+    expect((await migrateRepository(root))?.to).toBe(3)
   })
 
   it('finishes a migration interrupted after the manifest was written', async () => {
@@ -191,6 +221,35 @@ describe('storage migration', () => {
     await write(root, `${OLD_DIR}/canvases/acme-corp/canvas.md`, 'old')
     expect(await recoverInterruptedMigration(root)).toBe('completed')
     expect(await tree(root)).toEqual(after)
+  })
+
+  it('upgrades a Devlog 0.4 (format 2) repository by rewriting its block files in place', async () => {
+    await formatTwoRepo(root)
+    const before = await new DevlogStore(root).listCanvases()
+    const beforeDay = await new DevlogStore(root).readDay(V2_ID, '2026-09-19')
+    const beforeTodos = await new DevlogStore(root).readTodos(V2_ID)
+    const report = await migrateRepository(root)
+    expect(report).toEqual({ from: 2, to: 3, canvases: {}, files: 3 })
+    expect(await readStorageFormat(root)).toBe(3)
+    const store = new DevlogStore(root)
+    expect(await store.listCanvases()).toEqual(before)
+    expect(await store.readDay(V2_ID, '2026-09-19')).toEqual(beforeDay)
+    expect(await store.readTodos(V2_ID)).toEqual(beforeTodos)
+    const file = await fs.readFile(path.join(root, canvasDir(V2_ID), 'entries/2026/09/2026-09-19.md'), 'utf8')
+    expect(file).toContain('<!-- devlog:add id=aaaaaaaa pos=a0 at=2026-09-19T09:00:00.000Z -->')
+    expect(await fs.readFile(path.join(root, '.gitattributes'), 'utf8')).toContain('**/entries/**/*.md merge=union')
+    // Resumable: an interrupted run (manifest not yet written) just finishes.
+    await fs.writeFile(path.join(root, 'devlog.json'), '{ "format": 2 }\n')
+    expect(await migrateRepository(root)).toEqual({ from: 2, to: 3, canvases: {}, files: 0 })
+    expect(await migrateRepository(root)).toBeNull()
+  })
+
+  it('never rolls back a finished 0.4 layout migration that only had cleanup left', async () => {
+    await formatTwoRepo(root)
+    const before = await tree(root)
+    await write(root, `${OLD_DIR}/canvases/acme-corp/canvas.md`, 'old')
+    expect(await recoverInterruptedMigration(root)).toBe('completed')
+    expect(await tree(root)).toEqual(before)
   })
 
   it('upgrades the Devlog 0.2 pages/ + categories/ layout all the way', async () => {
@@ -245,7 +304,7 @@ describe('upgrading repositories that sync between machines', () => {
   let b: string
 
   /** A pushed format 1 history, cloned onto machines A and B. */
-  async function twoMachines(): Promise<void> {
+  async function twoMachines(fixture: (base: string) => Promise<void> = formatOneRepo): Promise<void> {
     bare = path.join(tmp, 'remote.git')
     a = path.join(tmp, 'a')
     b = path.join(tmp, 'b')
@@ -253,7 +312,7 @@ describe('upgrading repositories that sync between machines', () => {
     await fs.mkdir(a)
     const gitA = simpleGit({ baseDir: a, config: cfg('a') })
     await gitA.init(['--initial-branch=main'])
-    await formatOneRepo(a)
+    await fixture(a)
     await gitA.add('-A')
     await gitA.commit('format 1 history')
     await gitA.addRemote('origin', bare)
@@ -266,7 +325,7 @@ describe('upgrading repositories that sync between machines', () => {
     const res = await upgradeRepository(a, sync)
     expect(res.error).toBeUndefined()
     expect(res.remote).toBe('none')
-    expect(res.report?.to).toBe(2)
+    expect(res.report?.to).toBe(3)
     expect((await sync.syncNow('manual')).pushed).toBe(true)
     sync.stop()
   }
@@ -275,7 +334,7 @@ describe('upgrading repositories that sync between machines', () => {
     await twoMachines()
     await upgradeA()
     const log = await simpleGit({ baseDir: bare }).log()
-    expect(log.all.map((c) => c.message)).toEqual(['devlog: migrate to storage format 2', 'format 1 history'])
+    expect(log.all.map((c) => c.message)).toEqual(['devlog: migrate to storage format 3', 'format 1 history'])
   })
 
   it('a machine with nothing unsynced just pulls the upgrade', async () => {
@@ -284,7 +343,7 @@ describe('upgrading repositories that sync between machines', () => {
     const sync = new SyncManager(b, options)
     const res = await upgradeRepository(b, sync)
     expect(res).toEqual({ report: null, remote: 'pulled', error: undefined })
-    expect(await readStorageFormat(b)).toBe(2)
+    expect(await readStorageFormat(b)).toBe(3)
     expect(await tree(path.join(b, 'canvases'))).toEqual(await tree(path.join(a, 'canvases')))
     sync.stop()
   })
@@ -304,7 +363,7 @@ describe('upgrading repositories that sync between machines', () => {
     const res = await upgradeRepository(b, sync)
     expect(res.error).toBeUndefined()
     expect(res.remote).toBe('merged')
-    expect(res.report?.to).toBe(2)
+    expect(res.report?.to).toBe(3)
     expect((await gitB.status()).files).toEqual([])
 
     const storeA = new DevlogStore(a)
@@ -327,6 +386,28 @@ describe('upgrading repositories that sync between machines', () => {
     sync.stop()
     await simpleGit({ baseDir: a, config: cfg('a') }).pull('origin', 'main', { '--rebase': 'true' })
     expect(await tree(path.join(a, 'canvases'))).toEqual(await tree(path.join(b, 'canvases')))
+  })
+
+  it('upgrades format 2 across machines the same way, finding the commit that reached format 3', async () => {
+    await twoMachines(formatTwoRepo)
+    const gitB = simpleGit({ baseDir: b, config: cfg('b') })
+    // B, still on 0.4 and offline, rewrites a day file the 0.4 way.
+    const dayB = path.join(b, canvasDir(V2_ID), 'entries/2026/09/2026-09-19.md')
+    await fs.appendFile(dayB, '\n<!-- devlog:entry id=dddddddd created=2026-09-19T17:00:00.000Z -->\nwritten offline on machine B\n')
+    await gitB.add('-A')
+    await gitB.commit('offline note')
+    await upgradeA()
+
+    const sync = new SyncManager(b, options)
+    const res = await upgradeRepository(b, sync)
+    expect(res.error).toBeUndefined()
+    expect(res.remote).toBe('merged')
+    expect((await gitB.status()).files).toEqual([])
+    const day = await new DevlogStore(b).readDay(V2_ID, '2026-09-19')
+    expect(day.entries.map((e) => e.markdown)).toContain('written offline on machine B')
+    expect(await tree(path.join(b, 'canvases'))).not.toEqual({})
+    expect(await readStorageFormat(b)).toBe(3)
+    sync.stop()
   })
 
   it('backs out a pull that conflicts instead of leaving the repository mid-rebase', async () => {

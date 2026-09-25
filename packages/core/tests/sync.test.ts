@@ -186,6 +186,47 @@ describe('SyncManager', () => {
   })
 })
 
+describe('append-only files on two machines', () => {
+  it('merges both machines\' blocks in the same day file without a conflict', async () => {
+    const store = await makeStore()
+    await simpleGit({ baseDir: root }).addRemote('origin', bare)
+    const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 60, autoPush: true, pullOnStart: false, ...author })
+    await sync.start()
+    const day = new Date(2026, 0, 2, 9)
+    await store.addEntry('journal', 'shared start', {}, day)
+    expect((await sync.syncNow('manual')).pushed).toBe(true)
+
+    const other = path.join(tmp, 'other')
+    await simpleGit().clone(bare, other)
+    const otherStore = new DevlogStore(other)
+    const og = simpleGit({ baseDir: other, config: ['user.name=Other', 'user.email=o@example.com'] })
+
+    // Both machines append to the same file, and edit/hide the same block, before syncing.
+    const [shared] = (await store.readDay('journal', '2026-01-02')).entries
+    await otherStore.addEntry('journal', 'from laptop', {}, new Date(2026, 0, 2, 10))
+    await otherStore.setEntryHidden('journal', '2026-01-02', shared.id, true, new Date(2026, 0, 2, 10, 1))
+    await og.add('-A')
+    await og.commit('laptop')
+    await og.push('origin', 'main')
+    await store.addEntry('journal', 'from desktop', {}, new Date(2026, 0, 2, 11))
+    await store.updateEntry('journal', '2026-01-02', shared.id, 'shared start, edited on the desktop', new Date(2026, 0, 2, 11, 1))
+
+    const res = await sync.syncNow('manual')
+    expect(res.error).toBeUndefined()
+    expect(res).toMatchObject({ pulled: true, pushed: true })
+    const entries = (await store.readDay('journal', '2026-01-02')).entries
+    expect(entries.map((e) => [e.markdown, e.hidden ?? false])).toEqual([
+      ['shared start, edited on the desktop', true],
+      ['from laptop', false],
+      ['from desktop', false]
+    ])
+    // The laptop gets the same result from the same merged file.
+    await og.pull('origin', 'main', { '--rebase': 'true' })
+    expect((await otherStore.readDay('journal', '2026-01-02')).entries).toEqual(entries)
+    sync.stop()
+  })
+})
+
 describe('commitMessage', () => {
   it('names the day when a single day file changed', () => {
     expect(commitMessage(['entries/2026/09/2026-09-19.md', 'entries/2026/09/assets/x.png'], 'interval')).toMatch(

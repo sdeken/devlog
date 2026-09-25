@@ -22,7 +22,8 @@ describe('DevlogStore', () => {
     expect((await fs.stat(path.join(root, 'entries'))).isDirectory()).toBe(true)
     expect(await fs.readFile(path.join(root, 'README.md'), 'utf8')).toContain('# Devlog')
     // A fresh repository starts at the current storage format.
-    expect(JSON.parse(await fs.readFile(path.join(root, 'devlog.json'), 'utf8'))).toEqual({ format: 2 })
+    expect(JSON.parse(await fs.readFile(path.join(root, 'devlog.json'), 'utf8'))).toEqual({ format: 3 })
+    expect(await fs.readFile(path.join(root, '.gitattributes'), 'utf8')).toContain('**/todos.md merge=union')
     expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toContain('.devlog-migrate/')
   })
 
@@ -41,7 +42,7 @@ describe('DevlogStore', () => {
     expect(day.entries.map((e) => e.markdown)).toEqual(['Morning: started on the git sync', 'Evening: **done**'])
 
     const file = await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')
-    expect(file.startsWith('<!-- devlog:format 2 -->\n# 2026-09-19\n')).toBe(true)
+    expect(file.startsWith('<!-- devlog:format 3 -->\n# 2026-09-19\n')).toBe(true)
     expect(file).not.toContain('### ')
 
     const updated = await store.updateEntry('journal', '2026-09-19', a.entry.id, 'Morning: rewrote it', new Date(2026, 8, 19, 10))
@@ -51,7 +52,64 @@ describe('DevlogStore', () => {
     await store.deleteEntry('journal', '2026-09-19', a.entry.id)
     await store.deleteEntry('journal', '2026-09-19', b.entry.id)
     expect(await store.listDays('journal')).toEqual([])
-    await expect(fs.stat(path.join(root, 'entries/2026/09/2026-09-19.md'))).rejects.toThrow()
+    // Nothing is ever removed from a block file: the deletes are records too.
+    expect((await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')).match(/<!-- devlog:delete /g)).toHaveLength(2)
+  })
+
+  it('only ever appends to block files', async () => {
+    const files = async (): Promise<Map<string, string>> => {
+      const out = new Map<string, string>()
+      for (const f of await fs.readdir(root, { recursive: true })) {
+        const rel = String(f).split(path.sep).join('/')
+        if (rel.endsWith('.md') && (rel.includes('entries/') || rel.endsWith('todos.md'))) out.set(rel, await fs.readFile(path.join(root, rel), 'utf8'))
+      }
+      return out
+    }
+    let before = await files()
+    const check = async (what: string): Promise<void> => {
+      const after = await files()
+      for (const [rel, text] of before) expect(after.get(rel)?.startsWith(text), `${what}: ${rel}`).toBe(true)
+      before = after
+    }
+    const when = new Date(2026, 8, 19, 9)
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const a = await store.addEntry('journal', 'A ![x](entries/2026/09/assets/x.png)', {}, when)
+    await check('add')
+    const r = await store.addEntry('journal', 'reply', { date: a.date, parentId: a.entry.id }, when)
+    const b = await store.addEntry('journal', 'B', { date: a.date, beforeId: a.entry.id }, when)
+    await check('reply and insert')
+    await store.updateEntry('journal', a.date, a.entry.id, 'A edited')
+    await store.setEntryHidden('journal', a.date, b.entry.id, true)
+    await store.setEntryHidden('journal', a.date, b.entry.id, false)
+    await check('edit and hide')
+    await store.reorderEntry('journal', a.date, b.entry.id, { afterId: a.entry.id })
+    await check('reorder')
+    await store.promoteToTask('journal', a.date, b.entry.id)
+    await check('promote')
+    await store.moveEntry('journal', a.date, a.entry.id, acme.id)
+    await check('move')
+    const [t1, t2] = await store.addTodos(acme.id, ['one', 'two'], when)
+    await store.addTodoReply(acme.id, t1.id, 'note', when)
+    await store.reorderTodo(acme.id, t2.id, { beforeId: t1.id })
+    await store.setTodoDone(acme.id, t1.id, true, when)
+    await store.setTodoDone(acme.id, t1.id, false, when)
+    await store.updateTodoEntry(acme.id, t2.id, 'two, edited')
+    await store.promoteTodo(acme.id, t2.id)
+    await store.deleteTodoEntry(acme.id, t1.id)
+    await check('todos')
+    await store.deleteEntry('journal', a.date, b.entry.id)
+    await check('delete')
+    expect((await store.readDay('journal', a.date)).entries).toEqual([])
+    expect((await store.readDay(acme.id, a.date)).entries.map((e) => e.markdown)).toEqual(['A edited', 'reply'])
+    expect(r.entry.parentId).toBe(a.entry.id)
+  })
+
+  it('serialises concurrent writes to the same file', async () => {
+    const when = new Date(2026, 8, 19, 9)
+    await Promise.all(Array.from({ length: 20 }, (_, i) => store.addEntry('journal', `n${i}`, {}, when)))
+    expect((await store.readDay('journal', '2026-09-19')).entries.map((e) => e.markdown).sort()).toEqual(Array.from({ length: 20 }, (_, i) => `n${i}`).sort())
+    const keys = (await fs.readFile(path.join(root, 'entries/2026/09/2026-09-19.md'), 'utf8')).match(/ pos=(\S+)/g)!
+    expect(new Set(keys).size).toBe(20) // every block got its own place
   })
 
   it('supports replies, inserts between notes, and deletes whole threads', async () => {
@@ -343,7 +401,7 @@ describe('canvases in the store', () => {
       ['todo', 'Check the CDN rules']
     ])
     const file = await fs.readFile(path.join(root, `canvases/${acme.id.slice(0, 2)}/${acme.id}/todos.md`), 'utf8')
-    expect(file.startsWith('<!-- devlog:format 2 -->\n# Todos')).toBe(true)
+    expect(file.startsWith('<!-- devlog:format 3 -->\n# Todos')).toBe(true)
     expect(file).toContain('kind=todo')
 
     const reply = await store.addTodoReply(acme.id, added[0].id, 'Waiting on their ops team', when)

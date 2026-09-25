@@ -8,3 +8,5 @@
 export * from './types'
 export * from './format/blocks'
 export * from './format/canvases'
+export * from './format/order'
+export * from './format/oplog'

@@ -1,28 +1,21 @@
 /**
- * The devlog storage format.
+ * Block text and file helpers shared by every block file format: dates and
+ * ids, repo paths, image path rewriting, marker escaping, tree helpers, and
+ * the reader for format 1 and 2 files (see `oplog.ts` for format 3, the
+ * append-only log the app writes today).
  *
- * Each local calendar day is one markdown file at `entries/YYYY/MM/YYYY-MM-DD.md`.
- * The file reads naturally on GitHub and every post is delimited by an HTML
- * comment marker that carries its metadata:
- *
- *   # 2026-09-19
- *
- *   <!-- devlog:entry id=k3j9d2ab created=2026-09-19T14:32:00.000Z -->
- *   ### 14:32
- *
- *   Post body in markdown…
- *
- *   <!-- devlog:entry id=p0q1r2s3 parent=k3j9d2ab created=2026-09-19T15:02:00.000Z -->
- *   #### ↳ 15:02
- *
- *   A threaded reply. Replies follow their parent; file order is display order.
+ * Format 1 (Devlog ≤ 0.3): `# title`, then per block a
+ * `<!-- devlog:entry id=… [parent=…] created=… … -->` marker and a derived
+ * `### HH:MM` heading, then the body. File order is display order.
+ * Format 2 (Devlog 0.4): a `<!-- devlog:format 2 -->` header, no headings,
+ * and body lines that look like markers escaped with one extra backslash.
  *
  * Image references inside a file are relative to that file (so they render on
  * GitHub); in memory they are normalised to repo-root-relative paths so the
  * renderer and asset server can resolve them without knowing which day they
  * belong to.
  */
-import { ENTRY_KINDS, type Day, type Entry, type EntryKind, type EntryPosition } from '../types'
+import { ENTRY_KINDS, type Entry, type EntryKind, type EntryPosition } from '../types'
 
 export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'
@@ -34,17 +27,7 @@ const TIME_HEADING_RE = /^#{3,6}\s+(?:↳\s+)?\d{1,2}:\d{2}(?::\d{2})?\s*$/
 /** A body line that could be mistaken for one of our markers (optionally already escaped). */
 const MARKERISH_RE = /^(\s*)(\\*)(<!--\s*devlog:)/i
 
-/**
- * Current block file format.
- *
- * v1: `# title`, then per block a marker and a derived `### HH:MM` heading.
- * v2: a `<!-- devlog:format 2 -->` header line, `# title`, then per block
- *     only the marker. Body lines that start like a devlog marker are escaped
- *     with one extra leading backslash, so no text can split a block.
- */
-export const BLOCK_FORMAT = 2
-
-/** Escape body lines that look like devlog markers (v2). Reversible by `unescapeMarkerLines`. */
+/** Escape body lines that look like devlog markers (formats 2 and 3). Reversible by `unescapeMarkerLines`. */
 export function escapeMarkerLines(body: string): string {
   return body
     .split('\n')
@@ -59,7 +42,7 @@ export function unescapeMarkerLines(body: string): string {
     .join('\n')
 }
 
-/** Format version of a block file's text: 2 when it carries the v2 header, else 1. */
+/** Format version of a block file's text: from its header line, else 1. */
 export function blockFileFormat(text: string): number {
   for (const line of text.split(/\r?\n/, 5)) {
     const m = FORMAT_RE.exec(line)
@@ -225,19 +208,20 @@ export function collectImageSrcs(markdown: string): string[] {
 
 const RESERVED_ATTRS = new Set(['id', 'parent', 'created', 'updated', 'kind', 'hidden'])
 
-function quoteAttr(v: string): string {
+export function quoteAttr(v: string): string {
   return /[\s"]/.test(v) || v === '' ? `"${v.replace(/"/g, '&quot;')}"` : v
 }
 
-function parseAttrs(s: string): Record<string, string> {
+/** Parse `key=value key="quoted value"` marker attributes. */
+export function parseMarkerAttrs(s: string): Record<string, string> {
   const attrs: Record<string, string> = {}
-  for (const m of s.matchAll(/([a-zA-Z_-]+)=("([^"]*)"|\S+)/g)) {
+  for (const m of s.matchAll(/([a-zA-Z_][a-zA-Z0-9_-]*)=("([^"]*)"|\S+)/g)) {
     attrs[m[1]] = (m[3] ?? m[2]).replace(/&quot;/g, '"')
   }
   return attrs
 }
 
-function trimBlankLines(lines: string[]): string[] {
+export function trimBlankLines(lines: string[]): string[] {
   let start = 0
   let end = lines.length
   while (start < end && lines[start].trim() === '') start++
@@ -245,16 +229,11 @@ function trimBlankLines(lines: string[]): string[] {
   return lines.slice(start, end)
 }
 
-/** Parse the contents of a day file. Image paths are returned repo-root-relative. */
-export function parseDayFile(date: string, text: string, base: string = ENTRIES_DIR): Day {
-  return { date, entries: parseBlockFile(text, dayDir(date, base), `${date}T00:00:00.000Z`) }
-}
-
 /**
- * Parse any file of blocks (a day file, a canvas's todo list). `dir` is the
- * file's repo-relative directory, used to make image paths root-relative.
+ * Parse a format 1 or 2 block file (a day file, a canvas's todo list). `dir`
+ * is the file's repo-relative directory, used to make image paths root-relative.
  */
-export function parseBlockFile(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): Entry[] {
+export function parseLegacyBlockFile(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): Entry[] {
   const lines = text.split(/\r?\n/)
   const v2 = blockFileFormat(text) >= 2
   const entries: Entry[] = []
@@ -294,7 +273,7 @@ export function parseBlockFile(text: string, dir: string, fallbackCreatedAt = '1
     const m = MARKER_RE.exec(line)
     if (m) {
       flush()
-      current = { attrs: parseAttrs(m[1]), lines: [] }
+      current = { attrs: parseMarkerAttrs(m[1]), lines: [] }
     } else if (current) {
       current.lines.push(line)
     }
@@ -306,34 +285,6 @@ export function parseBlockFile(text: string, dir: string, fallbackCreatedAt = '1
   const ids = new Set(entries.map((e) => e.id))
   for (const e of entries) if (e.parentId && !ids.has(e.parentId)) delete e.parentId
   return entries
-}
-
-/** Serialise a day to markdown. Image paths are written relative to the day file. */
-export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
-  return serializeBlockFile(day.entries, dayDir(day.date, base), `# ${day.date}`)
-}
-
-/** Serialise any file of blocks (format v2) under a title line. Image paths are written relative to `dir`. */
-export function serializeBlockFile(entries: Entry[], dir: string, title: string): string {
-  const parts: string[] = [`<!-- devlog:format ${BLOCK_FORMAT} -->`, title, '']
-  for (const e of entries) {
-    const attrs = [`id=${e.id}`]
-    if (e.parentId) attrs.push(`parent=${e.parentId}`)
-    attrs.push(`created=${e.createdAt}`)
-    if (e.updatedAt) attrs.push(`updated=${e.updatedAt}`)
-    if (e.kind && e.kind !== 'note') attrs.push(`kind=${e.kind}`)
-    if (e.hidden) attrs.push('hidden=1')
-    for (const [k, v] of Object.entries(e.meta ?? {})) {
-      if (!RESERVED_ATTRS.has(k) && /^[a-zA-Z_][\w-]*$/.test(k)) attrs.push(`${k}=${quoteAttr(v)}`)
-    }
-    parts.push(`<!-- devlog:entry ${attrs.join(' ')} -->`)
-    const body = escapeMarkerLines(toRelativeFrom(e.markdown, dir).replace(/\s+$/, ''))
-    if (body) {
-      parts.push(body)
-      parts.push('')
-    }
-  }
-  return parts.join('\n')
 }
 
 // ---------------------------------------------------------------------------

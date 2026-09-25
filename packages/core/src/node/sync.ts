@@ -180,11 +180,15 @@ export class SyncManager extends EventEmitter {
     return run
   }
 
-  /** The oldest commit reachable from `ref` that added `file`, or null. */
-  async firstCommitAdding(ref: string, file: string): Promise<string | null> {
+  /**
+   * The oldest commit reachable from `ref` whose change to `file` adds or
+   * removes a line containing `text` (`git log -G`), or null.
+   */
+  async firstCommitMatching(ref: string, file: string, text: string): Promise<string | null> {
     const run = this.queue.then(async () => {
       try {
-        const out = await this.git.raw(['log', '--format=%H', '--diff-filter=A', ref, '--', file])
+        const pattern = text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        const out = await this.git.raw(['log', '--format=%H', `-G${pattern}`, ref, '--', file])
         const all = out.trim().split('\n').filter(Boolean)
         return all.length ? all[all.length - 1] : null
       } catch {

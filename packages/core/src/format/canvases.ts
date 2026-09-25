@@ -26,7 +26,9 @@ export const CANVASES_DIR = 'canvases'
 export const CANVAS_FILE = 'canvas.md'
 /** Repository manifest; its `format` is the storage format version. */
 export const MANIFEST_FILE = 'devlog.json'
-export const STORAGE_FORMAT = 2
+export const STORAGE_FORMAT = 3
+/** The first storage format with the sharded `canvases/<xx>/<id>/` layout. */
+export const SHARDED_FORMAT = 2
 
 /** Alphabet for canvas ids: lowercase, no easily confused characters (i, l, o, u). */
 export const CANVAS_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'

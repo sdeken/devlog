@@ -2,14 +2,18 @@
  * Storage migrations. Run once, when a repository is opened, before anything
  * else reads it.
  *
- *   Devlog 0.2  pages/ + categories/          → format 1 (legacy, kept for old clones)
- *   format 1    canvases/<slug>/, v1 files    → format 2
- *   format 2    canvases/<xx>/<id>/, v2 files, devlog.json { "format": 2 }
+ *   Devlog 0.2  pages/ + categories/                      → format 1
+ *   format 1    canvases/<slug>/, block files v1 (0.3)    → format 3 directly
+ *   format 2    canvases/<xx>/<id>/, block files v2 (0.4) → format 3
+ *   format 3    canvases/<xx>/<id>/, append-only block files (op log),
+ *               devlog.json { "format": 3 }, .gitattributes union merges
  *
- * The format 1 → 2 step is staged: the new `canvases/` and `entries/` trees
- * are built in `.devlog-migrate/`, then swapped in with renames, and the
- * manifest is written last. An interrupted run is rolled back (or finished,
- * if the manifest made it) the next time the repository is opened.
+ * The layout step (format 1 → sharded) is staged: the new `canvases/` and
+ * `entries/` trees are built in `.devlog-migrate/`, then swapped in with
+ * renames, and the manifest is written last. An interrupted run is rolled
+ * back (or finished, if the manifest made it) the next time the repository
+ * is opened. Format 2 → 3 rewrites block files in place, one atomic write
+ * each; both formats are readable, so an interrupted run simply resumes.
  *
  * It is also deterministic: a migrated canvas's id is derived from its old
  * folder name, and files are re-serialised canonically. Two machines that
@@ -31,6 +35,7 @@ import {
   LEGACY_CATEGORIES_DIR,
   LEGACY_PAGES_DIR,
   MANIFEST_FILE,
+  SHARDED_FORMAT,
   STORAGE_FORMAT,
   canvasDir,
   canvasDirV1,
@@ -41,6 +46,7 @@ import {
   parseCanvasFile,
   parseLegacyPageFile,
   parseLegacyWikiFile,
+  blockFileFormat,
   rewriteImageSrcs,
   serializeBlockFile,
   serializeCanvasFile,
@@ -50,6 +56,7 @@ import {
 } from '../index'
 import type { CanvasMeta, Entry } from '../types'
 import type { SyncManager } from './sync'
+import { ensureRepoFiles } from './repoFiles'
 
 export const STAGE_DIR = '.devlog-migrate'
 export const OLD_DIR = '.devlog-migrate-old'
@@ -111,7 +118,7 @@ export async function migrateRepository(root: string, now: Date = new Date()): P
   if (from >= STORAGE_FORMAT && !legacy) return null
   if (legacy) await migrateLegacyToV1(root, now)
   if (from >= STORAGE_FORMAT) return { from, to: from, canvases: {}, files: 0 }
-  const report = await migrateV1ToV2(root)
+  const report = from < SHARDED_FORMAT ? await migrateLayout(root) : await migrateBlockFiles(root)
   return { ...report, from }
 }
 
@@ -145,7 +152,7 @@ export async function upgradeRepository(root: string, sync: SyncManager, now: Da
   const remoteManifest = await sync.readRemoteFile(MANIFEST_FILE)
   const remoteFormat = remoteManifest === null ? 1 : Number((safeJson(remoteManifest) as Partial<Manifest>).format) || 1
   const remoteRef = remoteFormat >= STORAGE_FORMAT ? await sync.fetchRemoteRef() : null
-  const upgradeCommit = remoteRef ? await sync.firstCommitAdding(remoteRef, MANIFEST_FILE) : null
+  const upgradeCommit = remoteRef ? await sync.firstCommitMatching(remoteRef, MANIFEST_FILE, `"format": ${STORAGE_FORMAT}`) : null
 
   if (!remoteRef || !upgradeCommit || !(await sync.hasUnsyncedWork())) {
     const pulled = await sync.syncNow('startup')
@@ -187,7 +194,7 @@ export async function recoverInterruptedMigration(root: string): Promise<'none' 
   const stage = path.join(root, STAGE_DIR)
   let outcome: 'none' | 'rolled-back' | 'completed' = 'none'
   if (await exists(old)) {
-    if ((await readStorageFormat(root)) >= STORAGE_FORMAT) {
+    if ((await readStorageFormat(root)) >= SHARDED_FORMAT) {
       outcome = 'completed' // the manifest is written after the swap: only cleanup was left
     } else {
       for (const name of [CANVASES_DIR, ENTRIES_DIR]) {
@@ -205,11 +212,56 @@ export async function recoverInterruptedMigration(root: string): Promise<'none' 
 }
 
 // ---------------------------------------------------------------------------
-// format 1 → format 2
+// format 2 → format 3: block files become append-only logs
 // ---------------------------------------------------------------------------
 
-async function migrateV1ToV2(root: string): Promise<Omit<MigrationReport, 'from'>> {
-  await ensureGitignore(root, [`${STAGE_DIR}/`, `${OLD_DIR}/`])
+async function migrateBlockFiles(root: string): Promise<Omit<MigrationReport, 'from'>> {
+  await ensureRepoFiles(root)
+  let files = 0
+  const rewrite = async (rel: string, title: string, fallback?: string): Promise<void> => {
+    const abs = path.join(root, ...rel.split('/'))
+    const text = await fs.readFile(abs, 'utf8')
+    if (blockFileFormat(text) >= 3) return
+    const dir = rel.slice(0, rel.lastIndexOf('/'))
+    const tmp = `${abs}.migrate.tmp`
+    await fs.writeFile(tmp, serializeBlockFile(parseBlockFile(text, dir, fallback), dir, title))
+    await fs.rename(tmp, abs)
+    files++
+  }
+  const stream = async (base: string): Promise<void> => {
+    const absBase = path.join(root, ...base.split('/'))
+    for (const y of await readdirSafe(absBase)) {
+      if (y.isFile() && y.name === TODO_FILE) await rewrite(`${base}/${y.name}`, '# Todos')
+      if (!y.isDirectory() || !/^\d{4}$/.test(y.name)) continue
+      for (const m of await readdirSafe(path.join(absBase, y.name))) {
+        if (!m.isDirectory()) continue
+        for (const f of await readdirSafe(path.join(absBase, y.name, m.name))) {
+          const date = f.isFile() ? dateFromFilePath(f.name) : null
+          if (date) await rewrite(`${base}/${y.name}/${m.name}/${f.name}`, `# ${date}`, `${date}T00:00:00.000Z`)
+        }
+      }
+    }
+  }
+  await stream(ENTRIES_DIR)
+  for (const shard of await readdirSafe(path.join(root, CANVASES_DIR))) {
+    if (!shard.isDirectory()) continue
+    for (const c of await readdirSafe(path.join(root, CANVASES_DIR, shard.name))) {
+      if (!c.isDirectory()) continue
+      const dir = `${CANVASES_DIR}/${shard.name}/${c.name}`
+      if (await exists(path.join(root, CANVASES_DIR, shard.name, c.name, TODO_FILE))) await rewrite(`${dir}/${TODO_FILE}`, '# Todos')
+      await stream(`${dir}/${ENTRIES_DIR}`)
+    }
+  }
+  await writeManifest(root)
+  return { to: STORAGE_FORMAT, canvases: {}, files }
+}
+
+// ---------------------------------------------------------------------------
+// format 1 → sharded layout (and format 3 block files)
+// ---------------------------------------------------------------------------
+
+async function migrateLayout(root: string): Promise<Omit<MigrationReport, 'from'>> {
+  await ensureRepoFiles(root)
   const stage = path.join(root, STAGE_DIR)
   await fs.rm(stage, { recursive: true, force: true })
   await fs.mkdir(stage, { recursive: true })
@@ -420,15 +472,6 @@ function uniqueSlug(title: string, taken: Set<string>): string {
   return id
 }
 
-async function ensureGitignore(root: string, lines: string[]): Promise<void> {
-  const file = path.join(root, '.gitignore')
-  const current = await fs.readFile(file, 'utf8').catch(() => '')
-  const have = new Set(current.split(/\r?\n/).map((l) => l.trim()))
-  const missing = lines.filter((l) => !have.has(l))
-  if (missing.length === 0) return
-  await fs.writeFile(file, `${current.replace(/\s*$/, '')}${current.trim() ? '\n' : ''}${missing.join('\n')}\n`)
-}
-
 async function moveDir(from: string, to: string): Promise<void> {
   await fs.mkdir(path.dirname(to), { recursive: true })
   try {
@@ -457,4 +500,3 @@ async function readdirSafe(dir: string): Promise<import('node:fs').Dirent[]> {
   }
 }
 
-export { ensureGitignore }
