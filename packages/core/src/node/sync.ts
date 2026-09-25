@@ -11,7 +11,7 @@
  */
 import { EventEmitter } from 'node:events'
 import { simpleGit, type SimpleGit, type SimpleGitOptions } from 'simple-git'
-import type { SyncStatus } from '@shared/types'
+import type { SyncStatus } from '../types'
 
 export interface SyncOptions {
   intervalMinutes: number
@@ -92,6 +92,21 @@ export class SyncManager extends EventEmitter {
     } catch {
       return null
     }
+  }
+
+  /** Point `origin` at `url` (or remove it when empty). Serialised with sync runs. */
+  async setRemote(url: string): Promise<void> {
+    const run = this.queue.then(async () => {
+      const remotes = await this.git.getRemotes()
+      const has = remotes.some((r) => r.name === 'origin')
+      if (!url) {
+        if (has) await this.git.removeRemote('origin')
+      } else if (has) await this.git.remote(['set-url', 'origin', url])
+      else await this.git.addRemote('origin', url)
+      await this.refreshStatus()
+    })
+    this.queue = run.catch(() => undefined)
+    await run
   }
 
   getStatus(): SyncStatus {

@@ -5,8 +5,8 @@
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { localDate } from '@shared/entries'
-import type { ActivityEvent } from '@shared/types'
+import { localDate } from '../format/blocks'
+import type { ActivityEvent } from '../types'
 
 export const ACTIVITY_DIR = 'activity'
 

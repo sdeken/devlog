@@ -1,4 +1,4 @@
-import { isExternalSrc } from '@shared/entries'
+import { isExternalSrc } from '@devlog/core'
 import { ASSET_HOST, ASSET_SCHEME } from '@shared/types'
 
 const PREFIX = `${ASSET_SCHEME}://${ASSET_HOST}/`

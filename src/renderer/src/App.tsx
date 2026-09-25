@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { localDate } from '@shared/entries'
-import { JOURNAL, JOURNAL_ID, canvasLabel } from '@shared/canvases'
+import { localDate } from '@devlog/core'
+import { JOURNAL, JOURNAL_ID, canvasLabel } from '@devlog/core'
 import { themeCssVars } from '@shared/theme'
 import type { CanvasMeta, Day, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { api } from '@renderer/api'

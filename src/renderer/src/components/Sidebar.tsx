@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@shared/canvases'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import { kbd } from '@renderer/keys'
 

@@ -22,7 +22,7 @@
  * renderer and asset server can resolve them without knowing which day they
  * belong to.
  */
-import { ENTRY_KINDS, type Day, type Entry, type EntryKind, type EntryPosition } from './types'
+import { ENTRY_KINDS, type Day, type Entry, type EntryKind, type EntryPosition } from '../types'
 
 export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'

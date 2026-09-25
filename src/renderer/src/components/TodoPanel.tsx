@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, canvasLabel, descendantCanvasIds } from '@shared/canvases'
-import { buildTree, splitTodoLines, type EntryNode } from '@shared/entries'
+import { JOURNAL_ID, canvasLabel, descendantCanvasIds } from '@devlog/core'
+import { buildTree, splitTodoLines, type EntryNode } from '@devlog/core'
 import type { CanvasMeta, Entry } from '@shared/types'
 import { api } from '@renderer/api'
 import { renderMarkdown } from '@renderer/markdown'

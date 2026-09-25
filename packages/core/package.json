@@ -1,0 +1,19 @@
+{
+  "name": "@devlog/core",
+  "version": "0.4.0",
+  "description": "Data model, file format and storage engine for Devlog: a git-backed developer log of canvases and blocks",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./node": "./src/node/index.ts",
+    "./types": "./src/types.ts"
+  },
+  "dependencies": {
+    "simple-git": "^3.36.0"
+  },
+  "engines": {
+    "node": ">=22.13"
+  }
+}

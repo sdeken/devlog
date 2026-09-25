@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, isWithin } from '@shared/canvases'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, isWithin } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import { api } from '@renderer/api'
 

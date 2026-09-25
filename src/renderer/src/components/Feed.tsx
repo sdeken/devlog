@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { buildTree, type EntryNode } from '@shared/entries'
-import { JOURNAL_ID, canvasLabel } from '@shared/canvases'
+import { buildTree, type EntryNode } from '@devlog/core'
+import { JOURNAL_ID, canvasLabel } from '@devlog/core'
 import type { CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { Composer } from './Composer'
 import { EntryView } from './EntryView'

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, ancestorIds, canvasLabel } from '@shared/canvases'
+import { JOURNAL_ID, ancestorIds, canvasLabel } from '@devlog/core'
 import type { Canvas, CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { api } from '@renderer/api'
 import { renderMarkdown } from '@renderer/markdown'

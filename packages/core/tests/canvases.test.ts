@@ -15,9 +15,9 @@ import {
   parseLegacyWikiFile,
   serializeCanvasFile,
   slugify
-} from '../src/shared/canvases'
-import { hasTaskTag, stripTaskTag, titleFromMarkdown } from '../src/shared/entries'
-import type { CanvasMeta } from '../src/shared/types'
+} from '../src/format/canvases'
+import { hasTaskTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
+import type { CanvasMeta } from '../src/types'
 
 const c = (id: string, title: string, parentId: string | null = null, extra: Partial<CanvasMeta> = {}): CanvasMeta => ({
   id,

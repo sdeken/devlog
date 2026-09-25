@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CanvasMeta, SyncStatus, TrackerStatus, UpdateStatus } from '@shared/types'
 import { api } from '@renderer/api'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@shared/canvases'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import { formatMinutes } from '@shared/review'
 import { kbd } from '@renderer/keys'
 

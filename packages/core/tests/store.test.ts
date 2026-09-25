@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DevlogStore } from '../src/main/devlog/store'
+import { DevlogStore } from '../src/node/store'
 
 let root: string
 let store: DevlogStore
@@ -125,6 +125,10 @@ describe('DevlogStore', () => {
   it('refuses paths outside the repository', () => {
     expect(() => store.resolve('../etc/passwd')).toThrow(/escapes/)
     expect(() => store.resolve('entries/../../x')).toThrow(/escapes/)
+    expect(store.resolveAsset('entries/2026/09/assets/a.png')).toBe(path.join(root, 'entries/2026/09/assets/a.png'))
+    expect(() => store.resolveAsset('.git/config')).toThrow(/asset/)
+    expect(() => store.resolveAsset('entries/../.git/HEAD')).toThrow(/asset/)
+    expect(() => store.resolveAsset('')).toThrow(/asset/)
   })
 
   it('emits change events on writes', async () => {

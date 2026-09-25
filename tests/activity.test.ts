@@ -14,7 +14,7 @@ import {
   splitByLocalDay,
   taskMinutesByDay
 } from '../src/shared/activity'
-import { normalizeDurationMarker, parseDurationMarker } from '../src/shared/entries'
+import { normalizeDurationMarker, parseDurationMarker } from '../packages/core/src/format/blocks'
 import type { ActivityEvent } from '../src/shared/types'
 
 const T = (h: number, m = 0, day = 14): string => new Date(2026, 8, day, h, Math.floor(m), Math.round((m % 1) * 60)).toISOString()

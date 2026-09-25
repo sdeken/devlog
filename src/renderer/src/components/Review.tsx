@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { localDate, previewText } from '@shared/entries'
-import { JOURNAL_ID, ancestorIds, canvasLabel } from '@shared/canvases'
+import { localDate, previewText } from '@devlog/core'
+import { JOURNAL_ID, ancestorIds, canvasLabel } from '@devlog/core'
 import { APP_KIND_LABEL, activeExclusions, splitByLocalDay, type AppKind } from '@shared/activity'
 import { reported } from '@renderer/toasts'
 import {

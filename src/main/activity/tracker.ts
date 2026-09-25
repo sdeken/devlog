@@ -9,7 +9,7 @@ import path from 'node:path'
 import { powerMonitor } from 'electron'
 import { HEARTBEAT_MS } from '@shared/activity'
 import type { ActivityEvent, Settings, TrackerStatus } from '@shared/types'
-import { ActivityLog } from './log'
+import { ActivityLog } from '@devlog/core/node'
 import { ForegroundWatcher } from './foreground'
 
 interface PersistedState {

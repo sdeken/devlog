@@ -13,7 +13,11 @@
     "isolatedModules": true,
     "composite": true,
     "baseUrl": ".",
-    "paths": { "@shared/*": ["src/shared/*"] }
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+      "@devlog/core": ["packages/core/src/index.ts"],
+      "@devlog/core/*": ["packages/core/src/*"]
+    }
   },
   "include": [
     "electron.vite.config.ts",
@@ -21,6 +25,8 @@
     "src/main/**/*",
     "src/preload/**/*",
     "src/shared/**/*",
-    "tests/**/*"
+    "tests/**/*",
+    "packages/core/src/**/*",
+    "packages/core/tests/**/*"
   ]
 }

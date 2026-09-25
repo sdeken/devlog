@@ -3,7 +3,7 @@
  * segments (what was active when), focus segments (which app was in front),
  * and per-day roll-ups. No I/O.
  */
-import { localDate } from './entries'
+import { localDate } from '@devlog/core'
 import type { ActivityEvent, Entry } from './types'
 
 export const HEARTBEAT_MS = 5 * 60_000

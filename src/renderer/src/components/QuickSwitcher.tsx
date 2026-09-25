@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@shared/canvases'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 
 export type SwitchTarget = { kind: 'canvas'; canvasId: string } | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }

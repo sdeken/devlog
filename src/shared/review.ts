@@ -5,8 +5,8 @@
  * markers). When a day has no tracking data at all, it falls back to a
  * timestamp heuristic so an untracked day still shows something.
  */
-import { localDate, parseDurationMarker } from './entries'
-import { JOURNAL_ID, ancestorIds } from './canvases'
+import { localDate, parseDurationMarker } from '@devlog/core'
+import { JOURNAL_ID, ancestorIds } from '@devlog/core'
 import {
   applyExplicitDurations,
   buildFocusSegments,

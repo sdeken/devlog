@@ -3,8 +3,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { simpleGit } from 'simple-git'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { DevlogStore } from '../src/main/devlog/store'
-import { SyncManager, commitMessage } from '../src/main/devlog/sync'
+import { DevlogStore } from '../src/node/store'
+import { SyncManager, commitMessage } from '../src/node/sync'
 
 let tmp: string
 let root: string
@@ -43,6 +43,19 @@ describe('SyncManager', () => {
     const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 60, autoPush: false, pullOnStart: false, ...author })
     await sync.start()
     expect(sync.getStatus().state).toBe('clean')
+    expect(sync.getStatus().hasRemote).toBe(false)
+    sync.stop()
+  })
+
+  it('sets, changes and removes the origin remote', async () => {
+    await makeStore()
+    const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 60, autoPush: false, pullOnStart: false, ...author })
+    await sync.start()
+    await sync.setRemote(bare)
+    expect(sync.getStatus()).toMatchObject({ hasRemote: true, remoteUrl: bare })
+    await sync.setRemote(`${bare}-other`)
+    expect(sync.getStatus().remoteUrl).toBe(`${bare}-other`)
+    await sync.setRemote('')
     expect(sync.getStatus().hasRemote).toBe(false)
     sync.stop()
   })

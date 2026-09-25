@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { localDate } from '@shared/entries'
+import { localDate } from '@devlog/core'
 import { addDays, buildReviewRows, computeWeekTime, formatHours, formatMinutes, roundMinutes, weekStart, type ReviewNote, type ReviewRow } from '@shared/review'
 import type { ActivityEvent, CanvasMeta } from '@shared/types'
 import { api } from '@renderer/api'

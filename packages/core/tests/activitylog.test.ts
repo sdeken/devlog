@@ -2,7 +2,7 @@ import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { ActivityLog, datesBetween } from '../src/main/activity/log'
+import { ActivityLog, datesBetween } from '../src/node/activityLog'
 
 let root: string
 beforeEach(async () => {

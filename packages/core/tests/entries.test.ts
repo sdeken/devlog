@@ -20,8 +20,8 @@ import {
   toRelativeFrom,
   toRootRelative,
   toRootRelativeFrom
-} from '../src/shared/entries'
-import type { Day, Entry } from '../src/shared/types'
+} from '../src/format/blocks'
+import type { Day, Entry } from '../src/types'
 
 describe('paths', () => {
   it('maps a date to its day file', () => {

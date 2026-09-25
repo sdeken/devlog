@@ -6,7 +6,7 @@
 import { net, protocol } from 'electron'
 import { pathToFileURL } from 'node:url'
 import { ASSET_HOST, ASSET_SCHEME } from '@shared/types'
-import type { DevlogStore } from './devlog/store'
+import type { DevlogStore } from '@devlog/core/node'
 
 export function registerAssetScheme(): void {
   protocol.registerSchemesAsPrivileged([
@@ -28,13 +28,9 @@ export function installAssetHandler(getStore: () => DevlogStore | null): void {
       return new Response('Bad URL', { status: 400 })
     }
     if (url.host !== ASSET_HOST) return new Response('Not found', { status: 404 })
-    const rel = decodeURIComponent(url.pathname.replace(/^\/+/, ''))
-    if (!rel || rel.includes('\0') || rel.split('/').includes('.git')) {
-      return new Response('Not found', { status: 404 })
-    }
     let abs: string
     try {
-      abs = store.resolve(rel)
+      abs = store.resolveAsset(decodeURIComponent(url.pathname.replace(/^\/+/, '')))
     } catch {
       return new Response('Forbidden', { status: 403 })
     }

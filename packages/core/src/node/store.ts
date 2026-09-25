@@ -33,7 +33,7 @@ import {
   titleFromMarkdown,
   toRelativeFrom,
   toRootRelativeFrom
-} from '@shared/entries'
+} from '../index'
 import {
   CANVASES_DIR,
   JOURNAL,
@@ -53,7 +53,7 @@ import {
   parseLegacyWikiFile,
   serializeCanvasFile,
   slugify
-} from '@shared/canvases'
+} from '../index'
 import type {
   Canvas,
   CanvasInput,
@@ -69,7 +69,7 @@ import type {
   SearchResult,
   SurfaceHit,
   Timeline
-} from '@shared/types'
+} from '../types'
 
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
   'image/png': 'png',
@@ -97,6 +97,17 @@ export class DevlogStore extends EventEmitter {
       throw new Error(`Path escapes repository: ${repoRel}`)
     }
     return abs
+  }
+
+  /**
+   * Absolute path of a file the UI may display (an image in a block or
+   * surface). Refuses anything outside the repository or inside `.git`.
+   */
+  resolveAsset(repoRel: string): string {
+    if (!repoRel || repoRel.includes('\0') || repoRel.split('/').some((seg) => seg === '.git' || seg === '..')) {
+      throw new Error('Not an asset path')
+    }
+    return this.resolve(repoRel)
   }
 
   /** Create the on-disk skeleton for a new devlog (idempotent). */

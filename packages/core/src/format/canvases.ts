@@ -13,7 +13,7 @@
  *
  * The journal is the built-in root canvas whose stream lives at `entries/`.
  */
-import type { CanvasMeta } from './types'
+import type { CanvasMeta } from '../types'
 
 export const JOURNAL_ID = 'journal'
 export const CANVASES_DIR = 'canvases'

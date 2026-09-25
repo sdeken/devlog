@@ -1,11 +1,10 @@
 import { BrowserWindow, Menu, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { ActivityEvent, CanvasInput, Entry, EntryPosition, RepoInfo, Settings, TrackerStatus, UpdateStatus } from '@shared/types'
-import { hasTaskTag, stripTaskTag } from '@shared/entries'
-import type { DevlogStore } from './devlog/store'
-import type { SyncManager } from './devlog/sync'
+import { hasTaskTag, stripTaskTag } from '@devlog/core'
+import type { DevlogStore } from '@devlog/core/node'
+import type { SyncManager } from '@devlog/core/node'
 import type { SettingsStore } from './settings'
-import { simpleGit } from 'simple-git'
 import { randomUUID } from 'node:crypto'
 import { inspectWorkingCopy } from './workingCopy'
 
@@ -59,17 +58,20 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.repoCreate, async (_e, root: string, remoteUrl?: string) => {
     const info = await deps.openRepo(root, { create: true })
     if (remoteUrl && remoteUrl.trim()) {
-      await setRemote(root, remoteUrl.trim())
       const sync = deps.getSync()
-      if (sync) await sync.syncNow('manual')
+      if (sync) {
+        await sync.setRemote(remoteUrl.trim())
+        await sync.syncNow('manual')
+      }
     }
     return deps.repoInfo()
   })
   ipcMain.handle(IPC.repoSetRemote, async (_e, remoteUrl: string) => {
-    const store = requireStore(deps)
-    await setRemote(store.root, remoteUrl.trim())
+    requireStore(deps)
     const sync = deps.getSync()
-    if (sync) await sync.syncNow('manual')
+    if (!sync) throw new Error('No devlog is open')
+    await sync.setRemote(remoteUrl.trim())
+    await sync.syncNow('manual')
     return deps.repoInfo()
   })
   ipcMain.handle(IPC.repoRevealInFinder, () => {
@@ -257,13 +259,3 @@ async function checkNewRepos(repos: string[], existing: string[], devlogRoot: st
   return out
 }
 
-async function setRemote(root: string, url: string): Promise<void> {
-  const git = simpleGit({ baseDir: root })
-  const remotes = await git.getRemotes()
-  if (!url) {
-    if (remotes.some((r) => r.name === 'origin')) await git.removeRemote('origin')
-    return
-  }
-  if (remotes.some((r) => r.name === 'origin')) await git.remote(['set-url', 'origin', url])
-  else await git.addRemote('origin', url)
-}

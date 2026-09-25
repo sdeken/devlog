@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { localDate, previewText } from '@shared/entries'
-import { canvasLabel } from '@shared/canvases'
+import { localDate, previewText } from '@devlog/core'
+import { canvasLabel } from '@devlog/core'
 import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTrackedSegments, cleanFocusSegments, type TimelineBucket } from '@shared/activity'
 import { addDays, formatMinutes } from '@shared/review'
 import type { ActivityEvent, CanvasMeta, Entry } from '@shared/types'
