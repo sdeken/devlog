@@ -56,7 +56,7 @@ import {
 } from '../index'
 import type { CanvasMeta, Entry } from '../types'
 import type { SyncManager } from './sync'
-import { ensureRepoFiles } from './repoFiles'
+import { ensureRepoFiles, listBlockFiles } from './repoFiles'
 
 export const STAGE_DIR = '.devlog-migrate'
 export const OLD_DIR = '.devlog-migrate-old'
@@ -218,39 +218,15 @@ export async function recoverInterruptedMigration(root: string): Promise<'none' 
 async function migrateBlockFiles(root: string): Promise<Omit<MigrationReport, 'from'>> {
   await ensureRepoFiles(root)
   let files = 0
-  const rewrite = async (rel: string, title: string, fallback?: string): Promise<void> => {
-    const abs = path.join(root, ...rel.split('/'))
+  for (const ref of await listBlockFiles(root)) {
+    const abs = path.join(root, ...ref.rel.split('/'))
     const text = await fs.readFile(abs, 'utf8')
-    if (blockFileFormat(text) >= 3) return
-    const dir = rel.slice(0, rel.lastIndexOf('/'))
+    if (blockFileFormat(text) >= 3) continue
+    const dir = ref.rel.slice(0, ref.rel.lastIndexOf('/'))
     const tmp = `${abs}.migrate.tmp`
-    await fs.writeFile(tmp, serializeBlockFile(parseBlockFile(text, dir, fallback), dir, title))
+    await fs.writeFile(tmp, serializeBlockFile(parseBlockFile(text, dir, ref.fallbackCreatedAt), dir, ref.title))
     await fs.rename(tmp, abs)
     files++
-  }
-  const stream = async (base: string): Promise<void> => {
-    const absBase = path.join(root, ...base.split('/'))
-    for (const y of await readdirSafe(absBase)) {
-      if (y.isFile() && y.name === TODO_FILE) await rewrite(`${base}/${y.name}`, '# Todos')
-      if (!y.isDirectory() || !/^\d{4}$/.test(y.name)) continue
-      for (const m of await readdirSafe(path.join(absBase, y.name))) {
-        if (!m.isDirectory()) continue
-        for (const f of await readdirSafe(path.join(absBase, y.name, m.name))) {
-          const date = f.isFile() ? dateFromFilePath(f.name) : null
-          if (date) await rewrite(`${base}/${y.name}/${m.name}/${f.name}`, `# ${date}`, `${date}T00:00:00.000Z`)
-        }
-      }
-    }
-  }
-  await stream(ENTRIES_DIR)
-  for (const shard of await readdirSafe(path.join(root, CANVASES_DIR))) {
-    if (!shard.isDirectory()) continue
-    for (const c of await readdirSafe(path.join(root, CANVASES_DIR, shard.name))) {
-      if (!c.isDirectory()) continue
-      const dir = `${CANVASES_DIR}/${shard.name}/${c.name}`
-      if (await exists(path.join(root, CANVASES_DIR, shard.name, c.name, TODO_FILE))) await rewrite(`${dir}/${TODO_FILE}`, '# Todos')
-      await stream(`${dir}/${ENTRIES_DIR}`)
-    }
   }
   await writeManifest(root)
   return { to: STORAGE_FORMAT, canvases: {}, files }

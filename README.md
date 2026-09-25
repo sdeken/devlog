@@ -446,8 +446,9 @@ blocks you see are what you get by replaying the records in order.
   you type or paste can forge or split records.
 
 Files grow with every edit; day files are small, so this will take a long
-time to matter. Older day files can later be compacted back to one `add`
-per block. Files from older formats (with a `<!-- devlog:entry … -->` per
+time to matter. The data layer can already compact quiet files back to one
+`add` per block (checking that the result replays to exactly the same
+blocks first), but the app does not run it yet. Files from older formats (with a `<!-- devlog:entry … -->` per
 block and, before 0.4, a `### 14:32` heading) are still read.
 
 ## Search and the local index

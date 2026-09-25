@@ -68,7 +68,7 @@ import {
   serializeCanvasFile
 } from '../index'
 import type { RepoIndex } from './repoIndex'
-import { ensureRepoFiles } from './repoFiles'
+import { ensureRepoFiles, listBlockFiles } from './repoFiles'
 import type {
   Canvas,
   CanvasInput,
@@ -738,6 +738,58 @@ export class DevlogStore extends EventEmitter {
   // Internals
   // -------------------------------------------------------------------------
 
+  // -------------------------------------------------------------------------
+  // Compaction
+  // -------------------------------------------------------------------------
+
+  /**
+   * Rewrite quiet block files as one `add` per live block, dropping superseded
+   * edits, moves and deleted blocks. The only operation that rewrites a block
+   * file, so it is deliberately conservative:
+   *
+   *  - only files whose newest record is older than `quietSince` (a file
+   *    another machine may still be appending to must not be rewritten
+   *    under it; git history keeps every dropped record);
+   *  - only format 3 files, and only when compacting changes them;
+   *  - the result is replayed and must give exactly the same blocks, or the
+   *    file is left alone and reported;
+   *  - deterministic, so two machines compacting the same file agree;
+   *  - `dryRun` reports what would change without writing anything.
+   *
+   * The app does not call this yet.
+   */
+  async compact(opts: { quietSince: Date; dryRun?: boolean }): Promise<CompactionReport> {
+    const cutoff = opts.quietSince.toISOString()
+    const report: CompactionReport = { scanned: 0, compacted: [], skipped: [] }
+    for (const ref of await listBlockFiles(this.root)) {
+      report.scanned++
+      await this.withFileLock(ref.rel, async () => {
+        const abs = this.resolve(ref.rel)
+        const text = await fs.readFile(abs, 'utf8').catch(() => null)
+        if (text === null) return
+        if (blockFileFormat(text) < BLOCK_FORMAT) {
+          report.skipped.push({ path: ref.rel, reason: 'older format' })
+          return
+        }
+        const dir = ref.rel.slice(0, ref.rel.lastIndexOf('/'))
+        const log = readBlockLog(text, dir, ref.fallbackCreatedAt)
+        if (log.maxAt >= cutoff) return
+        const next = serializeBlockFile(log.entries, dir, ref.title)
+        if (next === text) return
+        if (!sameBlocks(readBlockLog(next, dir, ref.fallbackCreatedAt).entries, log.entries)) {
+          report.skipped.push({ path: ref.rel, reason: 'compacted file would not replay to the same blocks' })
+          return
+        }
+        report.compacted.push({ path: ref.rel, before: Buffer.byteLength(text), after: Buffer.byteLength(next) })
+        if (opts.dryRun) return
+        await writeAtomic(abs, next)
+        this.index?.noteFile(ref.rel, next)
+        this.emit('change', { kind: 'compact', path: ref.rel })
+      })
+    }
+    return report
+  }
+
   private mutateDay<T>(canvasId: string, date: string, plan: (log: BlockLog) => { ops: Op[]; result: T }): Promise<T> {
     assertCanvasId(canvasId)
     assertDate(date)
@@ -812,6 +864,27 @@ export class DevlogStore extends EventEmitter {
     }
     return dates
   }
+}
+
+export interface CompactionReport {
+  scanned: number
+  compacted: Array<{ path: string; before: number; after: number }>
+  skipped: Array<{ path: string; reason: string }>
+}
+
+/** Same blocks in the same order, field by field (property order does not matter). */
+function sameBlocks(a: Entry[], b: Entry[]): boolean {
+  const canon = (v: unknown): unknown =>
+    v && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(
+          Object.keys(v as Record<string, unknown>)
+            .sort()
+            .map((k) => [k, canon((v as Record<string, unknown>)[k])])
+        )
+      : Array.isArray(v)
+        ? v.map(canon)
+        : v
+  return JSON.stringify(canon(a)) === JSON.stringify(canon(b))
 }
 
 function cleanRepos(repos?: string[]): string[] {

@@ -114,10 +114,17 @@ Reasons for this over alternatives:
   then id, and the next insert between them renumbers the siblings with a
   few `set` records. Predecessor pointers were the alternative; they break
   on concurrent inserts after the same block and on deleted predecessors.
-- **Compaction later.** Files grow with every edit. A compacted file is one
-  `add` per live block carrying its current state (exactly what the
-  migrations write), produced deterministically so two machines compacting
-  the same file agree; the app does not compact yet.
+- **Compaction, built but not applied.** Files grow with every edit.
+  `DevlogStore.compact({ quietSince, dryRun })` rewrites a file as one `add`
+  per live block carrying its current state (exactly what the migrations
+  write), dropping superseded edits, moves and deleted blocks. It is the
+  only operation that rewrites a block file, so it only touches format 3
+  files whose newest record is older than `quietSince` (another machine
+  must not still be appending to a file rewritten under it), replays the
+  result and refuses to write unless it gives exactly the same blocks, is
+  deterministic (two machines compacting the same file agree), holds the
+  file's lock, and keeps the index current. Git history keeps every dropped
+  record. The app does not call it yet.
 - Parsing tolerates hand edits: missing ids get generated (format 1/2),
   CRLF is fine, and anything before the first record is ignored rather than
   destroyed. Format 1 and 2 files are still read.
@@ -528,4 +535,4 @@ timeout kills a stalled network call.
 - Drag-to-reorder across days. Within a day, drag-and-drop appends one
   `set` with a new order key; across days a block would have to change
   files, which is what Move is for.
-- Compaction of old block files (see *Storage format*).
+- Running compaction (it exists in the core package; see *Storage format*).

@@ -22,7 +22,9 @@ Two entry points:
   and under test.
 - **Block files are append-only.** Every change to a block or todo is a
   record appended to its file (`format/oplog.ts`); the store never rewrites
-  one. Other files (`canvas.md`, the manifest) are written atomically (temp
+  one, except `compact()`, which rewrites quiet files to their current
+  state after checking the result replays to the same blocks (not used by
+  the app yet). Other files (`canvas.md`, the manifest) are written atomically (temp
   file, then rename). The store emits `change` events so a sync manager can
   commit shortly after.
 - **The index is a cache.** `RepoIndex` lives outside the repository (the app
