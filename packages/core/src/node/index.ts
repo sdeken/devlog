@@ -16,3 +16,4 @@ export {
   OLD_DIR,
   type MigrationReport
 } from './migrate'
+export { RepoIndex, INDEX_SCHEMA, classifyPath, type RefreshReport } from './repoIndex'

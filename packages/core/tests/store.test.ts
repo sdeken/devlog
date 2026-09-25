@@ -285,7 +285,7 @@ describe('canvases in the store', () => {
     await store.addEntry('journal', 'needle in journal', {}, new Date(2026, 8, 18, 9))
     await store.addEntry(acme, 'needle on canvas', {}, new Date(2026, 8, 19, 9))
     const { blocks, surfaces } = await store.search('needle')
-    expect(blocks.map((h) => `${h.canvasId}:${h.entry.markdown}:${h.archived}`)).toEqual(['journal:needle in journal:false', `${acme}:needle on canvas:false`])
+    expect(blocks.map((h) => `${h.canvasId}:${h.entry.markdown}:${h.archived}`)).toEqual([`${acme}:needle on canvas:false`, 'journal:needle in journal:false']) // newest first
     expect(surfaces).toEqual([])
   })
 

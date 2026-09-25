@@ -1,12 +1,13 @@
 import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerMonitor, screen, shell } from 'electron'
 import path from 'node:path'
-import { promises as fs } from 'node:fs'
+import { mkdirSync, promises as fs } from 'node:fs'
+import { createHash } from 'node:crypto'
 import { IPC, type MenuCommand } from '@shared/ipc'
 import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@devlog/core'
-import { DevlogStore, migrateRepository, needsMigration } from '@devlog/core/node'
+import { DevlogStore, RepoIndex, migrateRepository, needsMigration } from '@devlog/core/node'
 import { ActivityLog } from '@devlog/core/node'
 import { Tracker } from './activity/tracker'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
@@ -36,6 +37,8 @@ const settings = new SettingsStore(path.join(app.getPath('userData'), 'settings.
 let mainWindow: BrowserWindow | null = null
 let store: DevlogStore | null = null
 let sync: SyncManager | null = null
+let repoIndex: RepoIndex | null = null
+let lastIndexRefresh = 0
 let tracker: Tracker | null = null
 let commits: CommitWatcher | null = null
 let tray: Tray | null = null
@@ -101,8 +104,37 @@ export async function closeRepo(): Promise<void> {
     sync.removeAllListeners()
   }
   store?.removeAllListeners()
+  store?.attachIndex(null)
+  repoIndex?.close()
+  repoIndex = null
   sync = null
   store = null
+}
+
+/** A local, disposable cache of the repository (listings, search); rebuilt from the files when missing. */
+function openIndex(root: string): RepoIndex | null {
+  const dir = path.join(app.getPath('userData'), 'index')
+  const file = path.join(dir, `${createHash('sha256').update(path.resolve(root)).digest('hex').slice(0, 16)}.sqlite`)
+  try {
+    mkdirSync(dir, { recursive: true })
+    return RepoIndex.open(file, root)
+  } catch (err) {
+    console.error('index unavailable; reading files directly', err)
+    return null
+  }
+}
+
+/** Re-read files that changed on disk (a pull, an edit outside the app). */
+async function refreshIndex(): Promise<void> {
+  if (!repoIndex) return
+  const index = repoIndex
+  lastIndexRefresh = Date.now()
+  try {
+    const report = await index.refresh()
+    if (index === repoIndex && (report.indexed > 0 || report.removed > 0)) send(IPC.evEntriesChanged)
+  } catch (err) {
+    console.error('index refresh failed', err)
+  }
 }
 
 /** Open (or create) a devlog at `root` and start syncing it. */
@@ -142,11 +174,18 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     }
   }
   nextSync.on('status', (status: SyncStatus) => send(IPC.evSyncStatus, status))
-  nextSync.on('remote-changes', () => send(IPC.evEntriesChanged))
+  nextSync.on('remote-changes', () => {
+    send(IPC.evEntriesChanged)
+    void refreshIndex()
+  })
   nextStore.on('change', () => nextSync.noteChange())
 
+  const nextIndex = openIndex(root)
+  if (nextIndex) nextStore.attachIndex(nextIndex)
   store = nextStore
   sync = nextSync
+  repoIndex = nextIndex
+  void refreshIndex()
   await settings.set({ repoPath: root })
   await nextSync.start()
 
@@ -456,6 +495,10 @@ function createWindow(): BrowserWindow {
     if (quitting || !settings.get().trackingEnabled || !tray) return
     event.preventDefault()
     win.hide()
+  })
+  // Coming back to the window picks up edits made outside the app (at most every 30 s).
+  win.on('focus', () => {
+    if (Date.now() - lastIndexRefresh > 30_000) void refreshIndex()
   })
   win.on('closed', () => {
     if (mainWindow === win) mainWindow = null

@@ -57,6 +57,7 @@ import {
   parseCanvasFile,
   serializeCanvasFile
 } from '../index'
+import type { RepoIndex } from './repoIndex'
 import type {
   Canvas,
   CanvasInput,
@@ -88,8 +89,22 @@ const MAX_ASSET_BYTES = 25 * 1024 * 1024
 const DEFAULT_TIMELINE_DAYS = 10
 
 export class DevlogStore extends EventEmitter {
+  private index: RepoIndex | null = null
+
   constructor(readonly root: string) {
     super()
+  }
+
+  /**
+   * Serve listings and search from `index` (once it has been built) and keep
+   * it current with every write. Pass null to go back to reading the files.
+   */
+  attachIndex(index: RepoIndex | null): void {
+    this.index = index
+  }
+
+  private get liveIndex(): RepoIndex | null {
+    return this.index?.ready ? this.index : null
   }
 
   /** Absolute OS path for a repo-relative POSIX path, guarded against traversal. */
@@ -157,6 +172,8 @@ export class DevlogStore extends EventEmitter {
   // -------------------------------------------------------------------------
 
   async listCanvases(): Promise<CanvasMeta[]> {
+    const index = this.liveIndex
+    if (index) return [{ ...JOURNAL }, ...index.canvases().map(stripSurface)]
     const out: CanvasMeta[] = [{ ...JOURNAL }]
     const dir = path.join(this.root, CANVASES_DIR)
     for (const shard of await readdirSafe(dir)) {
@@ -274,6 +291,7 @@ export class DevlogStore extends EventEmitter {
     for (const target of [id, ...descendantCanvasIds(all, id)]) {
       for (const d of await this.listDays(target)) count += d.count
       await fs.rm(this.resolve(canvasDir(target)), { recursive: true, force: true })
+      this.index?.noteRemovedDir(canvasDir(target))
     }
     this.emit('change', { kind: 'canvas', canvasId: id })
     return count
@@ -325,7 +343,9 @@ export class DevlogStore extends EventEmitter {
   private async writeCanvas(meta: CanvasMeta, surface: string): Promise<void> {
     const abs = this.resolve(canvasFilePath(meta.id))
     await fs.mkdir(path.dirname(abs), { recursive: true })
-    await writeAtomic(abs, serializeCanvasFile(meta, toRelativeFrom(surface, canvasDir(meta.id))))
+    const text = serializeCanvasFile(meta, toRelativeFrom(surface, canvasDir(meta.id)))
+    await writeAtomic(abs, text)
+    this.index?.noteFile(canvasFilePath(meta.id), text)
     this.emit('change', { kind: 'canvas', canvasId: meta.id })
   }
 
@@ -354,10 +374,14 @@ export class DevlogStore extends EventEmitter {
 
   private async writeTodos(canvasId: string, entries: Entry[]): Promise<void> {
     const abs = this.resolve(this.todoPath(canvasId))
-    if (entries.length === 0) await fs.rm(abs, { force: true })
-    else {
+    if (entries.length === 0) {
+      await fs.rm(abs, { force: true })
+      this.index?.noteFile(this.todoPath(canvasId), null)
+    } else {
       await fs.mkdir(path.dirname(abs), { recursive: true })
-      await writeAtomic(abs, serializeBlockFile(entries, this.todoDir(canvasId), '# Todos'))
+      const text = serializeBlockFile(entries, this.todoDir(canvasId), '# Todos')
+      await writeAtomic(abs, text)
+      this.index?.noteFile(this.todoPath(canvasId), text)
     }
     this.emit('change', { kind: 'todos', canvasId })
   }
@@ -465,6 +489,11 @@ export class DevlogStore extends EventEmitter {
   // -------------------------------------------------------------------------
 
   async listDays(canvasId: string = JOURNAL_ID): Promise<DaySummary[]> {
+    const index = this.liveIndex
+    if (index) {
+      assertCanvasId(canvasId)
+      return index.dayCounts(canvasId)
+    }
     const out: DaySummary[] = []
     for (const date of await this.listDayFiles(canvasId)) {
       const day = await this.readDay(canvasId, date)
@@ -523,40 +552,53 @@ export class DevlogStore extends EventEmitter {
     return out
   }
 
-  /** Full-text search over every block (archived canvases included) and every surface. */
+  /**
+   * Case-insensitive search over every block and todo (archived canvases
+   * included, newest first) and every surface.
+   */
   async search(query: string, limit = 200): Promise<SearchResult> {
     const q = query.trim().toLowerCase()
     if (!q) return { blocks: [], surfaces: [] }
-    const canvases = await this.listCanvases()
+    const index = this.liveIndex
+    const canvases = index ? [{ ...JOURNAL, surface: '' }, ...index.canvases()] : await this.readAllCanvases()
+    const archived = new Map(canvases.map((c) => [c.id, c.archived]))
     const surfaces: SurfaceHit[] = []
-    for (const meta of canvases) {
-      if (!meta.hasSurface) continue
-      const canvas = await this.readCanvas(meta.id)
+    for (const canvas of canvases) {
       const idx = canvas.surface.toLowerCase().indexOf(q)
       if (idx >= 0) {
         const start = Math.max(0, idx - 60)
-        surfaces.push({ canvasId: meta.id, archived: meta.archived, excerpt: previewText(canvas.surface.slice(start, idx + 120), 180) })
+        surfaces.push({ canvasId: canvas.id, archived: canvas.archived, excerpt: previewText(canvas.surface.slice(start, idx + 120), 180) })
       }
     }
-    const blocks: SearchHit[] = []
+    if (index) {
+      const blocks = index.searchBlocks(q, limit).map((h) => ({ canvasId: h.canvasId, date: h.date, entry: h.entry, archived: archived.get(h.canvasId) ?? false }))
+      return { blocks, surfaces }
+    }
+    const hits: Array<SearchHit & { seq: number; todo: number }> = []
     for (const canvas of canvases) {
-      for (const entry of await this.readTodos(canvas.id)) {
-        if (entry.markdown.toLowerCase().includes(q)) blocks.push({ canvasId: canvas.id, date: localDate(new Date(entry.createdAt)), entry, archived: canvas.archived })
+      ;(await this.readTodos(canvas.id)).forEach((entry, seq) => {
+        if (entry.markdown.toLowerCase().includes(q)) hits.push({ canvasId: canvas.id, date: localDate(new Date(entry.createdAt)), entry, archived: canvas.archived, seq, todo: 1 })
+      })
+      for (const date of await this.listDayFiles(canvas.id)) {
+        ;(await this.readDay(canvas.id, date)).entries.forEach((entry, seq) => {
+          if (entry.markdown.toLowerCase().includes(q)) hits.push({ canvasId: canvas.id, date, entry, archived: canvas.archived, seq, todo: 0 })
+        })
       }
     }
-    for (const canvas of canvases) {
-      const dates = (await this.listDayFiles(canvas.id)).sort((a, b) => b.localeCompare(a))
-      for (const date of dates) {
-        const day = await this.readDay(canvas.id, date)
-        for (const entry of [...day.entries].reverse()) {
-          if (entry.markdown.toLowerCase().includes(q)) {
-            blocks.push({ canvasId: canvas.id, date, entry, archived: canvas.archived })
-            if (blocks.length >= limit) return { blocks, surfaces }
-          }
-        }
-      }
+    // Same order as the index: newest day, newest block, stream before todos, canvas, later in the file.
+    const cmp = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
+    hits.sort(
+      (x, y) => cmp(y.date, x.date) || cmp(y.entry.createdAt, x.entry.createdAt) || x.todo - y.todo || cmp(x.canvasId, y.canvasId) || y.seq - x.seq
+    )
+    return { blocks: hits.slice(0, limit).map(({ seq: _s, todo: _t, ...h }) => h), surfaces }
+  }
+
+  private async readAllCanvases(): Promise<Canvas[]> {
+    const out: Canvas[] = []
+    for (const meta of await this.listCanvases()) {
+      out.push(meta.id === JOURNAL_ID ? { ...meta, surface: '' } : meta.hasSurface ? await this.readCanvas(meta.id) : { ...meta, surface: '' })
     }
-    return { blocks, surfaces }
+    return out
   }
 
   // -------------------------------------------------------------------------
@@ -712,18 +754,24 @@ export class DevlogStore extends EventEmitter {
 
   private async writeDay(canvasId: string, day: Day): Promise<void> {
     const base = canvasEntriesBase(canvasId)
-    const abs = this.resolve(dayFilePath(day.date, base))
+    const rel = dayFilePath(day.date, base)
+    const abs = this.resolve(rel)
     if (day.entries.length === 0) {
       await fs.rm(abs, { force: true })
+      this.index?.noteFile(rel, null)
     } else {
       await fs.mkdir(path.dirname(abs), { recursive: true })
-      await writeAtomic(abs, serializeDayFile(day, base))
+      const text = serializeDayFile(day, base)
+      await writeAtomic(abs, text)
+      this.index?.noteFile(rel, text)
     }
     this.emit('change', { kind: 'day', canvasId, date: day.date })
   }
 
   private async listDayFiles(canvasId: string): Promise<string[]> {
     assertCanvasId(canvasId)
+    const index = this.liveIndex
+    if (index) return index.dates(canvasId)
     const base = this.resolve(canvasEntriesBase(canvasId))
     const dates: string[] = []
     for (const y of await readdirSafe(base)) {
