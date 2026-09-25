@@ -85,6 +85,20 @@ const api = {
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
+  todos: {
+    /** Todo lists (todos and their comment threads) for each canvas, in file order. */
+    list: (canvasIds: string[]): Promise<Array<{ canvasId: string; entries: Entry[] }>> => ipcRenderer.invoke(IPC.todosList, canvasIds),
+    add: (canvasId: string, texts: string[]): Promise<Entry[]> => ipcRenderer.invoke(IPC.todosAdd, canvasId, texts),
+    reply: (canvasId: string, parentId: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoReply, canvasId, parentId, markdown),
+    update: (canvasId: string, id: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoUpdate, canvasId, id, markdown),
+    remove: (canvasId: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.todoDelete, canvasId, id),
+    reorder: (canvasId: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Entry[]> =>
+      ipcRenderer.invoke(IPC.todoReorder, canvasId, id, position),
+    /** Tick off (writes a done block into today's stream) or tick back on (removes today's). */
+    setDone: (canvasId: string, id: string, done: boolean): Promise<{ todo: Entry; date: string }> => ipcRenderer.invoke(IPC.todoSetDone, canvasId, id, done),
+    /** Turn a todo into a task canvas and start the clock. */
+    promote: (canvasId: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.todoPromote, canvasId, id)
+  },
   assets: {
     save: (canvasId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
       ipcRenderer.invoke(IPC.assetSave, canvasId, date, bytes, mime, name)

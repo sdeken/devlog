@@ -87,7 +87,7 @@ export const EntryView = memo(function EntryView({
 
   const timeLabel = showDate ? dateTimeFmt.format(created) : timeFmt.format(created)
   const targets = (canvases ?? []).filter((c) => c.id !== canvasId && !c.archived)
-  const readOnly = entry.kind === 'commit'
+  const readOnly = entry.kind === 'commit' || entry.kind === 'done'
   const isTask = entry.kind === 'task'
   const taskCanvasId = isTask ? entry.meta?.canvas : undefined
   const taskLabel = taskCanvasId && canvases ? canvasLabel(canvases, taskCanvasId).split(' / ').pop() : undefined
@@ -128,7 +128,7 @@ export const EntryView = memo(function EntryView({
         setEditing(true)
       }}
     >
-      {readOnly && <span className="entry-brace brace-auto" title={`Captured automatically from ${entry.meta?.repo ?? 'git'}; read-only`} aria-label="Automatic block" />}
+      {readOnly && <span className="entry-brace brace-auto" title={entry.kind === 'done' ? 'Written when the todo was ticked off; read-only' : `Captured automatically from ${entry.meta?.repo ?? 'git'}; read-only`} aria-label="Automatic block" />}
       {isTask && taskCanvasId && (
         <button
           type="button"

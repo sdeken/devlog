@@ -9,6 +9,7 @@ import { Feed } from './components/Feed'
 import { CanvasView } from './components/CanvasView'
 import { CanvasDialog } from './components/CanvasDialog'
 import { LinkRepoDialog } from './components/LinkRepoDialog'
+import { TodoPanel } from './components/TodoPanel'
 import { Review } from './components/Review'
 import { Summary } from './components/Summary'
 import { QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
@@ -478,6 +479,13 @@ export function App(): React.JSX.Element {
           }}
         />
       </main>
+      <TodoPanel
+        canvases={canvases}
+        canvasId={view === 'canvas' ? canvasId : null}
+        onOpenCanvas={openCanvas}
+        onStreamChanged={(id, date) => void reloadDay(id, date)}
+        onCanvasesChanged={refreshCanvases}
+      />
       <Toasts />
       {switcherOpen && (
         <QuickSwitcher

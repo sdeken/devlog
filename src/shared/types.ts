@@ -6,7 +6,14 @@
  * read-only), `task` (a note that was turned into a task; `meta.canvas` is
  * the task canvas it opened).
  */
-export type EntryKind = 'note' | 'commit' | 'task'
+export const ENTRY_KINDS = ['note', 'commit', 'task', 'todo', 'done'] as const
+/**
+ * `todo` blocks live in a canvas's todo list (`todos.md`), not in the dated
+ * stream; `meta.done` is the ISO time they were ticked off, `meta.task` the
+ * task canvas they turned into. `done` blocks are written into the stream
+ * when a todo is ticked off (`meta.todo` is the todo's id).
+ */
+export type EntryKind = (typeof ENTRY_KINDS)[number]
 
 export interface Entry {
   id: string

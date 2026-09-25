@@ -15,6 +15,7 @@ import {
   relativePosix,
   rewriteImageSrcs,
   serializeDayFile,
+  splitTodoLines,
   toDayRelative,
   toRelativeFrom,
   toRootRelative,
@@ -246,5 +247,21 @@ describe('hidden blocks and reordering', () => {
     expect(() => moveSubtree(list, 'a1', { afterId: 'b' })).toThrow(/top-level/)
     expect(() => moveSubtree(list, 'a', { afterId: 'zz' })).toThrow(/not found/)
     expect(moveSubtree(list, 'a', { afterId: 'b' })[1].createdAt).toBe('2026-09-19T09:00:00.000Z')
+  })
+})
+
+describe('pasting todos', () => {
+  it('splits lines and strips list markers', () => {
+    expect(splitTodoLines('- [ ] Send Dana the list\n* check CDN\n\n1. renew cert\n2) call Priya\n[x] done thing\n• bullet\nplain line')).toEqual([
+      'Send Dana the list',
+      'check CDN',
+      'renew cert',
+      'call Priya',
+      'done thing',
+      'bullet',
+      'plain line'
+    ])
+    expect(splitTodoLines('- first item\n  continues here\n- second')).toEqual(['first item continues here', 'second'])
+    expect(splitTodoLines('  \n')).toEqual([])
   })
 })

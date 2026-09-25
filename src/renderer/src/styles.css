@@ -95,7 +95,7 @@ button:disabled {
 
 .app {
   display: grid;
-  grid-template-columns: 240px 1fr;
+  grid-template-columns: 240px minmax(0, 1fr) auto;
   grid-template-rows: var(--topbar-h) minmax(0, 1fr);
   height: 100%;
 }
@@ -1866,7 +1866,7 @@ button:disabled {
 
 @media (max-width: 860px) {
   .app {
-    grid-template-columns: 200px 1fr;
+    grid-template-columns: 200px minmax(0, 1fr) auto;
   }
 
   .topbar {
@@ -3354,4 +3354,346 @@ body[data-platform='darwin'] .topbar-left {
 
 .brace-task:hover {
   --brace: color-mix(in srgb, var(--accent) 70%, var(--fg));
+}
+
+/* ---------------------------------------------------------------- todos */
+
+.todo-panel {
+  width: 300px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--border);
+  background: var(--bg-2);
+  font-size: 13.5px;
+}
+
+.todo-panel.is-collapsed {
+  width: 30px;
+}
+
+.todo-expand {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+}
+
+.todo-expand:hover {
+  color: var(--fg);
+  background: var(--bg-3);
+}
+
+.todo-expand-label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.todo-expand-count,
+.todo-open-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-fg);
+  font-size: 11px;
+  font-weight: 600;
+  text-align: center;
+  line-height: 18px;
+}
+
+.todo-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px 6px;
+}
+
+.todo-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.todo-scope,
+.todo-collapse {
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--fg-muted);
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 1px 8px;
+}
+
+.todo-scope.is-all {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.todo-collapse {
+  border: 0;
+  background: transparent;
+  font-size: 16px;
+  padding: 0 4px;
+}
+
+.todo-add {
+  padding: 0 12px 8px;
+}
+
+.todo-add textarea {
+  width: 100%;
+  resize: none;
+  overflow: hidden;
+  min-height: 32px;
+  max-height: 160px;
+  font: inherit;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  outline: none;
+}
+
+.todo-add textarea:focus {
+  border-color: var(--accent);
+}
+
+.todo-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+
+.todo-empty {
+  color: var(--fg-muted);
+  font-size: 12.5px;
+  padding: 6px 6px;
+}
+
+.todo-group {
+  margin-bottom: 8px;
+}
+
+.todo-group-label {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  text-align: left;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 6px 6px 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-group-label:hover {
+  color: var(--fg);
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.todo {
+  position: relative;
+  border-radius: 6px;
+  padding: 2px 4px;
+}
+
+.todo:hover,
+.todo.is-open {
+  background: var(--bg);
+}
+
+.todo.drop-before::before,
+.todo.drop-after::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: var(--accent);
+}
+
+.todo.drop-before::before {
+  top: -1px;
+}
+
+.todo.drop-after::after {
+  bottom: -1px;
+}
+
+.todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.todo-check {
+  margin: 4px 2px 0;
+  accent-color: var(--accent);
+  flex: none;
+}
+
+.todo-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  padding: 2px 0;
+  cursor: pointer;
+}
+
+.todo-text .markdown-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-text .markdown-body p {
+  margin: 0;
+}
+
+.todo.is-done .todo-text {
+  color: var(--fg-muted);
+  text-decoration: line-through;
+}
+
+.todo-count {
+  flex: none;
+  font-size: 11px;
+  color: var(--fg-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 6px;
+  line-height: 16px;
+}
+
+.todo-edit {
+  flex: 1;
+  min-width: 0;
+}
+
+.todo-detail {
+  padding: 4px 0 6px 24px;
+}
+
+.todo-comments {
+  list-style: none;
+  margin: 0 0 6px;
+  padding: 0;
+}
+
+.todo-comment {
+  border-left: 2px solid var(--border);
+  padding: 2px 0 4px 8px;
+  margin-bottom: 4px;
+}
+
+.todo-comment .todo-comments {
+  margin: 4px 0 0 4px;
+}
+
+.todo-comment-meta {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.todo-reply .composer-editor {
+  font-size: 13px;
+}
+
+.todo-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.todo-meta {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-left: auto;
+}
+
+.todo-done {
+  margin-top: 10px;
+  border-top: 1px solid var(--border);
+  padding-top: 4px;
+}
+
+.todo-done-toggle {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 12px;
+  padding: 4px 6px;
+}
+
+@media (max-width: 1000px) {
+  .todo-panel:not(.is-collapsed) {
+    width: 240px;
+  }
+}
+
+/* Status bar at narrow widths: text shrinks and truncates, controls keep their size. */
+.statusbar > .status-text,
+.statusbar > .status-detail,
+.statusbar .task-label,
+.statusbar .task-label > * {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Shrinks with the text inside it, but must not clip the Start menu that pops out of it. */
+.statusbar > .task-status {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: visible;
+}
+
+.statusbar > .status-detail {
+  flex-shrink: 3;
+}
+
+.statusbar > .spacer {
+  flex: 1 1 0;
+  min-width: 4px;
+}
+
+.statusbar button,
+.statusbar .start-wrap,
+.statusbar .status-dot,
+.statusbar .status-branch,
+.statusbar .update-status {
+  flex: none;
+}
+
+@media (max-width: 1100px) {
+  .statusbar > .status-branch {
+    display: none;
+  }
 }

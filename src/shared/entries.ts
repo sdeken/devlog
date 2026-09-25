@@ -22,7 +22,7 @@
  * renderer and asset server can resolve them without knowing which day they
  * belong to.
  */
-import type { Day, Entry, EntryPosition } from './types'
+import { ENTRY_KINDS, type Day, type Entry, type EntryKind, type EntryPosition } from './types'
 
 export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'
@@ -208,6 +208,14 @@ function trimBlankLines(lines: string[]): string[] {
 
 /** Parse the contents of a day file. Image paths are returned repo-root-relative. */
 export function parseDayFile(date: string, text: string, base: string = ENTRIES_DIR): Day {
+  return { date, entries: parseBlockFile(text, dayDir(date, base), `${date}T00:00:00.000Z`) }
+}
+
+/**
+ * Parse any file of blocks (a day file, a canvas's todo list). `dir` is the
+ * file's repo-relative directory, used to make image paths root-relative.
+ */
+export function parseBlockFile(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): Entry[] {
   const lines = text.split(/\r?\n/)
   const entries: Entry[] = []
   let current: { attrs: Record<string, string>; lines: string[] } | null = null
@@ -219,15 +227,15 @@ export function parseDayFile(date: string, text: string, base: string = ENTRIES_
     const firstIdx = body.findIndex((l) => l.trim() !== '')
     if (firstIdx !== -1 && TIME_HEADING_RE.test(body[firstIdx])) body = body.slice(firstIdx + 1)
     body = trimBlankLines(body)
-    const createdAt = current.attrs.created ?? `${date}T00:00:00.000Z`
+    const createdAt = current.attrs.created ?? fallbackCreatedAt
     const entry: Entry = {
       id: current.attrs.id || newEntryId(),
       createdAt,
-      markdown: toRootRelative(body.join('\n'), date, base)
+      markdown: toRootRelativeFrom(body.join('\n'), dir)
     }
     if (current.attrs.parent) entry.parentId = current.attrs.parent
     if (current.attrs.updated) entry.updatedAt = current.attrs.updated
-    if (current.attrs.kind === 'commit' || current.attrs.kind === 'task') entry.kind = current.attrs.kind
+    if (current.attrs.kind && (ENTRY_KINDS as readonly string[]).includes(current.attrs.kind)) entry.kind = current.attrs.kind as EntryKind
     if (current.attrs.hidden && /^(1|true|yes)$/i.test(current.attrs.hidden)) entry.hidden = true
     const meta: Record<string, string> = {}
     for (const [k, v] of Object.entries(current.attrs)) {
@@ -253,14 +261,19 @@ export function parseDayFile(date: string, text: string, base: string = ENTRIES_
   // Drop dangling parent links (hand edits, deleted parents) so they render as top-level notes.
   const ids = new Set(entries.map((e) => e.id))
   for (const e of entries) if (e.parentId && !ids.has(e.parentId)) delete e.parentId
-  return { date, entries }
+  return entries
 }
 
 /** Serialise a day to markdown. Image paths are written relative to the day file. */
 export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
-  const parts: string[] = [`# ${day.date}`, '']
-  for (const e of day.entries) {
-    const depth = depthOf(day.entries, e.id)
+  return serializeBlockFile(day.entries, dayDir(day.date, base), `# ${day.date}`)
+}
+
+/** Serialise any file of blocks under a title line. Image paths are written relative to `dir`. */
+export function serializeBlockFile(entries: Entry[], dir: string, title: string): string {
+  const parts: string[] = [title, '']
+  for (const e of entries) {
+    const depth = depthOf(entries, e.id)
     const attrs = [`id=${e.id}`]
     if (e.parentId) attrs.push(`parent=${e.parentId}`)
     attrs.push(`created=${e.createdAt}`)
@@ -274,7 +287,7 @@ export function serializeDayFile(day: Day, base: string = ENTRIES_DIR): string {
     const level = '#'.repeat(Math.min(3 + depth, 6))
     parts.push(`${level} ${depth > 0 ? '↳ ' : ''}${localTime(new Date(e.createdAt))}`)
     parts.push('')
-    const body = toDayRelative(e.markdown, day.date, base).replace(/\s+$/, '')
+    const body = toRelativeFrom(e.markdown, dir).replace(/\s+$/, '')
     if (body) {
       parts.push(body)
       parts.push('')
@@ -491,4 +504,27 @@ export function titleFromMarkdown(markdown: string, max = 80): string {
   if (t.length <= max) return t || 'Task'
   const cut = t.slice(0, max)
   return `${cut.slice(0, Math.max(20, cut.lastIndexOf(' ')))}…`
+}
+
+// ---------------------------------------------------------------------------
+// Todos
+// ---------------------------------------------------------------------------
+
+/**
+ * Turn typed or pasted text into todo items: one per non-empty line, with
+ * list markers (bullets, numbers, markdown checkboxes) stripped. Indented
+ * continuation lines are kept with the item above them.
+ */
+export function splitTodoLines(text: string): string[] {
+  const out: string[] = []
+  const MARKER = /^\s*(?:[-*+•▪◦‣]|\d+[.)]|[a-z][.)])\s+(?:\[[ xX]\]\s+)?|^\s*\[[ xX]\]\s+/
+  for (const raw of text.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!raw.trim()) continue
+    const isItem = MARKER.test(raw) || !/^\s{2,}/.test(raw)
+    const item = raw.replace(MARKER, '').trim()
+    if (!item) continue
+    if (!isItem && out.length > 0) out[out.length - 1] += ` ${item}`
+    else out.push(item)
+  }
+  return out
 }

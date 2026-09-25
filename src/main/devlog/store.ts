@@ -24,9 +24,11 @@ import {
   moveSubtree,
   newEntryId,
   normalizeDurationMarker,
+  parseBlockFile,
   parseDayFile,
   previewText,
   removeSubtree,
+  serializeBlockFile,
   serializeDayFile,
   titleFromMarkdown,
   toRelativeFrom,
@@ -254,7 +256,7 @@ export class DevlogStore extends EventEmitter {
     const day = await this.readDay(canvasId, date)
     const entry = day.entries.find((e) => e.id === entryId)
     if (!entry) throw new Error(`Entry ${entryId} not found on ${date}`)
-    if (entry.kind === 'commit') throw new Error('A captured commit cannot become a task')
+    if (entry.kind === 'commit' || entry.kind === 'done') throw new Error('An automatic block cannot become a task')
     if (entry.kind === 'task' && entry.meta?.canvas) {
       const existing = await this.readCanvas(entry.meta.canvas).catch(() => null)
       if (existing) return { canvas: stripSurface(existing), entry }
@@ -362,6 +364,137 @@ export class DevlogStore extends EventEmitter {
   }
 
   // -------------------------------------------------------------------------
+  // Todos: a per-canvas list of todo blocks (with reply threads) in todos.md
+  // -------------------------------------------------------------------------
+
+  private todoDir(canvasId: string): string {
+    return canvasId === JOURNAL_ID ? ENTRIES_DIR : canvasDir(canvasId)
+  }
+
+  private todoPath(canvasId: string): string {
+    return `${this.todoDir(canvasId)}/todos.md`
+  }
+
+  /** The canvas's todo list in file order (open and done), replies included. */
+  async readTodos(canvasId: string): Promise<Entry[]> {
+    assertCanvasId(canvasId)
+    try {
+      return parseBlockFile(await fs.readFile(this.resolve(this.todoPath(canvasId)), 'utf8'), this.todoDir(canvasId))
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw err
+    }
+  }
+
+  private async writeTodos(canvasId: string, entries: Entry[]): Promise<void> {
+    const abs = this.resolve(this.todoPath(canvasId))
+    if (entries.length === 0) await fs.rm(abs, { force: true })
+    else {
+      await fs.mkdir(path.dirname(abs), { recursive: true })
+      await writeAtomic(abs, serializeBlockFile(entries, this.todoDir(canvasId), '# Todos'))
+    }
+    this.emit('change', { kind: 'todos', canvasId })
+  }
+
+  /** Append todos (one per string) to the end of the canvas's list. */
+  async addTodos(canvasId: string, texts: string[], now: Date = new Date()): Promise<Entry[]> {
+    if (canvasId !== JOURNAL_ID) await this.readCanvas(canvasId)
+    const list = await this.readTodos(canvasId)
+    const added: Entry[] = []
+    for (const t of texts.map((x) => x.trim()).filter(Boolean)) {
+      const entry: Entry = { id: uniqueId([...list, ...added]), createdAt: now.toISOString(), kind: 'todo', markdown: t }
+      added.push(entry)
+    }
+    if (added.length === 0) throw new Error('Nothing to add')
+    await this.writeTodos(canvasId, [...list, ...added])
+    return added
+  }
+
+  /** Comment on a todo (or on a comment in its thread). */
+  async addTodoReply(canvasId: string, parentId: string, markdown: string, now: Date = new Date()): Promise<Entry> {
+    if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty comment')
+    const list = await this.readTodos(canvasId)
+    const entry: Entry = { id: uniqueId(list), createdAt: now.toISOString(), markdown: markdown.trim() }
+    await this.writeTodos(canvasId, insertEntry(list, entry, { parentId }))
+    return entry
+  }
+
+  async updateTodoEntry(canvasId: string, id: string, markdown: string, now: Date = new Date()): Promise<Entry> {
+    const list = await this.readTodos(canvasId)
+    const entry = list.find((e) => e.id === id)
+    if (!entry) throw new Error('Todo not found')
+    if (isBlankMarkdown(markdown)) throw new Error('A todo needs some text')
+    entry.markdown = markdown.trim()
+    entry.updatedAt = now.toISOString()
+    await this.writeTodos(canvasId, list)
+    return entry
+  }
+
+  /** Delete a todo (or a comment) and its thread. */
+  async deleteTodoEntry(canvasId: string, id: string): Promise<number> {
+    const list = await this.readTodos(canvasId)
+    if (!list.some((e) => e.id === id)) throw new Error('Todo not found')
+    const removed = descendantIds(list, id).size + 1
+    await this.writeTodos(canvasId, removeSubtree(list, id))
+    return removed
+  }
+
+  async reorderTodo(canvasId: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Entry[]> {
+    const list = moveSubtree(await this.readTodos(canvasId), id, position)
+    await this.writeTodos(canvasId, list)
+    return list
+  }
+
+  /**
+   * Tick a todo off (or back on). Ticking writes a read-only "done" block into
+   * today's stream on the same canvas; unticking the same day removes it again.
+   */
+  async setTodoDone(canvasId: string, id: string, done: boolean, now: Date = new Date()): Promise<{ todo: Entry; date: string }> {
+    const list = await this.readTodos(canvasId)
+    const todo = list.find((e) => e.id === id && e.kind === 'todo')
+    if (!todo) throw new Error('Todo not found')
+    const date = localDate(now)
+    if (done) {
+      if (todo.meta?.done) return { todo, date }
+      todo.meta = { ...(todo.meta ?? {}), done: now.toISOString() }
+      await this.writeTodos(canvasId, list)
+      await this.addEntry(canvasId, `✓ ${todoTitle(todo.markdown)}`, { date }, now, { kind: 'done', meta: { todo: id } })
+    } else {
+      if (!todo.meta?.done) return { todo, date }
+      const { done: _d, ...rest } = todo.meta
+      todo.meta = Object.keys(rest).length ? rest : undefined
+      await this.writeTodos(canvasId, list)
+      const day = await this.readDay(canvasId, date)
+      const mark = day.entries.find((e) => e.kind === 'done' && e.meta?.todo === id)
+      if (mark) {
+        day.entries = removeSubtree(day.entries, mark.id)
+        await this.writeDay(canvasId, day)
+      }
+    }
+    return { todo, date }
+  }
+
+  /**
+   * A todo that turned out to be real work: make it a task canvas beneath this
+   * one, record a task block in today's stream, and close the todo.
+   */
+  async promoteTodo(canvasId: string, id: string, now: Date = new Date()): Promise<PromoteResult> {
+    const list = await this.readTodos(canvasId)
+    const todo = list.find((e) => e.id === id && e.kind === 'todo')
+    if (!todo) throw new Error('Todo not found')
+    const canvas = await this.createCanvas({ title: titleFromMarkdown(todo.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, task: true }, now)
+    todo.meta = { ...(todo.meta ?? {}), done: now.toISOString(), task: canvas.id }
+    await this.writeTodos(canvasId, list)
+    const { entry } = await this.addEntry(canvasId, todo.markdown, { date: localDate(now) }, now)
+    const day = await this.readDay(canvasId, localDate(now))
+    const block = day.entries.find((e) => e.id === entry.id)!
+    block.kind = 'task'
+    block.meta = { canvas: canvas.id }
+    await this.writeDay(canvasId, day)
+    return { canvas, entry: block }
+  }
+
+  // -------------------------------------------------------------------------
   // Reading notes
   // -------------------------------------------------------------------------
 
@@ -441,6 +574,11 @@ export class DevlogStore extends EventEmitter {
     }
     const blocks: SearchHit[] = []
     for (const canvas of canvases) {
+      for (const entry of await this.readTodos(canvas.id)) {
+        if (entry.markdown.toLowerCase().includes(q)) blocks.push({ canvasId: canvas.id, date: localDate(new Date(entry.createdAt)), entry, archived: canvas.archived })
+      }
+    }
+    for (const canvas of canvases) {
       const dates = (await this.listDayFiles(canvas.id)).sort((a, b) => b.localeCompare(a))
       for (const date of dates) {
         const day = await this.readDay(canvas.id, date)
@@ -495,7 +633,7 @@ export class DevlogStore extends EventEmitter {
     const day = await this.readDay(canvasId, date)
     const entry = day.entries.find((e) => e.id === id)
     if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
-    if (entry.kind === 'commit') throw new Error('Captured commits are read-only; reply, move or delete instead')
+    if (entry.kind === 'commit' || entry.kind === 'done') throw new Error('Automatic blocks are read-only; reply, move or delete instead')
     entry.markdown = normalizeDurationMarker(markdown.trim())
     entry.updatedAt = now.toISOString()
     await this.writeDay(canvasId, day)
@@ -648,6 +786,11 @@ function cleanRepos(repos?: string[]): string[] {
 
 function assertDate(date: string): void {
   if (!isValidDate(date)) throw new Error(`Invalid date: ${date}`)
+}
+
+/** First line of a todo as plain text, for the "done" block. */
+function todoTitle(markdown: string): string {
+  return previewText(markdown.split('\n')[0] ?? markdown, 200)
 }
 
 function assertCanvasId(canvasId: string): void {

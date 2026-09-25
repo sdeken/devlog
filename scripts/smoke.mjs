@@ -543,6 +543,73 @@ try {
   const saved = JSON.parse(await fs.readFile(path.join(userData, 'settings.json'), 'utf8'))
   check(saved.theme?.preset === 'ocean', 'theme is persisted in settings')
 
+  // 3k. Todos: pinned panel, paste a list, comment, tick off into the stream, scope, collapse.
+  await page.locator('.canvas-tree .canvas-link', { hasText: 'Website' }).first().click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")')
+  await page.waitForSelector('.todo-panel .todo-add textarea', { timeout: 10_000 })
+  const todoInput = page.locator('.todo-panel .todo-add textarea')
+  await todoInput.click()
+  await page.evaluate(() => {
+    const dt = new DataTransfer()
+    dt.setData('text/plain', '- [ ] Send Dana the redirect list\n- [ ] Check the CDN rules\n3. Renew the staging certificate')
+    document.querySelector('.todo-panel .todo-add textarea').dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }))
+  })
+  await page.waitForFunction(() => document.querySelectorAll('.todo-panel .todo:not(.is-done)').length === 3, null, { timeout: 10_000 })
+  const todoTexts = await page.locator('.todo-panel .todo .todo-text').allTextContents()
+  check(todoTexts.map((t) => t.trim()).join('|') === 'Send Dana the redirect list|Check the CDN rules|Renew the staging certificate', `pasting a list adds one todo per line, markers stripped (${todoTexts.join(' | ')})`)
+  check((await fs.readFile(path.join(repo, 'canvases', 'website', 'todos.md'), 'utf8')).includes('- [ ]') === false, 'todos are stored as blocks in canvases/<id>/todos.md')
+  await todoInput.fill('Ask Priya about launch copy')
+  await todoInput.press('Enter')
+  await page.waitForFunction(() => document.querySelectorAll('.todo-panel .todo:not(.is-done)').length === 4, null, { timeout: 10_000 })
+  check(true, 'typing a todo and pressing Enter adds it')
+
+  // Comment on a todo.
+  await page.locator('.todo-panel .todo .todo-text', { hasText: 'Send Dana' }).click()
+  await page.waitForSelector('.todo-panel .todo.is-open .todo-reply .composer-editor', { timeout: 5_000 })
+  await page.locator('.todo-panel .todo.is-open .todo-reply .composer-editor').click()
+  await page.keyboard.type('Waiting on their ops team')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.todo-panel .todo.is-open .todo-comment', { timeout: 10_000 })
+  check((await page.locator('.todo-panel .todo.is-open .todo-comment').textContent()).includes('Waiting on their ops team'), 'todos take comments')
+  check((await page.locator('.todo-panel .todo.is-open .todo-reply .composer-editor').textContent()).trim() === '', 'the comment box clears after posting')
+
+  // Tick it off: it moves to Done and a read-only block appears in the stream.
+  const streamBefore = await page.locator('.entry').count()
+  await page.locator('.todo-panel .todo', { hasText: 'Send Dana' }).locator('.todo-check').check()
+  await page.waitForFunction((n) => document.querySelectorAll('.entry').length === n + 1, streamBefore, { timeout: 10_000 })
+  const doneBlock = page.locator('.entry').last()
+  check((await doneBlock.locator('.entry-body').textContent()).includes('✓ Send Dana the redirect list'), 'ticking a todo writes a done block into the stream')
+  check((await doneBlock.locator('.entry-brace.brace-auto').count()) === 1, 'the done block carries the automatic brace')
+  check((await page.locator('.todo-panel .todo:not(.is-done)').count()) === 3, 'the ticked todo leaves the open list')
+  await page.locator('.todo-panel .todo-done-toggle').click()
+  check((await page.locator('.todo-panel .todo.is-done').count()) === 1, 'it is listed under Done')
+
+  // Scope: "Here" is this canvas and what is inside it; the journal shows everything.
+  await page.evaluate(() => window.devlog.todos.add('journal', ['Water the plants']))
+  await page.locator('.todo-panel .todo-scope').click()
+  await page.waitForFunction(() => [...document.querySelectorAll('.todo-panel .todo-text')].some((e) => e.textContent.includes('Water the plants')), null, { timeout: 10_000 })
+  check(true, '"All" shows todos from every canvas, grouped')
+  await page.locator('.todo-panel .todo-scope').click()
+  await page.waitForFunction(() => ![...document.querySelectorAll('.todo-panel .todo-text')].some((e) => e.textContent.includes('Water the plants')), null, { timeout: 10_000 })
+  check(true, '"Here" limits the list to this canvas and what is inside it')
+
+  // Make a todo a task.
+  await page.locator('.todo-panel .todo .todo-text', { hasText: 'Check the CDN rules' }).click()
+  await page.locator('.todo-panel .todo.is-open button', { hasText: 'Make task' }).click()
+  await page.waitForFunction(() => document.querySelector('.task-status .status-text')?.textContent?.includes('Check the CDN rules'), null, { timeout: 10_000 })
+  check(true, 'Make task turns a todo into an active task')
+  await page.locator('.task-status button', { hasText: 'Stop' }).click()
+
+  // The panel stays put while the stream scrolls, and collapses to a strip.
+  await page.locator('.feed').evaluate((el) => el.scrollTo({ top: 0 }))
+  check(await page.locator('.todo-panel .todo').first().isVisible(), 'the todo panel stays visible whatever the stream scroll position')
+  await page.screenshot({ path: path.join(shots, '02g-todos.png') })
+  await page.locator('.todo-panel .todo-collapse').click()
+  await page.waitForSelector('.todo-panel.is-collapsed', { timeout: 5_000 })
+  check((await page.locator('.todo-expand-count').textContent()) === '2', 'collapsed, the panel still shows the open count')
+  await page.locator('.todo-expand').click()
+  await page.waitForSelector('.todo-panel:not(.is-collapsed)')
+
   await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
 

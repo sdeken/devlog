@@ -150,6 +150,27 @@ export function registerIpc(deps: IpcDeps): void {
     await deps.trackerSetTask(result.canvas.id)
     return result
   })
+  // Todos
+  ipcMain.handle(IPC.todosList, async (_e, canvasIds: string[]) => {
+    const store = requireStore(deps)
+    const out: Array<{ canvasId: string; entries: Entry[] }> = []
+    for (const id of canvasIds ?? []) out.push({ canvasId: id, entries: await store.readTodos(id).catch(() => []) })
+    return out
+  })
+  ipcMain.handle(IPC.todosAdd, (_e, canvasId: string, texts: string[]) => requireStore(deps).addTodos(canvasId, Array.isArray(texts) ? texts.map(String) : []))
+  ipcMain.handle(IPC.todoReply, (_e, canvasId: string, parentId: string, markdown: string) => requireStore(deps).addTodoReply(canvasId, parentId, markdown))
+  ipcMain.handle(IPC.todoUpdate, (_e, canvasId: string, id: string, markdown: string) => requireStore(deps).updateTodoEntry(canvasId, id, markdown))
+  ipcMain.handle(IPC.todoDelete, (_e, canvasId: string, id: string) => requireStore(deps).deleteTodoEntry(canvasId, id))
+  ipcMain.handle(IPC.todoReorder, (_e, canvasId: string, id: string, position: { afterId?: string; beforeId?: string }) =>
+    requireStore(deps).reorderTodo(canvasId, id, position ?? {})
+  )
+  ipcMain.handle(IPC.todoSetDone, (_e, canvasId: string, id: string, done: boolean) => requireStore(deps).setTodoDone(canvasId, id, Boolean(done)))
+  ipcMain.handle(IPC.todoPromote, async (_e, canvasId: string, id: string) => {
+    const result = await requireStore(deps).promoteTodo(canvasId, id)
+    await deps.onCanvasesChanged()
+    await deps.trackerSetTask(result.canvas.id)
+    return result
+  })
   ipcMain.handle(IPC.entryHide, (_e, canvasId: string, date: string, id: string, hidden: boolean) =>
     requireStore(deps).setEntryHidden(canvasId, date, id, Boolean(hidden))
   )

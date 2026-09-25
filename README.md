@@ -47,6 +47,12 @@ tracked against; any block can become one.
   sleep. Devlog keeps running in the tray to watch. A block with an explicit
   duration like `[2h]` or `[45m]` overrides tracking for that window when
   you know better.
+- **Todos, always in view.** A panel pinned to the right edge lists the open
+  todos for the canvas on screen and everything inside it (or every todo,
+  with one click). Type one, or paste a list from anywhere and get one todo
+  per line. Each todo takes comments, can be reordered by dragging, and turns
+  into a task with one click. Ticking one off writes a "✓ done" block into
+  the canvas stream, so the log records when things got finished.
 - **Archive what you're done with.** Archive a canvas, with everything
   beneath it, to get it out of the sidebar. Archived things stay readable
   and searchable, and one click brings them back.
@@ -197,6 +203,30 @@ with **Move** instead.
 
 Like everything else in the repository, canvases are plain files; treat the
 repository as sensitive, because it is.
+
+## Todos
+
+The **To do** panel on the right stays put whatever the stream is doing, and
+collapses to a thin strip showing the open count.
+
+- **Adding.** Type in the box at the top and press Enter. Paste a list (from
+  an email, Slack, a Markdown file) and each line becomes a todo; bullets,
+  numbers and `- [ ]` checkboxes are stripped. New todos go to the canvas on
+  screen, or to the journal from the other views.
+- **Scope.** *Here* shows the canvas on screen and everything inside it,
+  grouped by canvas when there is more than one; *All* shows every open todo.
+  On the journal and on the review, summary and timeline views it is always
+  everything.
+- **Working a todo.** Click it for its comment thread, **Edit**, **Delete**
+  and **Make task** (a task canvas beneath this one, clock started). Drag to
+  reorder.
+- **Done.** Ticking the box moves it to *Done* at the bottom of the panel and
+  writes a read-only "✓ …" block into today's stream on that canvas, marked
+  with the automatic brace. Unticking the same day removes that block again.
+
+Todos are blocks, stored per canvas in `canvases/<id>/todos.md` (the
+journal's in `entries/todos.md`) in the same format as day files, comments
+included. They are searched along with everything else.
 
 ## Archiving
 

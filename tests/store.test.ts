@@ -242,7 +242,7 @@ describe('canvases in the store', () => {
     expect(b.entry.id).toBe(a.entry.id)
     expect((await store.readDay('acme', '2026-09-19')).entries).toHaveLength(1)
     await expect(store.updateEntry('acme', '2026-09-19', a.entry.id, 'edited')).rejects.toThrow(/read-only/)
-    await expect(store.promoteToTask('acme', '2026-09-19', a.entry.id)).rejects.toThrow(/commit/)
+    await expect(store.promoteToTask('acme', '2026-09-19', a.entry.id)).rejects.toThrow(/automatic block/)
     await store.addEntry('acme', 'a reply', { date: '2026-09-19', parentId: a.entry.id })
     expect(await store.deleteEntry('acme', '2026-09-19', a.entry.id)).toBe(2)
   })
@@ -359,5 +359,52 @@ describe('canvases in the store', () => {
     expect((await store.readCanvas('acme-corp-web-website')).surface).toBe('Marketing site rebuild.')
     const day = await store.readDay('acme-corp-web-website', '2026-09-19')
     expect(day.entries[0].markdown).toBe('kickoff ![s](canvases/acme-corp-web-website/entries/2026/09/assets/pic.png) and ![j](entries/2026/09/assets/j.png)')
+  })
+
+  it('keeps a todo list per canvas with comments, reorders it, and ticks items off into the stream', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const when = new Date(2026, 8, 25, 9)
+    const added = await store.addTodos(acme.id, ['Send Dana the redirect list', 'Check the CDN rules', '  '], when)
+    expect(added.map((t) => [t.kind, t.markdown])).toEqual([
+      ['todo', 'Send Dana the redirect list'],
+      ['todo', 'Check the CDN rules']
+    ])
+    const file = await fs.readFile(path.join(root, 'canvases/acme/todos.md'), 'utf8')
+    expect(file.startsWith('# Todos')).toBe(true)
+    expect(file).toContain('kind=todo')
+
+    const reply = await store.addTodoReply(acme.id, added[0].id, 'Waiting on their ops team', when)
+    expect((await store.readTodos(acme.id)).map((e) => [e.markdown, e.parentId ?? null])).toEqual([
+      ['Send Dana the redirect list', null],
+      ['Waiting on their ops team', added[0].id],
+      ['Check the CDN rules', null]
+    ])
+    // Reordering moves the thread with the todo.
+    await store.reorderTodo(acme.id, added[1].id, { beforeId: added[0].id })
+    expect((await store.readTodos(acme.id)).map((e) => e.id)).toEqual([added[1].id, added[0].id, reply.id])
+
+    // Ticking off writes a read-only done block into today's stream; unticking removes it.
+    const { date } = await store.setTodoDone(acme.id, added[0].id, true, new Date(2026, 8, 25, 11))
+    expect(date).toBe('2026-09-25')
+    expect((await store.readTodos(acme.id)).find((e) => e.id === added[0].id)?.meta?.done).toBe(new Date(2026, 8, 25, 11).toISOString())
+    const day = await store.readDay(acme.id, '2026-09-25')
+    expect(day.entries.map((e) => [e.kind, e.markdown, e.meta?.todo])).toEqual([['done', '✓ Send Dana the redirect list', added[0].id]])
+    await expect(store.updateEntry(acme.id, '2026-09-25', day.entries[0].id, 'x')).rejects.toThrow(/read-only/)
+    await store.setTodoDone(acme.id, added[0].id, false, new Date(2026, 8, 25, 11, 5))
+    expect((await store.readTodos(acme.id)).find((e) => e.id === added[0].id)?.meta?.done).toBeUndefined()
+    expect((await store.readDay(acme.id, '2026-09-25')).entries).toEqual([])
+
+    // Promoting a todo makes a task canvas, records a task block, and closes the todo.
+    const { canvas, entry } = await store.promoteTodo(acme.id, added[1].id, new Date(2026, 8, 25, 12))
+    expect(canvas).toMatchObject({ title: 'Check the CDN rules', parentId: 'acme', task: true })
+    expect(entry).toMatchObject({ kind: 'task', meta: { canvas: canvas.id }, markdown: 'Check the CDN rules' })
+    expect((await store.readTodos(acme.id)).find((e) => e.id === added[1].id)?.meta).toMatchObject({ task: canvas.id })
+
+    // Journal todos live next to the journal; search finds todos; deleting removes the thread.
+    await store.addTodos('journal', ['Renew the certificate'], when)
+    expect((await fs.stat(path.join(root, 'entries/todos.md'))).isFile()).toBe(true)
+    expect((await store.search('renew the cert')).blocks.map((h) => [h.canvasId, h.entry.kind])).toEqual([['journal', 'todo']])
+    expect(await store.deleteTodoEntry(acme.id, added[0].id)).toBe(2)
+    expect(await store.listDays('journal')).toEqual([])
   })
 })
