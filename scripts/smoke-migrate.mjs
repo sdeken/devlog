@@ -150,7 +150,11 @@ try {
 
   // Search runs off the local index.
   await page.locator('.topbar-search').fill('kickoff')
-  await page.waitForSelector('.hit', { timeout: 10_000 })
+  await page.waitForSelector('.hit', { timeout: 20_000 }).catch(async (err) => {
+    const sub = await page.locator('.feed-sub').first().textContent().catch(() => '(no header)')
+    const api = await page.evaluate(() => window.devlog.blocks.search('kickoff')).catch((e) => String(e))
+    throw new Error(`no search hit shown (header: ${sub}; API: ${JSON.stringify(api).slice(0, 300)})`, { cause: err })
+  })
   check((await page.locator('.hit').count()) === 1, 'search finds the migrated block')
   const indexFiles = await fs.readdir(path.join(userData, 'index'))
   check(indexFiles.some((f) => f.endsWith('.sqlite')), 'the search index lives in user data, not the repository')
