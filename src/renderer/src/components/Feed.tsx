@@ -164,12 +164,19 @@ function HiddenGroup({ count, open, onToggle }: { count: number; open: boolean; 
 function DoneGroup({ nodes, open, onToggle }: { nodes: EntryNode[]; open: boolean; onToggle: () => void }): React.JSX.Element {
   const titles = nodes.map((n) => previewText(n.entry.markdown.replace(/^\s*✓\s*/, ''), 80))
   return (
-    <button type="button" className={`done-stub${open ? ' is-open' : ''}`} onClick={onToggle} title={open ? 'Collapse again' : titles.join('\n')}>
+    <button
+      type="button"
+      className={`done-stub${open ? ' is-open' : ''}`}
+      onClick={onToggle}
+      aria-expanded={open}
+      title={open ? 'Fold these back into one line' : `Show the ${nodes.length} completed todos:\n${titles.join('\n')}`}
+    >
       <span className="entry-brace brace-auto" aria-hidden="true" />
       <span className="done-count">
         {open ? '▾' : '▸'} ✓ {nodes.length} todos done
       </span>
-      {!open && <span className="done-titles">{titles.join(' · ')}</span>}
+      <span className="done-titles">{open ? '' : titles.join(' · ')}</span>
+      <span className="done-toggle">{open ? 'Hide' : 'Show all'}</span>
     </button>
   )
 }

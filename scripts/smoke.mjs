@@ -659,10 +659,31 @@ try {
   check((await page.locator('.done-run .entry').count()) === 0, 'folded, the individual done blocks are out of the way')
   await page.locator('.done-stub').scrollIntoViewIfNeeded()
   await page.screenshot({ path: path.join(shots, '02g0-done-folded.png') })
-  await page.locator('.done-stub').click()
+  check((await page.locator('.done-stub .done-toggle').textContent()) === 'Show all', 'the folded line says it can be expanded')
+  await page.locator('.done-stub .done-toggle').click()
   await page.waitForFunction(() => document.querySelectorAll('.done-run .entry').length === 2, null, { timeout: 5_000 })
-  check(true, 'clicking the line shows the individual done blocks')
+  check(true, 'Show all expands the line into the individual done blocks')
+  check((await page.locator('.done-stub').getAttribute('aria-expanded')) === 'true' && (await page.locator('.done-stub .done-toggle').textContent()) === 'Hide', 'expanded, the line offers Hide')
+  await page.screenshot({ path: path.join(shots, '02g1-done-expanded.png') })
+  // Nothing from the stream shows through the sticky header when scrolled under it.
+  const leak = await page.evaluate(() => {
+    const head = document.querySelector('.feed-head')?.getBoundingClientRect()
+    if (!head) return 'no header'
+    for (const b of document.querySelectorAll('.feed .entry-brace')) {
+      const r = b.getBoundingClientRect()
+      const x = r.left + r.width / 2
+      const y = r.top + r.height / 2
+      if (y > head.top + 2 && y < head.bottom - 2) {
+        const top = document.elementFromPoint(x, y)
+        if (top && top.closest('.entry-brace')) return `brace visible over the header at ${Math.round(x)},${Math.round(y)}`
+      }
+    }
+    return ''
+  })
+  check(leak === '', `the sticky header covers blocks scrolled under it${leak ? ` (${leak})` : ''}`)
   await page.locator('.done-stub').click()
+  await page.waitForFunction(() => document.querySelectorAll('.done-run .entry').length === 0, null, { timeout: 5_000 })
+  check(true, 'Hide folds them back into one line')
   await page.locator('.todo-panel .todo.is-done', { hasText: 'Renew the staging certificate' }).locator('.todo-check').uncheck()
   await page.waitForFunction(() => !document.querySelector('.done-stub'), null, { timeout: 10_000 })
   check((await page.locator('.entry').last().locator('.entry-body').textContent()).includes('✓ Send Dana the redirect list'), 'unticking leaves a single done block, shown as itself')
@@ -733,6 +754,27 @@ try {
   check((await page.locator('#remote').inputValue()) === bare, 'settings show the remote url')
   await page.screenshot({ path: path.join(shots, '04-settings.png') })
   await page.keyboard.press('Escape')
+
+  // 6b. A long run of completed todos folds into one line and expands to every item.
+  const bigList = await page.evaluate(async () => {
+    const c = await window.devlog.canvases.create({ title: 'Big list' })
+    const added = await window.devlog.todos.add(c.id, Array.from({ length: 12 }, (_, i) => `Item ${i + 1}`))
+    for (const t of added) await window.devlog.todos.setDone(c.id, t.id, true)
+    return c.id
+  })
+  // Created through the API, so reload for the sidebar to list it.
+  await page.reload()
+  await page.waitForSelector('.composer-editor', { timeout: 30_000 })
+  await page.locator('.canvas-tree .canvas-link', { hasText: 'Big list' }).click()
+  await page.waitForSelector('.done-stub', { timeout: 10_000 })
+  check((await page.locator('.done-stub .done-count').textContent()).includes('12 todos done') && (await page.locator('.done-run .entry').count()) === 0, 'twelve completed todos fold into one line')
+  await page.locator('.done-stub').click()
+  await page.waitForFunction(() => document.querySelectorAll('.done-run .entry').length === 12, null, { timeout: 5_000 })
+  const items = await page.locator('.done-run .entry .entry-body').allTextContents()
+  check(items[0].includes('✓ Item 1') && items[11].includes('✓ Item 12'), 'expanded, every completed todo is listed in order')
+  await page.evaluate((id) => window.devlog.canvases.remove(id), bigList)
+  await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
 
   // 7. Quit commits anything pending.
   await editor.click()
