@@ -137,8 +137,13 @@ try {
   }, null, { timeout: 10_000 })
   check(true, 'images in blocks load from their new folder')
   await page.locator('.canvas-tree .canvas-link', { hasText: 'Acme Corp' }).first().click()
-  await page.waitForSelector('.surface-read img', { timeout: 10_000 })
-  check(await page.evaluate(() => document.querySelector('.surface-read img')?.naturalWidth > 0), 'surface images load from their new folder')
+  const surfaceImage = await page
+    .waitForFunction(() => {
+      const img = document.querySelector('.surface-read img')
+      return img && img.complete && img.naturalWidth > 0
+    }, null, { timeout: 10_000 })
+    .then(() => true, () => false)
+  check(surfaceImage, 'surface images load from their new folder')
   await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
   await page.waitForSelector('.entry-task .task-chip', { state: 'attached', timeout: 10_000 })
   check((await page.locator('.entry-task .task-chip').first().textContent()).includes('Website'), 'journal task blocks link to the migrated canvas')
