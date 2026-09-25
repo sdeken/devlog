@@ -20,8 +20,11 @@ Two entry points:
   hide or delete a block; they never open a day file themselves. That keeps
   format rules (marker escaping, relative image links, ordering) in one place
   and under test.
-- **Writes are atomic per file** (write to a temp file, then rename) and the
-  store emits `change` events so a sync manager can commit shortly after.
+- **Block files are append-only.** Every change to a block or todo is a
+  record appended to its file (`format/oplog.ts`); the store never rewrites
+  one. Other files (`canvas.md`, the manifest) are written atomically (temp
+  file, then rename). The store emits `change` events so a sync manager can
+  commit shortly after.
 - **The index is a cache.** `RepoIndex` lives outside the repository (the app
   keeps it in user data) and can be deleted at any time.
 
@@ -48,7 +51,7 @@ const hits = await store.search('dana')
 ## Storage
 
 See the main README (*Repository layout*) and `docs/DESIGN.md` for the
-format; `migrate.ts` documents the format 1 → 2 upgrade. The index uses
+format; `migrate.ts` documents the upgrades to format 3. The index uses
 `node:sqlite`, which prints an experimental warning on Node 22; Electron 44
 (Node 24) is the target.
 

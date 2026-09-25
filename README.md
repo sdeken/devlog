@@ -116,7 +116,8 @@ existing devlog** (a clone from another machine).
 
 ```
 README.md
-devlog.json                       ← { "format": 2 }: the storage format
+devlog.json                       ← { "format": 3 }: the storage format
+.gitattributes                    ← block files and activity logs merge by keeping both sides
 entries/                          ← the journal
   2026/
     09/
@@ -166,19 +167,21 @@ activity logs and links still find it.
 
 ### Upgrading older devlogs
 
-Devlog 0.4 changed the storage layout (format 2 above). Opening an older
-devlog upgrades it once, automatically:
+Devlog 0.5 uses storage format 3 (above). Opening an older devlog (0.3's
+format 1, or 0.4's format 2) upgrades it once, automatically:
 
 1. **Pull first** (when a remote is configured and reachable), so the upgrade
    covers everything already pushed from your other machines.
-2. **Migrate.** Canvases move from `canvases/<slug>/` to
+2. **Migrate.** From format 1, canvases move from `canvases/<slug>/` to
    `canvases/<xx>/<id>/`; every reference (parents, task links, todo links,
-   image paths in blocks and surfaces) is rewritten; block files are
-   rewritten in the new block format; the old folder name becomes an
-   `alias`. The new tree is built in `.devlog-migrate/` and swapped in at the
-   end, so an interrupted upgrade is rolled back (or finished) on the next
-   open rather than left half done.
-3. **Commit** it as its own commit, `devlog: migrate to storage format 2`,
+   image paths in blocks and surfaces) is rewritten; the old folder name
+   becomes an `alias`. The new tree is built in `.devlog-migrate/` and
+   swapped in at the end, so an interrupted upgrade is rolled back (or
+   finished) on the next open rather than left half done. From either
+   format, block files are rewritten as append-only logs (below); format 2
+   files are rewritten one at a time in place, so an interrupted upgrade
+   just carries on next time.
+3. **Commit** it as its own commit, `devlog: migrate to storage format 3`,
    and push.
 
 The migration is deterministic: an upgraded canvas's id is derived from its
@@ -189,9 +192,10 @@ upgrade, it migrates them the same way and merges, instead of replaying them
 onto the moved files. Devlog 0.2 devlogs (`pages/` and `categories/`) go
 through the same upgrade.
 
-**Update the app on every machine before opening the devlog there:** Devlog
-0.3 cannot read the new layout (it would show an empty sidebar; nothing is
-lost, but it would not see new work either).
+**Update the app on every machine before opening the devlog there:** older
+versions cannot read the new format (0.3 would show an empty sidebar, 0.4
+would misread the logs; nothing is lost either way, but they would not see
+new work).
 
 ## Canvases, surfaces and tasks
 
@@ -396,29 +400,55 @@ recorded" line. Click a block to open it on its canvas.
 A day file looks like this:
 
 ```markdown
-<!-- devlog:format 2 -->
+<!-- devlog:format 3 -->
 # 2026-09-19
 
-<!-- devlog:entry id=k3j9d2ab created=2026-09-19T14:32:01.000Z -->
+<!-- devlog:add id=k3j9d2ab pos=a0 at=2026-09-19T14:32:01.000Z -->
 Started on the git sync. Pull before push, rebase on conflicts.
 
 ![shot](assets/2026-09-19-143201-a1b2.png)
 
-<!-- devlog:entry id=p0q1r2s3 parent=k3j9d2ab created=2026-09-19T15:02:00.000Z -->
+<!-- devlog:add id=p0q1r2s3 parent=k3j9d2ab pos=a0 at=2026-09-19T15:02:00.000Z -->
 A reply in the thread under the first note.
 
-<!-- devlog:entry id=q8v1m0zz created=2026-09-19T17:45:00.000Z updated=2026-09-19T17:50:12.000Z kind=task canvas=7wq0dz4hbe -->
+<!-- devlog:add id=q8v1m0zz pos=a1 at=2026-09-19T17:45:00.000Z -->
 Fix the login redirect
+
+<!-- devlog:edit id=k3j9d2ab at=2026-09-19T17:50:12.000Z -->
+Started on the git sync. Pull before push; rebase on conflicts.
+
+![shot](assets/2026-09-19-143201-a1b2.png)
+
+<!-- devlog:set id=q8v1m0zz at=2026-09-19T17:51:00.000Z kind=task canvas=7wq0dz4hbe -->
+<!-- devlog:set id=q8v1m0zz pos=Zz at=2026-09-19T17:52:00.000Z -->
+<!-- devlog:delete id=p0q1r2s3 at=2026-09-19T18:00:00.000Z -->
 ```
 
-The HTML comment carries each block's id, optional `parent`, kind (`commit`,
-`done`, or `task` with the task canvas's id), `hidden` flag and timestamps,
-and is invisible when rendered. It is the only structure in the file: a line
-in a block that looks like a marker is escaped with one extra backslash on
-disk (and unescaped on reading), so nothing you type or paste can split or
-merge blocks. File order is display order, so inserted blocks stay where you
-put them. Files written before format 2 also carried a time heading per block
-(`### 14:32`); those are still read.
+The app only ever **appends** to a block file; nothing already written is
+changed. Each HTML comment (invisible when rendered) is one record: `add`
+creates a block, `edit` replaces its text, `set` changes its position,
+`hidden` flag, kind (`commit`, `done`, or `task` with the task canvas's id)
+or other fields, and `delete` removes it (the record stays behind). The
+blocks you see are what you get by replaying the records in order.
+
+- **Order** comes from the `pos` keys, which sort as text: reordering a block
+  appends one `set` with a new key between its neighbours' keys, and
+  threading, unthreading and inserting work the same way. Nothing else moves.
+- **Safety.** A bug can add a wrong record, but it cannot overwrite what is
+  there: everything ever written stays in the file (and in git). A crash
+  mid-write leaves at most a torn last record, which is skipped.
+- **Syncing.** Two machines appending to the same file never conflict:
+  `.gitattributes` tells git to keep both sides, and each field goes to the
+  record with the latest timestamp, so both machines end up with the same
+  blocks whichever way the merge went.
+- **Marker safety.** A line in a block that looks like a record is escaped
+  with one extra backslash on disk (and unescaped on reading), so nothing
+  you type or paste can forge or split records.
+
+Files grow with every edit; day files are small, so this will take a long
+time to matter. Older day files can later be compacted back to one `add`
+per block. Files from older formats (with a `<!-- devlog:entry … -->` per
+block and, before 0.4, a `### 14:32` heading) are still read.
 
 ## Search and the local index
 

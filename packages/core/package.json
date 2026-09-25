@@ -1,6 +1,6 @@
 {
   "name": "@devlog/core",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "Data model, file format and storage engine for Devlog: a git-backed developer log of canvases and blocks",
   "license": "MIT",
   "type": "module",

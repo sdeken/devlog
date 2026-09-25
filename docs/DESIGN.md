@@ -47,16 +47,26 @@ outside the open repository.
 
 ## Storage format
 
-- `devlog.json` – `{ "format": 2 }`, the storage format version.
+- `devlog.json` – `{ "format": 3 }`, the storage format version.
+- `.gitattributes` – `merge=union` for block files and activity logs.
 - `entries/YYYY/MM/YYYY-MM-DD.md` – the journal, one file per local day.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
 - `canvases/<xx>/<id>/canvas.md` + `…/entries/…` + `…/todos.md` – every
   other canvas, in the same day-file layout (see **Canvases** below).
 - `activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl` – the activity log.
 
-Each block file starts with `<!-- devlog:format 2 -->` and each block is
-delimited by
-`<!-- devlog:entry id=… [parent=…] created=… [updated=…] [kind=…] [hidden=1] [key=value…] -->`.
+Each block file starts with `<!-- devlog:format 3 -->` and is an
+append-only log of records (`packages/core/src/format/oplog.ts`):
+
+```
+<!-- devlog:add id=… [parent=…] pos=… at=… [updated=…] [kind=…] [hidden=1] [key=value…] -->
+body
+<!-- devlog:edit id=… at=… -->
+body
+<!-- devlog:set id=… [pos=… [parent=…]] at=… [hidden=0|1] [kind=…] [key=value | key=""] -->
+<!-- devlog:delete id=… at=… -->
+```
+
 Reasons for this over alternatives:
 
 - **One file per day, not per post.** Reads naturally on GitHub and in an
@@ -66,7 +76,7 @@ Reasons for this over alternatives:
   content; a comment is invisible when rendered. The marker is the *only*
   structure: format 1 also wrote a cosmetic `### HH:MM` heading after each
   marker, which meant a user's own H3 at the top of a block could be taken
-  for it. Format 2 drops the heading, and any body line that looks like a
+  for it. Formats 2 and 3 drop the heading, and any body line that looks like a
   marker (`<!-- devlog:…`, possibly after backslashes) gets one more leading
   backslash on disk and loses it on reading, so no text can split or merge
   blocks. A seeded fuzz test round-trips hostile bodies.
@@ -76,20 +86,52 @@ Reasons for this over alternatives:
   protocol can resolve an image without knowing which file it came from, and
   an image pasted at 23:59 still resolves when the post lands in the next
   day's file (`../09/assets/x.png`).
-- Parsing tolerates hand edits: missing ids get generated, CRLF is fine,
-  dangling `parent` links become top-level notes, and anything before the
-  first marker is ignored rather than destroyed. Format 1 files are still
-  read (their time headings are dropped).
+- **Append-only, replayed.** The store never rewrites a block file: every
+  change is a record appended at the end, and the current blocks are a
+  replay. That makes the store's worst possible bug an extra record rather
+  than lost text, gives every file a complete history even between commits,
+  and makes concurrent appends from two machines mergeable without
+  conflicts (git's union driver keeps both sides). Replay rules, chosen so
+  the result does not depend on the order two machines' records were
+  merged in:
+  - each field (body, placement, hidden, kind, each metadata key) is a
+    last-writer-wins register on `at`; equal timestamps go to the later
+    record, so one machine's own records apply in order. New records are
+    stamped no earlier than the newest one in the file, so a slow clock
+    cannot make a fresh edit lose;
+  - `delete` is final; records for unknown ids are ignored; `add` records
+    are applied first, so a record merged in above its block still applies;
+  - replies whose parent is missing or deleted show at the top level, and a
+    parent cycle (two concurrent moves) is cut at its smallest id;
+  - a line that starts like a marker but is not a complete record (a torn
+    write, a record type from a newer version, a second header stacked by a
+    merge) ends the previous body and is otherwise skipped.
+- **Order keys, not file order.** Siblings sort by `pos`, a fractional
+  index (`a0`, `a1`, `a0V`, …; `format/order.ts`): there is always a key
+  between two keys, and appends only grow the integer part, so keys stay a
+  few characters long. A move or insert writes one key; if two machines
+  picked the same key (both appended at once), ties sort by creation time
+  then id, and the next insert between them renumbers the siblings with a
+  few `set` records. Predecessor pointers were the alternative; they break
+  on concurrent inserts after the same block and on deleted predecessors.
+- **Compaction later.** Files grow with every edit. A compacted file is one
+  `add` per live block carrying its current state (exactly what the
+  migrations write), produced deterministically so two machines compacting
+  the same file agree; the app does not compact yet.
+- Parsing tolerates hand edits: missing ids get generated (format 1/2),
+  CRLF is fine, and anything before the first record is ignored rather than
+  destroyed. Format 1 and 2 files are still read.
 
 ### Notes as nodes
 
-Notes form a tree: a flat, ordered list where a reply carries `parentId`.
-File order is display order; nothing is sorted by time. The helpers in
-`packages/core/src/format/blocks.ts` (`insertEntry`, `removeSubtree`, `buildTree`) are the
-only code that reasons about positions:
+Notes form a tree: a reply carries `parentId`, and siblings are ordered by
+their order keys; replay returns them depth-first, threads contiguous. The
+planners in `packages/core/src/format/oplog.ts` (`planAdd`, `planMove`,
+`planDelete`, …) turn each operation into records; a property test checks
+they give exactly what the old list operations (`insertEntry`,
+`moveSubtree`, `removeSubtree`) did:
 
-- **Reply** → appended after the last descendant of the parent, so a thread
-  stays contiguous in the file.
+- **Reply** → the last child of the parent.
 - **Insert after X** → placed after X's whole thread, as X's sibling.
 - **Insert before X** → placed directly before X, inheriting X's parent.
 - **Delete** removes the note and its whole thread (the UI says how many).
@@ -189,7 +231,10 @@ history stays linear and a mistaken archive is a one-line change.
 **Migrations** (`packages/core/src/node/migrate.ts`) run when a repository
 is opened, before anything reads it. Devlog 0.2's `pages/` + `categories/`
 become format 1 canvases (category paths become chains of canvases, wikis
-become surfaces); format 1 becomes format 2:
+become surfaces); format 1 goes straight to format 3 (sharded layout and
+append-only block files), and format 2 (0.4) has its block files rewritten
+in place, one atomic write each, manifest last, so it resumes if
+interrupted. The format 1 layout step is:
 
 - **Staged and swapped.** The new `canvases/` and `entries/` trees are built
   in `.devlog-migrate/` (git-ignored); the old ones are moved aside to
@@ -201,14 +246,16 @@ become surfaces); format 1 becomes format 2:
   (collisions resolved in sorted order), and every file is re-serialised
   canonically, so two machines migrating the same history get byte-identical
   trees. That is what makes the multi-machine story work:
-  `upgradeRepository` pulls first when the remote is still format 1; pulls
-  only, when another machine already pushed the upgrade and this one has
-  nothing unsynced; and otherwise merges the remote's last format 1 commit
+  `upgradeRepository` pulls first when the remote is still on an older
+  format; pulls only, when another machine already pushed the upgrade and
+  this one has nothing unsynced; and otherwise merges the remote's last
+  pre-upgrade commit (found with `git log -G` on the manifest)
   (an ordinary merge), migrates, records the remote's migration commit as
   merged with `-s ours` (our tree is the same migration of a superset of its
   history) and merges the remote. The obvious alternative, rebasing old
   commits onto the migrated remote, "succeeds" because git follows the
-  renames, and splices format 1 text into format 2 files; a test covers it.
+  renames, and splices old-format text into new files; tests cover it for
+  both older formats.
 - **References rewritten**: parents, task and todo links, and root-relative
   image paths into moved canvases; old ids become `alias` lines, which the
   store (`resolveCanvasId`, `aliasMap`), the tracker's persisted task and the
@@ -478,6 +525,7 @@ timeout kills a stalled network call.
 - Tags inside blocks for cross-cutting slices; canvases cover the main
   use, and search is full-text across every canvas.
 - A calendar or day picker; the timeline plus search stand in for now.
-- Drag-to-reorder across days. Within a day, order is file order and
-  drag-and-drop simply rewrites it (`moveSubtree`); across days a block
-  would have to change files, which is what Move is for.
+- Drag-to-reorder across days. Within a day, drag-and-drop appends one
+  `set` with a new order key; across days a block would have to change
+  files, which is what Move is for.
+- Compaction of old block files (see *Storage format*).
