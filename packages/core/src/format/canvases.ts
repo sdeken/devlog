@@ -139,6 +139,12 @@ export function ancestorIds(canvases: CanvasMeta[], id: string): string[] {
   return out
 }
 
+/** The top-level canvas a canvas sits under (itself when it is top level): the client, by convention. */
+export function topLevelCanvasId(canvases: CanvasMeta[], id: string): string {
+  const up = ancestorIds(canvases, id)
+  return up.length ? up[up.length - 1] : id
+}
+
 /** Ids of every canvas beneath `id` (any depth). */
 export function descendantCanvasIds(canvases: CanvasMeta[], id: string): string[] {
   const out: string[] = []

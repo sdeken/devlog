@@ -55,7 +55,7 @@ A list of **entries**, each one piece of work:
 | date, start, minutes | when; `start` is local time, rounded to the quarter hour |
 | canvas | the task (or client/project) canvas it belongs to |
 | client | derived: the nearest ancestor canvas marked as a client |
-| note | optional description, prefilled from that session's blocks |
+| note | optional; empty by default (see *Comments*) |
 | source | tracked / explicit (`[2h]` marker) / estimated / manual |
 | worked | the unrounded minutes, kept for the record |
 
@@ -64,20 +64,24 @@ A list of **entries**, each one piece of work:
 For a duration of `m` minutes:
 
 - `m = 0` → 0;
-- `0 < m ≤ 22.5` → **15** (anything worked counts as at least a quarter hour);
-- otherwise → the nearest multiple of 15, halves rounding down: 22.51–37.5
-  → 30, 37.51–52.5 → 45, and so on.
+- `0 < m < 22.5` → **15** (anything worked counts as at least a quarter hour);
+- otherwise → the nearest multiple of 15, exact halves rounding up:
+  22.5–37.49… → 30, 37.5–52.49… → 45, and so on.
 
-That is `m > 0 ? 15 · max(1, ⌈(m − 7.5) / 15⌉) : 0`. Start times round to the
-nearest quarter hour.
+That is `m > 0 ? 15 · max(1, ⌊m / 15 + ½⌋) : 0`. Start times round to the
+nearest quarter hour, halves up.
 
 ### Building the draft
 
 1. Take the week's tracked task segments (what the timeline shows; removed
    time already excluded, explicit durations already applied) and the
    estimated time for untracked days.
-2. **Merge into sessions:** consecutive segments on the same task with small
-   gaps (a few minutes of lock or idle) become one session.
+2. **Merge into sessions:** segments on the same task, with no other task
+   in between, are one session unless a gap between them is **longer than
+   30 minutes** (lunch). Shorter gaps (the screen locked for a break) count
+   as work: a session runs from its first segment's start to its last
+   segment's end, so its worked time can be a little more than the tracked
+   time the review shows. Sessions are also split at midnight.
 3. **Round each session** with the rule above. Rounding happens once, here:
    every destination total is a sum of rounded entries, so Jira, CMS and the
    timesheet always agree, and every number is a multiple of 15 minutes by
@@ -94,7 +98,8 @@ gets logged a bit short, but that's done by hand today. The draft does the
 arithmetic and **suggests** the evening-out; you accept, change or ignore
 each suggestion.
 
-- **Per client per day** (the CMS line): the target is the rounded total
+- **Per client per day** (the CMS line; a client here is the top-level
+  canvas a task sits under): the target is the rounded total
   actually worked for that client that day, `round(Σ worked)`. The draft's
   line is `Σ round(each session)`. The difference is the inflation (or,
   more rarely, a deficit).
@@ -144,6 +149,15 @@ Each destination (from an extension) declares:
   (the sum of that day's entries).
 - **Send:** submit the lines; return an external id per line.
 
+### Comments
+
+- **CMS** takes an optional comment per client per day. It is sent empty
+  by default. Later, an LLM could draft it from that day's notes.
+- **Jira** worklog comments are optional too, and meetings often have none.
+  Empty by default, with a per-entry "fill from notes" that takes the
+  top-level blocks written on the task during that session. Revisit once
+  it's clear how the notes get used in practice.
+
 What was sent (lines, the ids they mapped to at the time, external ids) is
 recorded with the timesheet, so an old week reads the same after mappings
 change. No dated settings are needed.
@@ -178,10 +192,5 @@ first use, not a task, shown in the sidebar like any canvas):
 
 ## Open questions
 
-1. Does CMS take a description per line? If so, what goes in it: task titles
-   for the day?
-2. The Jira worklog comment: the session's task title, the notes written
-   during it, or empty by default?
-3. How big a gap still counts as the same session (a coffee break, a
-   meeting on another task in between)? Proposed: up to 15 minutes of
-   lock/idle, and never across a different task.
+None blocking. To revisit with use: what, if anything, fills Jira and CMS
+comments by default.
