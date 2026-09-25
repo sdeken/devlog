@@ -93,7 +93,7 @@ try {
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const dayFile = path.join(repo, 'entries', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'), `${ymd}.md`)
   const text1 = await fs.readFile(dayFile, 'utf8')
-  check(text1.includes('<!-- devlog:entry id=') && text1.includes('**git sync**'), 'entry written to the day file')
+  check(text1.startsWith('<!-- devlog:format 3 -->') && text1.includes('<!-- devlog:add id=') && text1.includes('**git sync**'), 'entry appended to the day file as an add record')
   check(text1.includes('```ts\nconst answer'), 'code block language survives the markdown round trip')
 
   // 2. Paste an image (1x1 red PNG) and post it.
@@ -135,7 +135,7 @@ try {
   await page.keyboard.press('Enter')
   await page.waitForSelector('.entry-edited', { state: 'attached', timeout: 10_000 })
   const text3 = await fs.readFile(dayFile, 'utf8')
-  check(text3.includes('(edited!)') && text3.includes(' updated='), 'edit persisted with an updated timestamp')
+  check(text3.startsWith(text2) && /<!-- devlog:edit id=\w+ at=/.test(text3) && text3.includes('(edited!)'), 'an edit is appended as an edit record; nothing earlier in the file changes')
 
   // 3b. Reply in a thread, then insert a note between the two top-level notes.
   await first.hover()
@@ -148,7 +148,7 @@ try {
   await page.waitForSelector('.thread .entry', { timeout: 10_000 })
   check((await page.locator('.thread .entry .markdown-body').first().textContent()).includes('a threaded reply'), 'reply renders nested under its parent')
   const text4 = await fs.readFile(dayFile, 'utf8')
-  check(/<!-- devlog:entry id=\w+ parent=\w+ created=/.test(text4) && text4.startsWith('<!-- devlog:format 2 -->') && !/^#{3,6} /m.test(text4), 'reply stored with a parent link in a v2 file (no time headings)')
+  check(/<!-- devlog:add id=\w+ parent=\w+ pos=/.test(text4) && text4.startsWith(text3) && !/^#{3,6} /m.test(text4), 'reply appended with a parent link (no time headings)')
 
   const gaps = page.locator('.note-slot .gap')
   await gaps.nth(1).hover()
@@ -182,7 +182,8 @@ try {
   const acmeId = await canvasIdOf('Acme Corp')
   check(/^[0-9a-z]{10}$/.test(acmeId ?? ''), `canvas ids are random (${acmeId})`)
   check((await fs.stat(path.join(canvasFolder(acmeId), 'canvas.md'))).isFile(), 'canvas.md written under canvases/<xx>/<id>/')
-  check(JSON.parse(await fs.readFile(path.join(repo, 'devlog.json'), 'utf8')).format === 2, 'a new devlog is created at storage format 2')
+  check(JSON.parse(await fs.readFile(path.join(repo, 'devlog.json'), 'utf8')).format === 3, 'a new devlog is created at storage format 3')
+  check((await fs.readFile(path.join(repo, '.gitattributes'), 'utf8')).includes('merge=union'), 'block files merge by keeping both sides')
   await page.locator('.sidebar-add').click()
   await page.waitForSelector('.modal-page')
   check((await page.locator('#canvasParent').inputValue()) === acmeId, 'new canvas from inside a canvas is pre-filed under it')
@@ -366,10 +367,12 @@ try {
   await page.waitForFunction(() => !document.querySelector('.hidden-stub'), null, { timeout: 10_000 })
   check(true, 'Unhide brings the block back into the stream')
 
-  // Drag the last block above the first one: order changes, timestamps do not.
-  // Top-level blocks in file order: the first body line after each marker without a parent.
-  const topLevel = (text) => [...text.matchAll(/^<!-- devlog:entry (?![^>]*parent=)[^>]*-->\n(.+)$/gm)].map((m) => m[1])
-  const beforeOrder = topLevel(await fs.readFile(acmeFile, 'utf8'))
+  // Drag the last block above the first one: order changes, timestamps do not, and the file only grows by one record.
+  const websiteDay = () => page.evaluate(([id, d]) => window.devlog.blocks.getDay(id, d), [websiteId, ymd])
+  const topLevel = (day) => day.entries.filter((e) => !e.parentId).map((e) => e.markdown.split('\n')[0])
+  const beforeDay = await websiteDay()
+  const beforeOrder = topLevel(beforeDay)
+  const beforeText = await fs.readFile(acmeFile, 'utf8')
   const lastEntry = page.locator('.note-slot').last()
   await lastEntry.locator('.entry').first().hover()
   // Drag like a person: press on the grip, start moving while still over the block, then travel.
@@ -385,9 +388,13 @@ try {
     return bodies[0] !== first
   }, beforeOrder[0], { timeout: 10_000 })
   const afterText = await fs.readFile(acmeFile, 'utf8')
-  const afterOrder = topLevel(afterText)
+  const afterDay = await websiteDay()
+  const afterOrder = topLevel(afterDay)
   check(afterOrder[0] === beforeOrder[beforeOrder.length - 1] && afterOrder.length === beforeOrder.length, `drag and drop reorders blocks within the day (${afterOrder.map((t) => t.slice(0, 12)).join(' | ')})`)
-  check(afterText.split('created=').length === (await fs.readFile(acmeFile, 'utf8')).split('created=').length, 'reordering keeps every timestamp')
+  const stamps = (day) => day.entries.map((e) => `${e.id}@${e.createdAt}`).sort().join()
+  check(stamps(afterDay) === stamps(beforeDay), 'reordering keeps every timestamp')
+  const appended = afterText.startsWith(beforeText) ? afterText.slice(beforeText.length) : ''
+  check(/^<!-- devlog:set id=\w+ pos=\S+ at=\S+ -->\n$/.test(appended), `a reorder appends one record (${JSON.stringify(appended).slice(0, 80)})`)
 
   // The hover "Task" action promotes an existing block.
   const plain = page.locator('.entry:not(.entry-task):not(.entry-commit)').first()
@@ -408,7 +415,8 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.entry').length === 3, null, { timeout: 10_000 })
   check((await fs.readFile(acmeFile, 'utf8')).includes('Screenshot:'), 'block moved from the journal into the canvas file')
   check((await fs.readFile(acmeFile, 'utf8')).includes('![shot](../../../../../../entries/'), 'moved block keeps its image via a relative link')
-  check((await fs.readFile(dayFile, 'utf8')).includes('Screenshot:') === false, 'moved block removed from the journal file')
+  const journalAfterMove = await page.evaluate((d) => window.devlog.blocks.getDay('journal', d), ymd)
+  check(!journalAfterMove.entries.some((e) => e.markdown.includes('Screenshot:')) && /<!-- devlog:delete id=/.test(await fs.readFile(dayFile, 'utf8')), 'moved block leaves the journal (a delete record; the file is never rewritten)')
 
   await page.locator('.topbar-search').fill('acme')
   await page.waitForSelector('.hit', { timeout: 10_000 })

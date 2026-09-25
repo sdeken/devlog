@@ -89,7 +89,7 @@ try {
   await page.waitForSelector('.composer-editor', { timeout: 30_000 })
 
   const manifest = JSON.parse(await fs.readFile(path.join(repo, 'devlog.json'), 'utf8'))
-  check(manifest.format === 2, 'the repository is at storage format 2')
+  check(manifest.format === 3, 'the repository is at storage format 3')
   await fs
     .stat(path.join(repo, 'canvases/website'))
     .then(() => check(false, 'old canvas folders are gone'))
@@ -99,11 +99,14 @@ try {
   const acme = canvases.find((c) => c.title === 'Acme Corp')
   check(/^[0-9a-z]{10}$/.test(website?.id ?? '') && website.aliases?.includes('website'), `canvases got new ids and keep the old one as an alias (${website?.id})`)
   check(website?.parentId === acme?.id && website?.task === true, 'the hierarchy and task flag survive')
+  const migratedDay = await fs.readFile(path.join(repo, 'canvases', website.id.slice(0, 2), website.id, 'entries', yy, mm, `${ymd}.md`), 'utf8')
+  check(migratedDay.startsWith('<!-- devlog:format 3 -->') && migratedDay.includes('<!-- devlog:add id=aaaaaaaa pos=a0 '), 'block files are rewritten as append-only logs')
+  check((await fs.readFile(path.join(repo, '.gitattributes'), 'utf8')).includes('merge=union'), 'the upgrade adds the union-merge rules')
   const treeLabels = await page.locator('.canvas-tree .canvas-name').evaluateAll((els) => els.map((e) => e.textContent.trim()))
   check(treeLabels.join('>') === 'Acme Corp>Website', `sidebar shows the migrated canvases (${treeLabels.join(' > ')})`)
 
   const log = git(['log', '--format=%s'])
-  check(log.split('\n')[0] === 'devlog: migrate to storage format 2' || log.includes('devlog: migrate to storage format 2'), 'the migration is its own commit')
+  check(log.split('\n')[0] === 'devlog: migrate to storage format 3' || log.includes('devlog: migrate to storage format 3'), 'the migration is its own commit')
   check(git(['status', '--porcelain', '--', 'canvases', 'entries', 'devlog.json']) === '', 'nothing of the migration is left uncommitted')
 
   // The active task, persisted under its old id, is resolved to the new one.
@@ -167,7 +170,7 @@ try {
   // Sync pushes the migration.
   await page.evaluate(() => window.devlog.sync.now())
   const remoteLog = git(['log', '--format=%s', 'main'], bare)
-  check(remoteLog.includes('devlog: migrate to storage format 2'), 'the migration commit is pushed')
+  check(remoteLog.includes('devlog: migrate to storage format 3'), 'the migration commit is pushed')
   await app.close()
   check(git(['status', '--porcelain']) === '', 'working tree clean after quit')
 } catch (err) {
