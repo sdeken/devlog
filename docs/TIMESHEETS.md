@@ -10,28 +10,28 @@ Tracked time has to reach more than one outside system, and they disagree:
 | | Jira | CMS |
 |---|---|---|
 | Unit | a task (Jira issue) | a client |
-| Needs | when the work happened (start + duration) | hours (per day or per week, TBD) |
+| Needs | when the work happened (start + duration) | hours per client per day |
 | Ids | Jira issue keys | CMS client ids, unrelated to Jira's |
 | Which clients | only some (the as-needed client) | all of them |
-| Rules | none known | weekly cap: the full-time client is reported at most 40 h/week, even when more was worked |
 
-Across everything, **every reported duration is a multiple of 15 minutes**
-(a firm rule). The rules change over time: clients come and go, and caps and
-mappings change.
+Every reported duration follows one firm rounding rule (below). Anything
+else, such as how many hours a client should be billed in a week, changes
+too often to encode. Devlog reports what was worked, rounded, and **you
+finalise it**.
 
 So the time log cannot go straight to a destination. It goes through a
-**timesheet**: a weekly synopsis you review and shuffle, then send to each
+**timesheet**: a weekly synopsis you review and adjust, then send to each
 destination. The timesheet is also the permanent record of what was worked
 and what was reported.
 
 ## Shape
 
 ```
-activity log + blocks ──► draft timesheet ──(you edit)──► approved timesheet
+activity log + blocks ──► draft timesheet ──(you adjust)──► final timesheet
                               │                                  │
-                         rounding, sessions            per-destination views
-                                                        (Jira by task + times,
-                                                         CMS by client, capped)
+                     sessions, rounding,              per-destination views
+                     suggested trims                 (Jira: per task, with times
+                                                      CMS: per client per day)
                                                                  │
                                                        preview ──► submit ──► recorded
 ```
@@ -39,8 +39,12 @@ activity log + blocks ──► draft timesheet ──(you edit)──► approv
 - **The timesheet is core, destinations are extensions.** The synopsis comes
   from Devlog's own tracking data, and several destinations share one
   synopsis. It is useful on its own (history, CSV). Extensions (#1)
-  contribute destinations: how to group, which ids, which rules, how to send.
-- **One timesheet per week** (Monday to Sunday, like the review).
+  contribute destinations: which canvases they take, their ids, how lines
+  are grouped, and how to send them. Destinations contain **no business
+  rules** (caps, minimums): those are yours to apply while adjusting.
+- **One timesheet per week**, Monday to Sunday like the review. CMS's own
+  weeks run Sunday to Saturday, but it takes hours per day, so where a week
+  is cut doesn't change what it receives.
 
 ## The timesheet
 
@@ -55,6 +59,18 @@ A list of **entries**, each one piece of work:
 | source | tracked / explicit (`[2h]` marker) / estimated / manual |
 | worked | the unrounded minutes, kept for the record |
 
+### Rounding (the firm rule)
+
+For a duration of `m` minutes:
+
+- `m = 0` → 0;
+- `0 < m ≤ 22.5` → **15** (anything worked counts as at least a quarter hour);
+- otherwise → the nearest multiple of 15, halves rounding down: 22.51–37.5
+  → 30, 37.51–52.5 → 45, and so on.
+
+That is `m > 0 ? 15 · max(1, ⌈(m − 7.5) / 15⌉) : 0`. Start times round to the
+nearest quarter hour.
+
 ### Building the draft
 
 1. Take the week's tracked task segments (what the timeline shows; removed
@@ -62,23 +78,45 @@ A list of **entries**, each one piece of work:
    estimated time for untracked days.
 2. **Merge into sessions:** consecutive segments on the same task with small
    gaps (a few minutes of lock or idle) become one session.
-3. **Round each session**: start to the nearest quarter hour, duration to
-   the nearest 15 minutes (never below 15 for a session that is kept).
-   Sessions that round to zero are listed separately so nothing disappears
-   silently.
-4. Nudge starts so rounded sessions on the same day don't overlap.
+3. **Round each session** with the rule above. Rounding happens once, here:
+   every destination total is a sum of rounded entries, so Jira, CMS and the
+   timesheet always agree, and every number is a multiple of 15 minutes by
+   construction.
+4. Lay the rounded sessions out without overlaps: starts on quarter hours,
+   in the order they happened, each starting no earlier than the previous
+   one ends.
 
-Rounding happens **once, here**. Every destination total is a sum of
-rounded entries, so Jira and CMS always agree with each other and with the
-timesheet, and every number is a multiple of 15 minutes by construction.
+### Rounding inflation, and suggested trims
+
+The rule inflates days full of short tasks: a dozen 2–5 minute tasks report
+3 h for under an hour of work. It usually evens out because a long task
+gets logged a bit short, but that's done by hand today. The draft does the
+arithmetic and **suggests** the evening-out; you accept, change or ignore
+each suggestion.
+
+- **Per client per day** (the CMS line): the target is the rounded total
+  actually worked for that client that day, `round(Σ worked)`. The draft's
+  line is `Σ round(each session)`. The difference is the inflation (or,
+  more rarely, a deficit).
+- **Suggestion:** take the difference out of that client's longest sessions
+  that day, 15 minutes at a time (longest first, one step each in turn),
+  never taking a session below 15 minutes. A deficit adds to the longest
+  sessions the same way. Balancing within the same client and day keeps one
+  client's short tasks from being paid for out of another client's hours.
+- If it can't be evened out (every session is already 15 minutes), the
+  grid says so: "Acme, Tue: 3 h reported for 55 min worked".
+- The same numbers show per week, so a week can be checked at a glance.
+
+Suggestions are never applied silently. They appear as marked changes in
+the grid.
 
 ### Editing ("shuffling")
 
 A grid for the week: drag an entry to another task or day, change start or
 duration (in 15-minute steps), split an entry, merge two, add a manual one
 (e.g. a call that wasn't tracked), drop one, edit the note. The grid shows,
-live and per destination, what would be sent and which rules apply (for
-example "CMS: Acme capped at 40 h, 3 h 15 m not reported").
+live and per destination, what would be sent, alongside the time actually
+worked (for example "CMS · Acme · Tue: 9 h 15 m reported, 8 h 50 m worked").
 
 Editing never changes the activity log or blocks. The timesheet is a
 separate record, and the original tracked time stays available alongside it.
@@ -87,30 +125,28 @@ separate record, and the original tracked time stays available alongside it.
 
 Each destination (from an extension) declares:
 
-- **Mapping:** which canvases it takes, and their external ids. These are
-  per-canvas fields, e.g. `jira.issue: ACME-123` on a task canvas and
-  `cms.client: 7731` on a client canvas, inherited down the tree. A canvas
-  with no mapping for a destination is not sent there (so the full-time
-  client never reaches Jira). An entry the destination should take but
-  can't map (a task with no Jira issue) is flagged in the grid, to fix
-  before sending.
+- **Mapping:** which canvases it takes, and their external ids, as
+  per-canvas fields, looked up by **walking up the canvas tree** to the
+  nearest canvas that sets one:
+  - Jira: `jira.issue: ACME-123`, normally on each task canvas. A fallback
+    issue is just the key set on those tasks (or on a parent canvas, which
+    all tasks beneath it then inherit).
+  - CMS: `cms.client: 7731`, normally on the client canvas. Odd cases where
+    one real client has several CMS clients are sub-canvases (projects)
+    with their own `cms.client`, which wins for everything beneath them.
+
+  A canvas with no mapping for a destination (nothing up the tree) is not
+  sent there, so the full-time client never reaches Jira. An entry under a
+  destination's canvases that can't be mapped (a task with no issue key) is
+  flagged in the grid before sending.
 - **Grouping:** how entries become lines. Jira: one worklog per entry
-  (issue, start, duration, note). CMS: per client per day (or week).
-- **Rules:** adjustments applied to the grouped lines, shown before
-  sending:
-  - `weeklyCap` per client: report at most N hours in a week. Proposed
-    default: trim from the end of the week backwards; you can move the cut
-    to other days in the grid.
-  - more as needed (minimum per day, excluded days…), each a small pure
-    function over lines, unit-tested.
+  (issue, start, duration, note). CMS: one line per CMS client per day
+  (the sum of that day's entries).
 - **Send:** submit the lines; return an external id per line.
 
-### Rules change over time
-
-Destination settings (mappings, caps, which clients) are **dated**: each
-change has a `from` date, and a week uses the settings in force on its
-Monday. The approved timesheet records a snapshot of the rules it was sent
-under, so an old week reads the same after the rules change.
+What was sent (lines, the ids they mapped to at the time, external ids) is
+recorded with the timesheet, so an old week reads the same after mappings
+change. No dated settings are needed.
 
 ## Storage: a managed canvas
 
@@ -123,8 +159,8 @@ first use, not a task, shown in the sidebar like any canvas):
   Edits while drafting are ordinary `edit` records (append-only, so the
   history of the shuffling is kept too).
 - **One reply per submission** (`kind=timesheet-sent`,
-  `destination=jira`): the lines sent, their external ids, and the rules
-  snapshot. This thread is the ledger: sending again compares against it,
+  `destination=jira`): the lines sent, their external ids, and the ids the
+  entries mapped to at the time. This thread is the ledger: sending again compares against it,
   so a second press, or a second machine, sends only what changed, and
   corrections after the fact send differences.
 - Timesheet blocks are automatic blocks (edited through the grid, not as
@@ -132,28 +168,20 @@ first use, not a task, shown in the sidebar like any canvas):
 
 ## Where the pieces live
 
-- `@devlog/core`: building the draft (sessions, rounding), the entry model,
-  reading and writing timesheet blocks, applying dated settings, generic
-  rules like `weeklyCap`. Pure and unit-tested.
+- `@devlog/core`: building the draft (sessions, rounding, layout), the
+  inflation arithmetic and suggested trims, the entry model, reading and
+  writing timesheet blocks, and resolving a canvas's mapping by walking up
+  the tree. Pure and unit-tested.
 - App: the weekly timesheet grid, the managed canvas, preview and submit UI.
-- Extensions: Jira and CMS destinations (mapping fields, grouping,
-  destination-specific rules, sending, credentials). A built-in CSV
-  destination (#4) needs no extension.
+- Extensions: Jira and CMS destinations (mapping fields, grouping, sending,
+  credentials). A built-in CSV destination (#4) needs no extension.
 
 ## Open questions
 
-1. **CMS granularity:** hours per client per *day* or per *week*? Does it
-   take a note or description? Start times?
-2. **Capping:** when the full-time client passes 40 h, which hours go
-   unreported: the end of the week (proposed), spread evenly, or your pick
-   each time? Is the cap on *reported* CMS hours only (the timesheet keeps
-   the real total)?
-3. **Jira mapping:** does every task under the as-needed client get its own
-   Jira issue, or is there a fallback issue per client for untracked
-   "misc" work?
-4. **Jira start times:** rounded to the quarter hour too (proposed), or
-   the real start?
-5. **Tiny sessions:** a session under 7½ minutes rounds to zero. Drop it
-   (listed, proposed), or fold it into the neighbouring session on the same
-   task?
-6. **Week boundary for the cap:** does CMS's week also run Monday to Sunday?
+1. Does CMS take a description per line? If so, what goes in it: task titles
+   for the day?
+2. The Jira worklog comment: the session's task title, the notes written
+   during it, or empty by default?
+3. How big a gap still counts as the same session (a coffee break, a
+   meeting on another task in between)? Proposed: up to 15 minutes of
+   lock/idle, and never across a different task.

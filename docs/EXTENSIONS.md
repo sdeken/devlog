@@ -91,8 +91,7 @@ already the notebook's manifest.
   `ext.@sdeken/devlog-jira.issue: ACME-123`. They follow the canvas through
   renames and moves, and the canvas dialog shows them as ordinary fields
   (from `contributes.canvasFields`). Task canvases inherit from the nearest
-  ancestor that sets one, like time already rolls up in the review. Mappings
-  and rules that change over time are dated (see `TIMESHEETS.md`).
+  ancestor that sets one, like time already rolls up in the review.
   *Prerequisite:* the `canvas.md` parser currently drops unknown keys; it
   must preserve them.
 
@@ -171,8 +170,8 @@ interface DevlogContext {
 }
 
 interface Destination {
-  /** Group an approved timesheet's entries into this system's lines (mapping, grouping, rules). */
-  lines(sheet: Timesheet, settings: DatedSettings, sent: SentRecord[]): Promise<DestinationPreview>
+  /** Group a final timesheet's entries into this system's lines (mapping and grouping only). */
+  lines(sheet: Timesheet, sent: SentRecord[]): Promise<DestinationPreview>
   /** Send the lines; return an external id per line for the record. */
   submit(lines: DestinationLine[]): Promise<SubmitResult[]>
 }
@@ -184,8 +183,8 @@ See `TIMESHEETS.md`. Time goes through a weekly **timesheet** (core): a
 synopsis you review and shuffle, rounded once to quarter hours, stored in a
 managed *Timesheets* canvas together with a record of every submission.
 Extensions contribute **destinations** (Jira by task with start times, CMS
-by client with a weekly cap): mapping fields, grouping, destination rules,
-and sending.
+by client per day): mapping fields, grouping and sending. No business
+rules: you finalise the hours in the timesheet.
 
 ## Custom block kinds (#3)
 
