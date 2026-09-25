@@ -20,6 +20,11 @@ export interface SyncOptions {
   pullOnStart: boolean
   authorName?: string
   authorEmail?: string
+  /**
+   * Path prefixes whose changes are committed with every sync but do not count
+   * as unsaved work in the status (the activity log, appended every few minutes).
+   */
+  quietPaths?: string[]
 }
 
 export interface SyncResult {
@@ -127,6 +132,118 @@ export class SyncManager extends EventEmitter {
     return run
   }
 
+  /** Fetch and merge (not rebase) the remote branch. A conflicting merge is aborted and reported. */
+  async mergeRemote(): Promise<{ merged: boolean; error?: string }> {
+    const ref = await this.fetchRemoteRef()
+    if (!ref) return { merged: false }
+    return this.mergeRef(ref)
+  }
+
+  /**
+   * Merge `ref` (a commit or remote-tracking branch). With `ours`, record it as
+   * merged while keeping this branch's tree as is. A conflicting merge is
+   * aborted and reported. Serialised with sync runs.
+   */
+  async mergeRef(ref: string, opts: { ours?: boolean; message?: string } = {}): Promise<{ merged: boolean; error?: string }> {
+    const run = this.queue.then(async () => {
+      const args = [ref, '--no-edit', '--no-ff']
+      if (opts.ours) args.push('-s', 'ours')
+      if (opts.message) args.push('-m', opts.message)
+      try {
+        await this.git.merge(args)
+      } catch (err) {
+        await this.git.merge(['--abort']).catch(() => undefined)
+        return { merged: false, error: `Merge failed: ${shortError(err)}` }
+      }
+      this.setStatus({ lastPullAt: new Date().toISOString(), lastError: null })
+      await this.refreshStatus()
+      return { merged: true }
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  /** Fetch and return the remote-tracking ref for this branch (`origin/main`), or null without one. */
+  async fetchRemoteRef(): Promise<string | null> {
+    const run = this.queue.then(async () => {
+      const remote = await this.primaryRemote()
+      const branch = (await this.git.status()).current
+      if (!remote || !branch) return null
+      try {
+        await this.git.fetch(remote.name)
+      } catch {
+        return null
+      }
+      return (await this.remoteBranchExists(remote.name, branch)) ? `${remote.name}/${branch}` : null
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  /** The oldest commit reachable from `ref` that added `file`, or null. */
+  async firstCommitAdding(ref: string, file: string): Promise<string | null> {
+    const run = this.queue.then(async () => {
+      try {
+        const out = await this.git.raw(['log', '--format=%H', '--diff-filter=A', ref, '--', file])
+        const all = out.trim().split('\n').filter(Boolean)
+        return all.length ? all[all.length - 1] : null
+      } catch {
+        return null
+      }
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  /** The first parent of `commit`, or null for a root commit. */
+  async parentOf(commit: string): Promise<string | null> {
+    const run = this.queue.then(async () => {
+      try {
+        return (await this.git.raw(['rev-parse', '--verify', '--quiet', `${commit}^`])).trim() || null
+      } catch {
+        return null
+      }
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  /**
+   * Fetch, then read `file` from the remote branch. Null when there is no
+   * remote, it cannot be reached, or the file (or branch) does not exist there.
+   */
+  async readRemoteFile(file: string): Promise<string | null> {
+    const ref = await this.fetchRemoteRef()
+    if (!ref) return null
+    const run = this.queue.then(async () => {
+      try {
+        return await this.git.show([`${ref}:${file}`])
+      } catch {
+        return null
+      }
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
+  /** True when the working tree has changes or HEAD has commits the remote branch lacks (after the last fetch). */
+  async hasUnsyncedWork(): Promise<boolean> {
+    const run = this.queue.then(async () => {
+      const status = await this.git.status()
+      if (status.files.length > 0) return true
+      const remote = await this.primaryRemote()
+      if (!remote || !status.current) return false
+      try {
+        const out = await this.git.raw(['rev-list', '--count', `${remote.name}/${status.current}..HEAD`])
+        return Number(out.trim()) > 0
+      } catch {
+        return true // no remote branch yet: everything is unsynced
+      }
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
   getStatus(): SyncStatus {
     return { ...this.status }
   }
@@ -200,7 +317,7 @@ export class SyncManager extends EventEmitter {
         hasRemote: remote !== null,
         remoteUrl: remote?.url ?? null,
         branch,
-        dirtyFiles: status.files.length,
+        dirtyFiles: this.loudFiles(status.files).length,
         ahead: status.ahead,
         behind: status.behind
       })
@@ -236,6 +353,8 @@ export class SyncManager extends EventEmitter {
               result.pulled = true
               this.setStatus({ lastPullAt: new Date().toISOString() })
             } catch (err) {
+              // Leave the working tree as it was rather than stuck mid-rebase.
+              await this.git.rebase(['--abort']).catch(() => undefined)
               throw new Error(`Pull failed (resolve conflicts in the repo, then sync again): ${shortError(err)}`)
             }
           }
@@ -276,15 +395,21 @@ export class SyncManager extends EventEmitter {
   private async refreshStatus(): Promise<void> {
     const status = await this.git.status()
     const remote = await this.primaryRemote()
+    const dirty = this.loudFiles(status.files).length
     this.setStatus({
-      state: status.files.length > 0 ? 'dirty' : 'clean',
-      dirtyFiles: status.files.length,
+      state: dirty > 0 ? 'dirty' : 'clean',
+      dirtyFiles: dirty,
       hasRemote: remote !== null,
       remoteUrl: remote?.url ?? null,
       branch: status.current,
       ahead: status.ahead,
       behind: status.behind
     })
+  }
+
+  private loudFiles<T extends { path: string }>(files: T[]): T[] {
+    const quiet = this.options.quietPaths ?? []
+    return quiet.length ? files.filter((f) => !quiet.some((q) => f.path.startsWith(q))) : files
   }
 
   private async primaryRemote(): Promise<{ name: string; url: string } | null> {

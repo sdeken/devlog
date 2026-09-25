@@ -1,10 +1,12 @@
 import { promises as fs } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
+import { simpleGit } from 'simple-git'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { canvasDir } from '../src/format/canvases'
-import { migratedCanvasId, migrateRepository, needsMigration, OLD_DIR, readStorageFormat, recoverInterruptedMigration } from '../src/node/migrate'
+import { migratedCanvasId, migrateRepository, needsMigration, OLD_DIR, readStorageFormat, recoverInterruptedMigration, upgradeRepository } from '../src/node/migrate'
 import { DevlogStore } from '../src/node/store'
+import { SyncManager } from '../src/node/sync'
 
 let tmp: string
 let root: string
@@ -232,5 +234,117 @@ describe('storage migration', () => {
     expect((await store.readCanvas(web)).surface).toBe('Marketing site rebuild.')
     const day = await store.readDay(web, '2026-09-19')
     expect(day.entries[0].markdown).toBe(`kickoff ![s](${canvasDir(web)}/entries/2026/09/assets/pic.png) and ![j](entries/2026/09/assets/j.png)`)
+  })
+})
+
+describe('upgrading repositories that sync between machines', () => {
+  const cfg = (name: string): string[] => [`user.name=${name}`, `user.email=${name}@example.com`]
+  const options = { intervalMinutes: 60, debounceSeconds: 60, autoPush: true, pullOnStart: false, authorName: 'b', authorEmail: 'b@example.com' }
+  let bare: string
+  let a: string
+  let b: string
+
+  /** A pushed format 1 history, cloned onto machines A and B. */
+  async function twoMachines(): Promise<void> {
+    bare = path.join(tmp, 'remote.git')
+    a = path.join(tmp, 'a')
+    b = path.join(tmp, 'b')
+    await simpleGit().init(true, [bare, '--initial-branch=main'])
+    await fs.mkdir(a)
+    const gitA = simpleGit({ baseDir: a, config: cfg('a') })
+    await gitA.init(['--initial-branch=main'])
+    await formatOneRepo(a)
+    await gitA.add('-A')
+    await gitA.commit('format 1 history')
+    await gitA.addRemote('origin', bare)
+    await gitA.push('origin', 'main', ['--set-upstream'])
+    await simpleGit().clone(bare, b)
+  }
+
+  async function upgradeA(): Promise<void> {
+    const sync = new SyncManager(a, { ...options, authorName: 'a', authorEmail: 'a@example.com' })
+    const res = await upgradeRepository(a, sync)
+    expect(res.error).toBeUndefined()
+    expect(res.remote).toBe('none')
+    expect(res.report?.to).toBe(2)
+    expect((await sync.syncNow('manual')).pushed).toBe(true)
+    sync.stop()
+  }
+
+  it('the first machine pulls, migrates, commits', async () => {
+    await twoMachines()
+    await upgradeA()
+    const log = await simpleGit({ baseDir: bare }).log()
+    expect(log.all.map((c) => c.message)).toEqual(['devlog: migrate to storage format 2', 'format 1 history'])
+  })
+
+  it('a machine with nothing unsynced just pulls the upgrade', async () => {
+    await twoMachines()
+    await upgradeA()
+    const sync = new SyncManager(b, options)
+    const res = await upgradeRepository(b, sync)
+    expect(res).toEqual({ report: null, remote: 'pulled', error: undefined })
+    expect(await readStorageFormat(b)).toBe(2)
+    expect(await tree(path.join(b, 'canvases'))).toEqual(await tree(path.join(a, 'canvases')))
+    sync.stop()
+  })
+
+  it('a machine with unsynced old-format work migrates it and merges, instead of splicing it into moved files', async () => {
+    await twoMachines()
+    const gitB = simpleGit({ baseDir: b, config: cfg('b') })
+    // Machine B (still on the old version, offline) writes a note, commits it, and leaves another uncommitted.
+    const dayB = path.join(b, 'canvases/website/entries/2026/09/2026-09-19.md')
+    await fs.appendFile(dayB, '\n<!-- devlog:entry id=dddddddd created=2026-09-19T17:00:00.000Z -->\n### 17:00\n\nwritten offline on machine B\n')
+    await gitB.add('-A')
+    await gitB.commit('offline note')
+    await write(b, 'canvases/website/entries/2026/09/2026-09-20.md', '# 2026-09-20\n\n<!-- devlog:entry id=eeeeeeee created=2026-09-20T08:00:00.000Z -->\n### 08:00\n\nnot yet committed\n')
+    await upgradeA()
+
+    const sync = new SyncManager(b, options)
+    const res = await upgradeRepository(b, sync)
+    expect(res.error).toBeUndefined()
+    expect(res.remote).toBe('merged')
+    expect(res.report?.to).toBe(2)
+    expect((await gitB.status()).files).toEqual([])
+
+    const storeA = new DevlogStore(a)
+    const storeB = new DevlogStore(b)
+    expect(await storeB.listCanvases()).toEqual(await storeA.listCanvases())
+    const web = migratedCanvasId('website')
+    const day = await storeB.readDay(web, '2026-09-19')
+    expect(day.entries.map((e) => e.markdown)).toEqual([
+      expect.stringContaining('kickoff'),
+      'Fix redirect (`deadbeef`)',
+      'written offline on machine B' // format 1 time heading dropped, not spliced in
+    ])
+    expect((await storeB.readDay(web, '2026-09-20')).entries.map((e) => e.markdown)).toEqual(['not yet committed'])
+    await expect(fs.stat(path.join(b, 'canvases/website'))).rejects.toThrow()
+
+    // The next sync pushes it all, and machine A pulls it cleanly.
+    const res2 = await sync.syncNow('manual')
+    expect(res2.error).toBeUndefined()
+    expect(res2.pushed).toBe(true)
+    sync.stop()
+    await simpleGit({ baseDir: a, config: cfg('a') }).pull('origin', 'main', { '--rebase': 'true' })
+    expect(await tree(path.join(a, 'canvases'))).toEqual(await tree(path.join(b, 'canvases')))
+  })
+
+  it('backs out a pull that conflicts instead of leaving the repository mid-rebase', async () => {
+    await twoMachines()
+    const gitB = simpleGit({ baseDir: b, config: cfg('b') })
+    await write(b, 'README.md', 'machine B\n')
+    await gitB.add('-A')
+    await gitB.commit('b readme')
+    await write(a, 'README.md', 'machine A\n')
+    await simpleGit({ baseDir: a, config: cfg('a') }).add('-A')
+    await simpleGit({ baseDir: a, config: cfg('a') }).commit('a readme')
+    await simpleGit({ baseDir: a }).push('origin', 'main')
+    const sync = new SyncManager(b, options)
+    const res = await sync.syncNow('manual')
+    expect(res.error).toMatch(/^Pull failed/)
+    await expect(fs.stat(path.join(b, '.git/rebase-merge'))).rejects.toThrow()
+    await expect(fs.stat(path.join(b, '.git/rebase-apply'))).rejects.toThrow()
+    expect((await gitB.log()).latest?.message).toBe('b readme')
+    sync.stop()
   })
 })

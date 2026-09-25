@@ -11,7 +11,13 @@ export class SettingsStore {
   async load(): Promise<Settings> {
     try {
       const raw = JSON.parse(await fs.readFile(this.file, 'utf8')) as Partial<Settings>
+      const revision = Number(raw.settingsRevision) || 1
       this.data = sanitize({ ...DEFAULT_SETTINGS, ...raw })
+      if (revision < 2) {
+        // 0.4: activity logs are per machine and live in the repository, so every machine's time adds up.
+        this.data = { ...this.data, activityInRepo: true, settingsRevision: 2 }
+        await this.set({})
+      }
     } catch {
       this.data = { ...DEFAULT_SETTINGS }
     }
@@ -46,6 +52,7 @@ function sanitize(s: Settings): Settings {
     trackFocus: s.trackFocus !== false,
     idleMinutes: clamp(Number.isFinite(Number(s.idleMinutes)) ? Number(s.idleMinutes) : DEFAULT_SETTINGS.idleMinutes, 0, 240),
     activityInRepo: Boolean(s.activityInRepo),
+    settingsRevision: Math.max(1, Math.round(Number(s.settingsRevision) || 1)),
     captureCommits: s.captureCommits !== false,
     commitBackfillDays: clamp(Number.isFinite(Number(s.commitBackfillDays)) ? Number(s.commitBackfillDays) : DEFAULT_SETTINGS.commitBackfillDays, 1, 3650),
     autoUpdate: s.autoUpdate !== false,

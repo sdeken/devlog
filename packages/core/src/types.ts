@@ -207,4 +207,6 @@ export interface ActivityEvent {
   end?: string
   id?: string
   cancels?: string
+  /** Which machine's log the event came from (set when reading; never stored). '' for the pre-0.4 shared log. */
+  machine?: string
 }

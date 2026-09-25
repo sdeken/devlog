@@ -5,9 +5,11 @@
  */
 export { DevlogStore } from './store'
 export { SyncManager, type SyncOptions } from './sync'
-export { ActivityLog, ACTIVITY_DIR, datesBetween } from './activityLog'
+export { ActivityLog, ACTIVITY_DIR, LEGACY_MACHINE, datesBetween, machineFolder } from './activityLog'
 export {
   migrateRepository,
+  upgradeRepository,
+  type UpgradeResult,
   needsMigration,
   readStorageFormat,
   recoverInterruptedMigration,

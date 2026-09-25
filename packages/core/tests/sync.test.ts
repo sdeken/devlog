@@ -147,6 +147,19 @@ describe('SyncManager', () => {
     sync.stop()
   })
 
+  it('commits quiet paths but does not report them as unsaved work', async () => {
+    await makeStore()
+    const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 60, autoPush: false, pullOnStart: false, quietPaths: ['activity/'], ...author })
+    await fs.mkdir(path.join(root, 'activity/desk-1/2026/09'), { recursive: true })
+    await fs.writeFile(path.join(root, 'activity/desk-1/2026/09/2026-09-19.jsonl'), '{}\n')
+    await sync.start()
+    expect(sync.getStatus()).toMatchObject({ state: 'clean', dirtyFiles: 0 })
+    const res = await sync.syncNow('manual')
+    expect(res.committed).toBe(true)
+    expect((await simpleGit({ baseDir: root }).status()).files).toEqual([])
+    sync.stop()
+  })
+
   it('commits after the debounce period following a change', async () => {
     const store = await makeStore()
     const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 1, autoPush: false, pullOnStart: false, ...author })

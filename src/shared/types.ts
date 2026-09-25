@@ -25,6 +25,8 @@ export interface Settings {
   idleMinutes: number
   /** Keep the activity log inside the devlog repository (synced) instead of locally. */
   activityInRepo: boolean
+  /** Bumped when a release changes a default for existing installs (see SettingsStore.load). */
+  settingsRevision: number
   /** Capture commits from canvas repositories as read-only blocks. */
   captureCommits: boolean
   /** Days offered when importing a linked repository's history (the import itself is opt-in per link). */
@@ -58,7 +60,8 @@ export const DEFAULT_SETTINGS: Settings = {
   trackingEnabled: true,
   trackFocus: true,
   idleMinutes: 10,
-  activityInRepo: false,
+  activityInRepo: true,
+  settingsRevision: 2,
   captureCommits: true,
   commitBackfillDays: 30,
   autoUpdate: true,

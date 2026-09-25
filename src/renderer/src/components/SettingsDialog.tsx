@@ -195,8 +195,8 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             />
           </div>
           <label className="check">
-            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Store the activity log in the devlog
-            repository (synced; window titles included) instead of locally
+            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Keep the activity log in the devlog
+            repository, one folder per machine, so time tracked on every machine adds up (synced; window titles included). Off: this machine only
           </label>
           <label className="check">
             <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from canvas

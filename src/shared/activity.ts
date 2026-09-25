@@ -89,8 +89,17 @@ export interface SegmentOptions {
  * Replay the event stream into task segments. A task is active between a
  * `task`/`start` event naming a page and the next `task`, `stop`, pause
  * (`lock`/`idle`/`suspend`) or app death (gap longer than the heartbeat).
+ *
+ * Each machine's events are replayed on their own (locking the laptop does
+ * not pause the desktop), then merged: where two machines both tracked time,
+ * the one whose segment started later (the task picked or the machine woken
+ * most recently) wins, so the same hour is never counted twice.
  */
 export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions = {}): TaskSegment[] {
+  return flattenOverlaps(byMachine(events).flatMap((evs) => replayTasks(evs, opts)))
+}
+
+function replayTasks(events: ActivityEvent[], opts: SegmentOptions): TaskSegment[] {
   const heartbeat = opts.heartbeatMs ?? HEARTBEAT_MS
   const nowMs = opts.now ? ms(opts.now) : Date.now()
   const sorted = [...events].sort((a, b) => a.t.localeCompare(b.t))
@@ -173,6 +182,46 @@ export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions 
   return out
 }
 
+/** Events grouped by the machine that logged them (untagged events form one group). */
+function byMachine(events: ActivityEvent[]): ActivityEvent[][] {
+  const groups = new Map<string, ActivityEvent[]>()
+  for (const ev of events) {
+    const key = ev.machine ?? ''
+    let g = groups.get(key)
+    if (!g) groups.set(key, (g = []))
+    g.push(ev)
+  }
+  return [...groups.values()]
+}
+
+/**
+ * Make segments non-overlapping: a segment that starts later overrides the
+ * part of any earlier one it covers; what is left of the earlier one on
+ * either side remains. Sorted by start.
+ */
+export function flattenOverlaps<T extends { start: string; end: string }>(segments: T[]): T[] {
+  const sorted = [...segments].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end))
+  let out: T[] = []
+  for (const seg of sorted) {
+    const s = ms(seg.start)
+    const e = ms(seg.end)
+    const next: T[] = []
+    for (const r of out) {
+      const rs = ms(r.start)
+      const re = ms(r.end)
+      if (re <= s || rs >= e) {
+        next.push(r)
+        continue
+      }
+      if (rs < s) next.push({ ...r, end: seg.start })
+      if (re > e) next.push({ ...r, start: seg.end })
+    }
+    next.push(seg)
+    out = next
+  }
+  return out.sort((a, b) => a.start.localeCompare(b.start))
+}
+
 export interface ExclusionWindow {
   id: string
   start: string
@@ -251,8 +300,15 @@ export function applyExplicitDurations(segments: TaskSegment[], explicit: Explic
 // Focus segments
 // ---------------------------------------------------------------------------
 
-/** Foreground-window runs: each focus event lasts until the next focus event, pause, stop or app death. */
+/**
+ * Foreground-window runs: each focus event lasts until the next focus event,
+ * pause, stop or app death. Replayed per machine and merged like task segments.
+ */
 export function buildFocusSegments(events: ActivityEvent[], opts: SegmentOptions = {}): FocusSegment[] {
+  return flattenOverlaps(byMachine(events).flatMap((evs) => replayFocus(evs, opts)))
+}
+
+function replayFocus(events: ActivityEvent[], opts: SegmentOptions): FocusSegment[] {
   const heartbeat = opts.heartbeatMs ?? HEARTBEAT_MS
   const nowMs = opts.now ? ms(opts.now) : Date.now()
   const sorted = [...events].sort((a, b) => a.t.localeCompare(b.t))

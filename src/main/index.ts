@@ -1,14 +1,15 @@
 import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerMonitor, screen, shell } from 'electron'
 import path from 'node:path'
-import { mkdirSync, promises as fs } from 'node:fs'
-import { createHash } from 'node:crypto'
+import { mkdirSync, readFileSync, writeFileSync, promises as fs } from 'node:fs'
+import os from 'node:os'
+import { createHash, randomBytes } from 'node:crypto'
 import { IPC, type MenuCommand } from '@shared/ipc'
 import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@devlog/core'
-import { DevlogStore, RepoIndex, migrateRepository, needsMigration } from '@devlog/core/node'
-import { ActivityLog } from '@devlog/core/node'
+import { DevlogStore, RepoIndex, upgradeRepository } from '@devlog/core/node'
+import { ACTIVITY_DIR, ActivityLog, machineFolder } from '@devlog/core/node'
 import { Tracker } from './activity/tracker'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
@@ -54,10 +55,25 @@ let screenLocked = false
 /** Editors with unsaved text, as reported by the renderer. */
 let editorBusyCount = 0
 
+/** This installation's activity-log folder name, created once and kept in user data. */
+function machineId(): string {
+  const file = path.join(app.getPath('userData'), 'machine.json')
+  try {
+    const saved = JSON.parse(readFileSync(file, 'utf8')) as { folder?: string }
+    if (saved.folder) return saved.folder
+  } catch {
+    // first run on this machine
+  }
+  const folder = machineFolder(os.hostname(), randomBytes(4).toString('hex').slice(0, 4))
+  mkdirSync(path.dirname(file), { recursive: true })
+  writeFileSync(file, `${JSON.stringify({ folder, hostname: os.hostname(), created: new Date().toISOString() }, null, 2)}\n`)
+  return folder
+}
+
 const activityLog = new ActivityLog(() => {
   const s = settings.get()
   return s.activityInRepo && store ? store.root : app.getPath('userData')
-})
+}, machineId())
 
 const isDev = !app.isPackaged && !!process.env.ELECTRON_RENDERER_URL
 
@@ -83,7 +99,8 @@ function syncOptionsFrom(s: Settings): SyncOptions {
     autoPush: s.autoPush,
     pullOnStart: s.pullOnStart,
     authorName: s.authorName,
-    authorEmail: s.authorEmail
+    authorEmail: s.authorEmail,
+    quietPaths: [`${ACTIVITY_DIR}/`]
   }
 }
 
@@ -156,23 +173,6 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   if (!isRepo || create) await SyncManager.initRepo(root, syncOptionsFrom(s))
 
   const nextSync = new SyncManager(root, syncOptionsFrom(s))
-  if (await needsMigration(root)) {
-    // Upgrade the storage layout. Pull first so this machine migrates the latest
-    // history (the migration is deterministic, so a machine that migrated the
-    // same history elsewhere produces identical files), and commit the result
-    // on its own so the change is easy to find and revert.
-    const pulled = await nextSync.syncNow('startup')
-    if (pulled.error?.startsWith('Pull failed')) {
-      // Offline, or a rejected push, is fine: we migrate what we have. A failed
-      // pull leaves the tree mid-rebase, which must not be rewritten.
-      throw new Error(`Devlog needs to upgrade this repository's storage format, but syncing it first failed: ${pulled.error}`)
-    }
-    const report = await migrateRepository(root)
-    if (report) {
-      console.log(`migrated storage format ${report.from} → ${report.to}: ${Object.keys(report.canvases).length} canvases, ${report.files} files`)
-      await nextSync.commitAll(`devlog: migrate to storage format ${report.to}`)
-    }
-  }
   nextSync.on('status', (status: SyncStatus) => send(IPC.evSyncStatus, status))
   nextSync.on('remote-changes', () => {
     send(IPC.evEntriesChanged)
@@ -180,12 +180,29 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   })
   nextStore.on('change', () => nextSync.noteChange())
 
+  // Bring an older storage layout up to date (pulling or merging other machines' work as needed).
+  const upgrade = await upgradeRepository(root, nextSync)
+  if (upgrade.report) {
+    console.log(`migrated storage format ${upgrade.report.from} → ${upgrade.report.to}: ${Object.keys(upgrade.report.canvases).length} canvases, ${upgrade.report.files} files (remote: ${upgrade.remote})`)
+    void nextSync.syncNow('startup')
+  }
+  if (upgrade.error) console.error('storage upgrade: remote not merged', upgrade.error)
+
   const nextIndex = openIndex(root)
   if (nextIndex) nextStore.attachIndex(nextIndex)
   store = nextStore
   sync = nextSync
   repoIndex = nextIndex
   void refreshIndex()
+
+  // Activity logged on this machine before it went into the repository joins this machine's folder there.
+  if (s.activityInRepo) {
+    const moved = await activityLog.adoptLegacyLog(path.join(app.getPath('userData'), 'activity')).catch((err) => {
+      console.error('could not move the local activity log into the repository', err)
+      return 0
+    })
+    if (moved) console.log(`moved ${moved} days of activity into ${root}`)
+  }
   await settings.set({ repoPath: root })
   await nextSync.start()
 

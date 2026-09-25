@@ -623,7 +623,12 @@ try {
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
 
   // 4. Sync runs (debounce is 2s) and pushes to the bare remote.
-  await page.waitForFunction(() => [...document.querySelectorAll('.statusbar > .status-text')].at(-1)?.textContent === 'Up to date', null, { timeout: 30_000 })
+  await page
+    .waitForFunction(() => [...document.querySelectorAll('.statusbar > .status-text')].at(-1)?.textContent === 'Up to date', null, { timeout: 30_000 })
+    .catch(async (err) => {
+      const texts = await page.locator('.statusbar > .status-text').allTextContents()
+      throw new Error(`sync never reported "Up to date" (status: ${texts.join(' | ')}; git: ${git(['status', '--porcelain']).replace(/\n/g, ', ')})`, { cause: err })
+    })
   const remoteLog = git(['log', '--oneline', 'main'], bare)
   check(remoteLog.split('\n').length >= 1 && remoteLog.includes(`devlog: ${ymd}`), `changes pushed to the remote (${remoteLog.split('\n')[0]})`)
   check(git(['status', '--porcelain']) === '', 'working tree clean after sync')
@@ -648,9 +653,11 @@ try {
   await page.keyboard.press('Enter')
   await page.waitForFunction(() => document.querySelectorAll('.entry').length === 4, null, { timeout: 10_000 })
   await app.close()
-  const actDir = path.join(userData, 'activity')
+  const machine = JSON.parse(await fs.readFile(path.join(userData, 'machine.json'), 'utf8')).folder
+  check(/^[a-z0-9-]+-[0-9a-f]{4}$/.test(machine ?? ''), `this install has a machine folder name (${machine})`)
+  const actDir = path.join(repo, 'activity', machine)
   const actFiles = (await fs.readdir(actDir, { recursive: true })).filter((f) => f.endsWith('.jsonl'))
-  check(actFiles.length === 1, 'activity log written locally as one file per day')
+  check(actFiles.length === 1, 'activity log written into the repository, in this machine folder, one file per day')
   const actText = await fs.readFile(path.join(actDir, actFiles[0]), 'utf8')
   check(actText.includes('"type":"start"') && actText.includes('"type":"task"') && actText.trim().endsWith('"type":"stop"}'), 'activity log records start, task and stop events')
   const finalLog = git(['log', '--format=%s', 'main'], bare)

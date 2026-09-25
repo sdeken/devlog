@@ -10,6 +10,7 @@ import {
   classifyApp,
   cleanFocusSegments,
   isIgnoredFocus,
+  flattenOverlaps,
   focusSummaryByDay,
   splitByLocalDay,
   taskMinutesByDay
@@ -266,3 +267,64 @@ function hm(iso: string): string {
   const d = new Date(iso)
   return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`
 }
+
+describe('several machines', () => {
+  const desk = (type: ActivityEvent['type'], t: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ev(type, t, { ...extra, machine: 'desk-1' })
+  const lap = (type: ActivityEvent['type'], t: string, extra: Partial<ActivityEvent> = {}): ActivityEvent => ev(type, t, { ...extra, machine: 'lap-2' })
+
+  it('replays each machine on its own: locking the laptop does not pause the desktop', () => {
+    const events = [desk('task', T(9), { canvasId: 'a' }), lap('start', T(9, 30), { canvasId: null }), lap('lock', T(10)), desk('stop', T(11))]
+    const segs = buildTaskSegments(events, { ...ALIVE, now: T(12) })
+    expect(segs.map((s) => [s.canvasId, s.start, s.end])).toEqual([['a', T(9), T(11)]])
+  })
+
+  it('never counts the same time twice: the later start wins where machines overlap', () => {
+    const events = [
+      desk('task', T(9), { canvasId: 'a' }),
+      lap('task', T(10), { canvasId: 'b' }),
+      lap('lock', T(10, 30)),
+      desk('stop', T(12))
+    ]
+    const segs = buildTaskSegments(events, { ...ALIVE, now: T(13) })
+    expect(segs.map((s) => [s.canvasId, s.start, s.end])).toEqual([
+      ['a', T(9), T(10)],
+      ['b', T(10), T(10, 30)],
+      ['a', T(10, 30), T(12)]
+    ])
+    const total = segs.reduce((n, s) => n + mins(s.start, s.end), 0)
+    expect(total).toBe(180)
+  })
+
+  it('applies a removal made on one machine to time tracked on another', () => {
+    const events = [desk('task', T(9), { canvasId: 'a' }), desk('stop', T(12)), lap('exclude', T(10), { id: 'x', start: T(10), end: T(11) })]
+    const segs = buildTrackedSegments(events, { ...ALIVE, now: T(13) })
+    expect(segs.map((s) => [s.start, s.end])).toEqual([
+      [T(9), T(10)],
+      [T(11), T(12)]
+    ])
+  })
+
+  it('merges focus runs from several machines without overlap', () => {
+    const events = [desk('focus', T(9), { app: 'Code', title: 'x' }), lap('focus', T(9, 30), { app: 'Slack', title: 'y' }), lap('lock', T(9, 45)), desk('stop', T(10))]
+    const segs = buildFocusSegments(events, { ...ALIVE, now: T(11) })
+    expect(segs.map((s) => [s.app, s.start, s.end])).toEqual([
+      ['Code', T(9), T(9, 30)],
+      ['Slack', T(9, 30), T(9, 45)],
+      ['Code', T(9, 45), T(10)]
+    ])
+  })
+
+  it('flattens overlapping segments generically', () => {
+    expect(flattenOverlaps([])).toEqual([])
+    const r = flattenOverlaps([
+      { id: 1, start: T(9), end: T(12) },
+      { id: 2, start: T(10), end: T(11) },
+      { id: 3, start: T(10, 30), end: T(13) }
+    ])
+    expect(r.map((x) => [x.id, x.start, x.end])).toEqual([
+      [1, T(9), T(10)],
+      [2, T(10), T(10, 30)],
+      [3, T(10, 30), T(13)]
+    ])
+  })
+})

@@ -49,6 +49,7 @@ import {
   toRootRelativeFrom
 } from '../index'
 import type { CanvasMeta, Entry } from '../types'
+import type { SyncManager } from './sync'
 
 export const STAGE_DIR = '.devlog-migrate'
 export const OLD_DIR = '.devlog-migrate-old'
@@ -112,6 +113,72 @@ export async function migrateRepository(root: string, now: Date = new Date()): P
   if (from >= STORAGE_FORMAT) return { from, to: from, canvases: {}, files: 0 }
   const report = await migrateV1ToV2(root)
   return { ...report, from }
+}
+
+export interface UpgradeResult {
+  report: MigrationReport | null
+  /** How the remote's history was brought in: pulled before migrating, or merged after. */
+  remote: 'none' | 'pulled' | 'merged' | 'merge-failed'
+  error?: string
+}
+
+/**
+ * Open-time upgrade of a repository that syncs through git. Nothing happens
+ * when the repository is already current.
+ *
+ *  - If the remote has not been upgraded yet (or cannot be reached), pull
+ *    first so the migration covers the latest history, then migrate and commit.
+ *  - If another machine already pushed the upgrade and this one has nothing
+ *    unsynced, pulling is all it takes.
+ *  - If the remote was upgraded while this machine has unsynced old-format
+ *    work, replaying that work onto the moved files would splice old-format
+ *    text into them (git follows the renames). Instead, merge the remote's
+ *    last old-format commit (an ordinary merge, like any sync), migrate the
+ *    result, mark the remote's migration commit as merged without taking its
+ *    tree (ours is the same migration of a superset of its history), and
+ *    then merge the remote: everything is in the new layout on both sides by
+ *    then, so it is an ordinary merge too.
+ */
+export async function upgradeRepository(root: string, sync: SyncManager, now: Date = new Date()): Promise<UpgradeResult> {
+  await recoverInterruptedMigration(root)
+  if (!(await needsMigration(root))) return { report: null, remote: 'none' }
+  const remoteManifest = await sync.readRemoteFile(MANIFEST_FILE)
+  const remoteFormat = remoteManifest === null ? 1 : Number((safeJson(remoteManifest) as Partial<Manifest>).format) || 1
+  const remoteRef = remoteFormat >= STORAGE_FORMAT ? await sync.fetchRemoteRef() : null
+  const upgradeCommit = remoteRef ? await sync.firstCommitAdding(remoteRef, MANIFEST_FILE) : null
+
+  if (!remoteRef || !upgradeCommit || !(await sync.hasUnsyncedWork())) {
+    const pulled = await sync.syncNow('startup')
+    const report = await migrateRepository(root, now)
+    if (report) await sync.commitAll(`devlog: migrate to storage format ${report.to}`)
+    // A failed pull was backed out; the next sync reports it again.
+    return { report, remote: pulled.pulled ? 'pulled' : 'none', error: pulled.error }
+  }
+
+  await sync.commitAll('devlog: save work from before the storage upgrade')
+  const lastOld = await sync.parentOf(upgradeCommit)
+  if (lastOld) {
+    const pre = await sync.mergeRef(lastOld, { message: 'devlog: merge other machines\' work from before the storage upgrade' })
+    if (pre.error) {
+      throw new Error(
+        `This devlog was upgraded on another machine, and this machine has changes from before the upgrade that conflict with it. Merge ${lastOld.slice(0, 10)} into this repository with git, then open it again. (${pre.error})`
+      )
+    }
+  }
+  const report = await migrateRepository(root, now)
+  if (report) await sync.commitAll(`devlog: migrate to storage format ${report.to}`)
+  const adopt = await sync.mergeRef(upgradeCommit, { ours: true, message: 'devlog: adopt the storage upgrade made on another machine' })
+  if (adopt.error) return { report, remote: 'merge-failed', error: adopt.error }
+  const merged = await sync.mergeRef(remoteRef)
+  return { report, remote: merged.merged ? 'merged' : 'merge-failed', error: merged.error }
+}
+
+function safeJson(text: string): unknown {
+  try {
+    return JSON.parse(text)
+  } catch {
+    return {}
+  }
 }
 
 /** Undo (or finish) a format 1 → 2 migration that was interrupted part way through. */
