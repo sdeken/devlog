@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   ancestorIds,
   buildCanvasTree,
+  canvasDir,
   canvasEntriesBase,
   canvasLabel,
   canvasPath,
@@ -10,6 +11,7 @@ import {
   isValidCanvasId,
   isWithin,
   legacyCategoryId,
+  newCanvasId,
   parseCanvasFile,
   parseLegacyPageFile,
   parseLegacyWikiFile,
@@ -46,7 +48,29 @@ describe('canvases', () => {
     expect(isValidCanvasId('../etc')).toBe(false)
     expect(isValidCanvasId('Acme')).toBe(false)
     expect(canvasEntriesBase('journal')).toBe('entries')
-    expect(canvasEntriesBase('acme')).toBe('canvases/acme/entries')
+    expect(canvasEntriesBase('acme')).toBe('canvases/ac/acme/entries')
+    expect(canvasDir('k3m9x2q7vd')).toBe('canvases/k3/k3m9x2q7vd')
+  })
+
+  it('makes random ids from the unambiguous alphabet', () => {
+    const seen = new Set<string>()
+    for (let i = 0; i < 500; i++) {
+      const id = newCanvasId()
+      expect(id).toMatch(/^[0-9a-hjkmnp-tv-z]{10}$/)
+      expect(isValidCanvasId(id)).toBe(true)
+      seen.add(id)
+    }
+    expect(seen.size).toBe(500)
+    expect(newCanvasId(() => 0)).toBe('0000000000')
+    expect(newCanvasId(() => 0.9999)).toBe('zzzzzzzzzz')
+  })
+
+  it('round-trips aliases in canvas.md', () => {
+    const meta = { ...parseCanvasFile('k3m9x2q7vd', '---\ntitle: Acme\nalias: acme-corp\nalias: acme\nalias: Bad Alias\n---\n').meta }
+    expect(meta.aliases).toEqual(['acme-corp', 'acme'])
+    const text = serializeCanvasFile(meta, '')
+    expect(text).toContain('alias: acme-corp\nalias: acme\n')
+    expect(parseCanvasFile('k3m9x2q7vd', text).meta.aliases).toEqual(['acme-corp', 'acme'])
   })
 
   it('round-trips canvas.md with front matter and surface', () => {

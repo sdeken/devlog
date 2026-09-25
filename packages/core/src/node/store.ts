@@ -4,8 +4,12 @@
  *
  * Content is organised in canvases. The journal is the built-in root canvas
  * whose stream lives at `entries/`; every other canvas lives under
- * `canvases/<id>/` with a `canvas.md` (metadata + surface) and its own
- * `entries/` tree in the same day-file format.
+ * `canvases/<xx>/<id>/` (xx = the id's first two characters) with a
+ * `canvas.md` (metadata + surface) and its own `entries/` tree in the same
+ * day-file format.
+ *
+ * This assumes storage format 2; open older repositories through
+ * `migrateRepository()` first.
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -40,19 +44,18 @@ import {
   JOURNAL_ID,
   LEGACY_CATEGORIES_DIR,
   LEGACY_PAGES_DIR,
+  MANIFEST_FILE,
+  STORAGE_FORMAT,
   canvasDir,
   canvasEntriesBase,
   canvasFilePath,
-  categoryPath,
+  canvasShard,
   descendantCanvasIds,
   isValidCanvasId,
   isWithin,
-  legacyCategoryId,
+  newCanvasId,
   parseCanvasFile,
-  parseLegacyPageFile,
-  parseLegacyWikiFile,
-  serializeCanvasFile,
-  slugify
+  serializeCanvasFile
 } from '../index'
 import type {
   Canvas,
@@ -112,6 +115,11 @@ export class DevlogStore extends EventEmitter {
 
   /** Create the on-disk skeleton for a new devlog (idempotent). */
   async initLayout(): Promise<void> {
+    // A repository with no devlog content yet starts at the current format;
+    // anything older is left for migrateRepository() to upgrade.
+    if (!(await exists(path.join(this.root, MANIFEST_FILE))) && !(await this.hasContent())) {
+      await fs.writeFile(path.join(this.root, MANIFEST_FILE), `${JSON.stringify({ format: STORAGE_FORMAT }, null, 2)}\n`)
+    }
     await fs.mkdir(path.join(this.root, ENTRIES_DIR), { recursive: true })
     const readme = path.join(this.root, 'README.md')
     if (!(await exists(readme))) {
@@ -123,7 +131,8 @@ export class DevlogStore extends EventEmitter {
           'This repository is a developer log managed by the Devlog app.',
           '',
           `- Journal notes live in \`${ENTRIES_DIR}/YYYY/MM/YYYY-MM-DD.md\`, one file per day.`,
-          `- Canvases (clients, projects, tasks, …) live in \`${CANVASES_DIR}/<id>/\` with a \`canvas.md\` (metadata + surface) and their own \`entries/\`.`,
+          `- Canvases (clients, projects, tasks, …) live in \`${CANVASES_DIR}/<xx>/<id>/\` (xx = the first two characters of the id) with a \`canvas.md\` (metadata + surface) and their own \`entries/\`.`,
+          `- \`${MANIFEST_FILE}\` records the storage format; the Devlog app upgrades older layouts when it opens the repository.`,
           `- Pasted images live next to the notes in an \`${ASSETS_DIR}/\` folder.`,
           '- Every block is delimited by a `<!-- devlog:entry … -->` comment that carries its id, parent and timestamps.',
           ''
@@ -132,8 +141,15 @@ export class DevlogStore extends EventEmitter {
     }
     const gitignore = path.join(this.root, '.gitignore')
     if (!(await exists(gitignore))) {
-      await fs.writeFile(gitignore, ['.DS_Store', 'Thumbs.db', ''].join('\n'))
+      await fs.writeFile(gitignore, ['.DS_Store', 'Thumbs.db', '.devlog-migrate/', '.devlog-migrate-old/', ''].join('\n'))
     }
+  }
+
+  private async hasContent(): Promise<boolean> {
+    for (const dir of [CANVASES_DIR, LEGACY_PAGES_DIR, LEGACY_CATEGORIES_DIR]) {
+      if ((await readdirSafe(path.join(this.root, dir))).length > 0) return true
+    }
+    return (await readdirSafe(path.join(this.root, ENTRIES_DIR))).some((d) => d.isDirectory() || d.name === 'todos.md')
   }
 
   // -------------------------------------------------------------------------
@@ -143,12 +159,31 @@ export class DevlogStore extends EventEmitter {
   async listCanvases(): Promise<CanvasMeta[]> {
     const out: CanvasMeta[] = [{ ...JOURNAL }]
     const dir = path.join(this.root, CANVASES_DIR)
-    for (const d of await readdirSafe(dir)) {
-      if (!d.isDirectory() || !isValidCanvasId(d.name) || d.name === JOURNAL_ID) continue
-      const c = await this.readCanvas(d.name).catch(() => null)
-      if (c) out.push(stripSurface(c))
+    for (const shard of await readdirSafe(dir)) {
+      if (!shard.isDirectory()) continue
+      for (const d of await readdirSafe(path.join(dir, shard.name))) {
+        if (!d.isDirectory() || !isValidCanvasId(d.name) || d.name === JOURNAL_ID || canvasShard(d.name) !== shard.name) continue
+        const c = await this.readCanvas(d.name).catch(() => null)
+        if (c) out.push(stripSurface(c))
+      }
     }
+    out.sort((a, b) => (a.id === JOURNAL_ID ? -1 : b.id === JOURNAL_ID ? 1 : a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id)))
     return out
+  }
+
+  /** Old canvas ids (from before the format 2 migration, or merged canvases) → current ids. */
+  async aliasMap(): Promise<Map<string, string>> {
+    const map = new Map<string, string>()
+    for (const c of await this.listCanvases()) for (const a of c.aliases ?? []) map.set(a, c.id)
+    return map
+  }
+
+  /** The current id for `id`, following aliases; null when no such canvas exists. */
+  async resolveCanvasId(id: string): Promise<string | null> {
+    if (id === JOURNAL_ID) return id
+    const all = await this.listCanvases()
+    if (all.some((c) => c.id === id)) return id
+    return all.find((c) => c.aliases?.includes(id))?.id ?? null
   }
 
   async readCanvas(id: string): Promise<Canvas> {
@@ -172,7 +207,8 @@ export class DevlogStore extends EventEmitter {
     const all = await this.listCanvases()
     const parentId = await this.checkParent(all, input.parentId ?? null)
     const existing = new Set(all.map((c) => c.id))
-    const id = uniqueSlug(title, existing)
+    let id = newCanvasId()
+    while (existing.has(id) || (await exists(this.resolve(canvasDir(id))))) id = newCanvasId()
     const meta: CanvasMeta = {
       id,
       title,
@@ -291,87 +327,6 @@ export class DevlogStore extends EventEmitter {
     await fs.mkdir(path.dirname(abs), { recursive: true })
     await writeAtomic(abs, serializeCanvasFile(meta, toRelativeFrom(surface, canvasDir(meta.id))))
     this.emit('change', { kind: 'canvas', canvasId: meta.id })
-  }
-
-  // -------------------------------------------------------------------------
-  // Migration from the pages/ + categories/ layout (Devlog ≤ 0.2)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Move legacy pages and category wikis into `canvases/`. Idempotent: does
-   * nothing when neither legacy folder exists. Returns the ids created.
-   */
-  async migrateLegacyLayout(now: Date = new Date()): Promise<string[]> {
-    const pagesDir = path.join(this.root, LEGACY_PAGES_DIR)
-    const catsDir = path.join(this.root, LEGACY_CATEGORIES_DIR)
-    if (!(await exists(pagesDir)) && !(await exists(catsDir))) return []
-    const created: string[] = []
-    const existing = new Set((await this.listCanvases()).map((c) => c.id))
-    const byPath = new Map<string, string>() // lower-cased "a / b" → canvas id
-
-    // Category chain → canvases, deepest last so parents exist first.
-    const ensureChain = async (segments: string[]): Promise<string | null> => {
-      let parentId: string | null = null
-      for (let i = 1; i <= segments.length; i++) {
-        const key = segments.slice(0, i).join(' / ').toLowerCase()
-        let id = byPath.get(key)
-        if (!id) {
-          id = uniqueSlug(legacyCategoryId(segments.slice(0, i)), existing)
-          existing.add(id)
-          byPath.set(key, id)
-          const meta: CanvasMeta = { id, title: segments[i - 1], parentId, task: false, createdAt: now.toISOString(), updatedAt: '', repos: [], archived: false, hasSurface: false }
-          await fs.mkdir(this.resolve(canvasEntriesBase(id)), { recursive: true })
-          await this.writeCanvas(meta, '')
-          created.push(id)
-        }
-        parentId = id
-      }
-      return parentId
-    }
-
-    // Wikis first: their text becomes the category canvas's surface.
-    const wikis: Array<{ dir: string; rel: string[] }> = []
-    const walk = async (dir: string, rel: string[]): Promise<void> => {
-      for (const d of await readdirSafe(dir)) {
-        if (d.isFile() && d.name === 'wiki.md') wikis.push({ dir, rel })
-        else if (d.isDirectory() && d.name !== ASSETS_DIR) await walk(path.join(dir, d.name), [...rel, d.name])
-      }
-    }
-    await walk(catsDir, [])
-    wikis.sort((a, b) => a.rel.length - b.rel.length)
-    for (const w of wikis) {
-      const text = await fs.readFile(path.join(w.dir, 'wiki.md'), 'utf8').catch(() => '')
-      const parsed = parseLegacyWikiFile(text, w.rel)
-      const id = await ensureChain(parsed.path)
-      if (!id) continue
-      const canvas = await this.readCanvas(id)
-      const oldDir = path.relative(this.root, w.dir).split(path.sep).join('/')
-      const surface = toRootRelativeFrom(parsed.markdown, oldDir).replaceAll(`${oldDir}/${ASSETS_DIR}/`, `${canvasDir(id)}/${ASSETS_DIR}/`)
-      const oldAssets = path.join(w.dir, ASSETS_DIR)
-      if (await exists(oldAssets)) await moveDir(oldAssets, this.resolve(`${canvasDir(id)}/${ASSETS_DIR}`))
-      await this.writeCanvas({ ...stripSurface(canvas), archived: canvas.archived || parsed.archived, updatedAt: parsed.updatedAt, hasSurface: surface.length > 0 }, surface)
-    }
-
-    // Pages: the folder moves as a whole (day files keep their relative links: same depth).
-    for (const d of await readdirSafe(pagesDir)) {
-      if (!d.isDirectory() || !isValidCanvasId(d.name) || d.name === JOURNAL_ID) continue
-      const text = await fs.readFile(path.join(pagesDir, d.name, 'page.md'), 'utf8').catch(() => '')
-      const page = parseLegacyPageFile(d.name, text)
-      const parentId = await ensureChain(categoryPath(page.category))
-      const id = existing.has(d.name) ? uniqueSlug(d.name, existing) : d.name
-      existing.add(id)
-      await fs.mkdir(this.resolve(CANVASES_DIR), { recursive: true })
-      await moveDir(path.join(pagesDir, d.name), this.resolve(canvasDir(id)))
-      await fs.rm(this.resolve(`${canvasDir(id)}/page.md`), { force: true })
-      const meta: CanvasMeta = { id, title: page.title, parentId, task: false, createdAt: page.createdAt || now.toISOString(), updatedAt: '', repos: page.repos, archived: page.archived, hasSurface: page.description.length > 0 }
-      await this.writeCanvas(meta, page.description)
-      created.push(id)
-    }
-
-    await fs.rm(pagesDir, { recursive: true, force: true })
-    await fs.rm(catsDir, { recursive: true, force: true })
-    this.emit('change', { kind: 'migration' })
-    return created
   }
 
   // -------------------------------------------------------------------------
@@ -811,26 +766,6 @@ function assertCanvasId(canvasId: string): void {
 function stripSurface(c: Canvas | CanvasMeta): CanvasMeta {
   const { surface: _s, ...meta } = c as Canvas
   return meta
-}
-
-/** A slug for `title` that is not already taken (`-2`, `-3`, …). */
-function uniqueSlug(title: string, taken: Set<string>): string {
-  let id = slugify(title)
-  if (id === JOURNAL_ID) id = `${id}-canvas`
-  const base = id
-  for (let n = 2; taken.has(id); n++) id = `${base}-${n}`
-  return id
-}
-
-/** Move a directory, falling back to copy+delete across devices. */
-async function moveDir(from: string, to: string): Promise<void> {
-  await fs.mkdir(path.dirname(to), { recursive: true })
-  try {
-    await fs.rename(from, to)
-  } catch {
-    await fs.cp(from, to, { recursive: true })
-    await fs.rm(from, { recursive: true, force: true })
-  }
 }
 
 function uniqueId(entries: Entry[]): string {

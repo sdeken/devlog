@@ -6,7 +6,7 @@ import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, 
 import { JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@devlog/core'
-import { DevlogStore } from '@devlog/core/node'
+import { DevlogStore, migrateRepository, needsMigration } from '@devlog/core/node'
 import { ActivityLog } from '@devlog/core/node'
 import { Tracker } from './activity/tracker'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
@@ -121,11 +121,26 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     throw new Error('That folder is not a git repository. Use "Create a new devlog" to initialise one.')
   }
   await nextStore.initLayout()
-  const migrated = await nextStore.migrateLegacyLayout()
-  if (migrated.length) console.log(`migrated ${migrated.length} legacy pages/categories into canvases/`)
   if (!isRepo || create) await SyncManager.initRepo(root, syncOptionsFrom(s))
 
   const nextSync = new SyncManager(root, syncOptionsFrom(s))
+  if (await needsMigration(root)) {
+    // Upgrade the storage layout. Pull first so this machine migrates the latest
+    // history (the migration is deterministic, so a machine that migrated the
+    // same history elsewhere produces identical files), and commit the result
+    // on its own so the change is easy to find and revert.
+    const pulled = await nextSync.syncNow('startup')
+    if (pulled.error?.startsWith('Pull failed')) {
+      // Offline, or a rejected push, is fine: we migrate what we have. A failed
+      // pull leaves the tree mid-rebase, which must not be rewritten.
+      throw new Error(`Devlog needs to upgrade this repository's storage format, but syncing it first failed: ${pulled.error}`)
+    }
+    const report = await migrateRepository(root)
+    if (report) {
+      console.log(`migrated storage format ${report.from} → ${report.to}: ${Object.keys(report.canvases).length} canvases, ${report.files} files`)
+      await nextSync.commitAll(`devlog: migrate to storage format ${report.to}`)
+    }
+  }
   nextSync.on('status', (status: SyncStatus) => send(IPC.evSyncStatus, status))
   nextSync.on('remote-changes', () => send(IPC.evEntriesChanged))
   nextStore.on('change', () => nextSync.noteChange())
@@ -142,7 +157,7 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     updateTray(st)
   })
   tracker = nextTracker
-  await nextTracker.start()
+  await nextTracker.start((id) => nextStore.resolveCanvasId(id))
 
   const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
   nextCommits.on('commit', (canvasId: string, info: CommitInfo) => void onCommit(canvasId, info))
@@ -487,7 +502,12 @@ if (!gotLock) {
       },
       onEntryAdded,
       onCanvasesChanged: refreshCommitWatchers,
-      activityRange: (from, to) => activityLog.read(from, to),
+      activityRange: async (from, to) => {
+        const events = await activityLog.read(from, to)
+        const aliases = store ? await store.aliasMap() : new Map<string, string>()
+        if (aliases.size === 0) return events
+        return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))
+      },
       activityAppend: (ev) => activityLog.append(ev),
       trackerStatus: () => tracker?.getStatus() ?? null,
       trackerSetTask: async (canvasId) => {

@@ -48,14 +48,26 @@ export class Tracker extends EventEmitter {
     return { ...this.status }
   }
 
-  /** Start recording. Restores the persisted active task. */
-  async start(): Promise<void> {
+  /**
+   * Start recording. Restores the persisted active task, passed through
+   * `resolve` (which maps ids renamed by a storage migration, or drops ones
+   * that no longer exist).
+   */
+  async start(resolve?: (canvasId: string) => Promise<string | null>): Promise<void> {
     if (this.running) return
     this.running = true
     this.pauses.clear()
     this.idle = false
     const persisted = await this.loadState()
-    this.status.activeCanvasId = persisted.activeCanvasId
+    let active = persisted.activeCanvasId
+    if (active && resolve) {
+      const next = await resolve(active).catch(() => active)
+      if (next !== active) {
+        active = next
+        await this.saveState({ activeCanvasId: active })
+      }
+    }
+    this.status.activeCanvasId = active
     this.status.tracking = this.settings.trackingEnabled
     if (!this.settings.trackingEnabled) {
       this.emitStatus()

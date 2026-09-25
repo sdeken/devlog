@@ -89,6 +89,8 @@ export interface CanvasMeta {
   archived: boolean
   /** True when the surface has any text. */
   hasSurface: boolean
+  /** Former ids (e.g. the folder name before storage format 2); references to them resolve here. */
+  aliases?: string[]
 }
 
 export interface Canvas extends CanvasMeta {

@@ -6,3 +6,13 @@
 export { DevlogStore } from './store'
 export { SyncManager, type SyncOptions } from './sync'
 export { ActivityLog, ACTIVITY_DIR, datesBetween } from './activityLog'
+export {
+  migrateRepository,
+  needsMigration,
+  readStorageFormat,
+  recoverInterruptedMigration,
+  migratedCanvasId,
+  STAGE_DIR,
+  OLD_DIR,
+  type MigrationReport
+} from './migrate'

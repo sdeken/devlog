@@ -109,6 +109,24 @@ export class SyncManager extends EventEmitter {
     await run
   }
 
+  /**
+   * Commit everything in the working tree with `message` (no push). Serialised
+   * with sync runs. Returns false when there was nothing to commit.
+   */
+  async commitAll(message: string): Promise<boolean> {
+    const run = this.queue.then(async () => {
+      await this.git.add('-A')
+      const staged = await this.git.status()
+      if (staged.files.length === 0) return false
+      await this.git.commit(message)
+      this.setStatus({ lastCommitAt: new Date().toISOString() })
+      await this.refreshStatus()
+      return true
+    })
+    this.queue = run.catch(() => undefined)
+    return run
+  }
+
   getStatus(): SyncStatus {
     return { ...this.status }
   }

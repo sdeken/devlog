@@ -1,6 +1,12 @@
 /**
  * Canvases: the one container type in a devlog.
  *
+ * Storage format 2 (this file): canvases live at
+ * `canvases/<first two characters of the id>/<id>/`, ids are random (or, for
+ * canvases migrated from format 1, derived from their old folder name), and
+ * the old folder name is kept as an `alias:` so references from before the
+ * migration still resolve.
+ *
  * A canvas is a client, a project, a task, a topic — anything you want to
  * write about. Every canvas has a *surface* (free-form markdown: links,
  * how-tos, credentials, a research scratchpad) and a *stream* of blocks
@@ -18,6 +24,25 @@ import type { CanvasMeta } from '../types'
 export const JOURNAL_ID = 'journal'
 export const CANVASES_DIR = 'canvases'
 export const CANVAS_FILE = 'canvas.md'
+/** Repository manifest; its `format` is the storage format version. */
+export const MANIFEST_FILE = 'devlog.json'
+export const STORAGE_FORMAT = 2
+
+/** Alphabet for canvas ids: lowercase, no easily confused characters (i, l, o, u). */
+export const CANVAS_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
+export const CANVAS_ID_LENGTH = 10
+
+/** A new random canvas id (10 characters, ~50 bits). */
+export function newCanvasId(random: () => number = Math.random): string {
+  let id = ''
+  for (let i = 0; i < CANVAS_ID_LENGTH; i++) id += CANVAS_ID_ALPHABET[Math.floor(random() * CANVAS_ID_ALPHABET.length)]
+  return id
+}
+
+/** The shard folder a canvas lives in: its id's first two characters. */
+export function canvasShard(id: string): string {
+  return id.slice(0, 2)
+}
 
 export const JOURNAL: CanvasMeta = {
   id: JOURNAL_ID,
@@ -39,6 +64,11 @@ export function isValidCanvasId(id: string): boolean {
 
 /** Repo-relative directory of a canvas (never for the journal). */
 export function canvasDir(id: string): string {
+  return `${CANVASES_DIR}/${canvasShard(id)}/${id}`
+}
+
+/** Where a canvas lived in storage format 1 (`canvases/<slug>/`); used only by the migration. */
+export function canvasDirV1(id: string): string {
   return `${CANVASES_DIR}/${id}`
 }
 
@@ -201,6 +231,7 @@ const isTrue = (v: string): boolean => /^(true|yes|1)$/i.test(v.trim())
 /** Parse `canvas.md`: front matter followed by the surface markdown (paths as stored, i.e. file-relative). */
 export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; surface: string } {
   const meta: CanvasMeta = { id, title: id, parentId: null, task: false, createdAt: '', updatedAt: '', repos: [], archived: false, hasSurface: false }
+  const aliases: string[] = []
   const { fields, body } = parseFrontMatter(text)
   for (const [key, value] of fields) {
     switch (key) {
@@ -225,8 +256,12 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
       case 'archived':
         meta.archived = isTrue(value)
         break
+      case 'alias':
+        if (value && isValidCanvasId(value) && value !== id && !aliases.includes(value)) aliases.push(value)
+        break
     }
   }
+  if (aliases.length) meta.aliases = aliases
   const surface = body.replace(/^\s*\n/, '').replace(/\s+$/, '')
   meta.hasSurface = surface.length > 0
   return { meta, surface }
@@ -240,6 +275,7 @@ export function serializeCanvasFile(meta: CanvasMeta, surface: string): string {
   if (meta.updatedAt) lines.push(`updated: ${meta.updatedAt}`)
   for (const r of meta.repos) lines.push(`repo: ${quote(r)}`)
   if (meta.archived) lines.push('archived: true')
+  for (const a of meta.aliases ?? []) lines.push(`alias: ${a}`)
   lines.push('---', '')
   const body = surface.replace(/\s+$/, '')
   if (body) lines.push(body, '')
