@@ -99,6 +99,7 @@ export function Composer({
   const [linkOpen, setLinkOpen] = useState(false)
   const [linkUrl, setLinkUrl] = useState('')
   const [, forceRender] = useState(0)
+  const renderQueued = useRef(false)
   const submitRef = useRef<(opts?: { task?: boolean }) => boolean>(() => false)
   const cancelRef = useRef<() => boolean>(() => false)
   const linkRef = useRef<() => boolean>(() => false)
@@ -238,7 +239,17 @@ export function Composer({
       }
     },
     onFocus: () => setActiveComposer(sink),
-    onTransaction: () => forceRender((n) => n + 1),
+    // Toolbar state follows the selection. Re-render at most once per frame: a
+    // burst of transactions (mounting, pasting, highlighting) must not become a
+    // burst of synchronous React updates.
+    onTransaction: () => {
+      if (renderQueued.current) return
+      renderQueued.current = true
+      requestAnimationFrame(() => {
+        renderQueued.current = false
+        forceRender((n) => n + 1)
+      })
+    },
     onUpdate: ({ editor: e }) => {
       if (isDocument) {
         pendingDoc.current = e.getMarkdown()
