@@ -82,7 +82,12 @@ export class Tracker extends EventEmitter {
     powerMonitor.on('resume', this.onResume)
     powerMonitor.on('shutdown', this.onShutdown)
 
-    this.heartbeat = setInterval(() => void this.record({ type: 'heartbeat' }), HEARTBEAT_MS)
+    // Heartbeats only prove the app was alive while time can accrue. A locked,
+    // idle or sleeping machine is already paused in the log, so it writes
+    // nothing (and gives sync nothing to commit) until it is back.
+    this.heartbeat = setInterval(() => {
+      if (this.pauses.size === 0) void this.record({ type: 'heartbeat' })
+    }, HEARTBEAT_MS)
     this.heartbeat.unref?.()
     this.idlePoll = setInterval(() => this.pollIdle(), 15_000)
     this.idlePoll.unref?.()
@@ -154,7 +159,8 @@ export class Tracker extends EventEmitter {
     this.foreground.on('change', (info: { app: string; title: string }) => {
       this.status.lastFocus = info
       this.status.focusAvailable = true
-      void this.record({ type: 'focus', app: info.app, title: info.title })
+      // The lock screen and waking up shuffle windows around; that's not work.
+      if (!this.pauses.has('locked') && !this.pauses.has('suspended')) void this.record({ type: 'focus', app: info.app, title: info.title })
       this.emitStatus()
     })
     this.foreground.start()
