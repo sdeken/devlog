@@ -207,10 +207,35 @@ export function parseFrontMatter(text: string): { fields: Array<[string, string]
   const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
   if (!m) return { fields, body: text }
   for (const line of m[1].split(/\r?\n/)) {
-    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
+    const kv = /^([A-Za-z_][\w.-]*)\s*:\s*(.*)$/.exec(line)
     if (kv) fields.push([kv[1].toLowerCase(), unquote(kv[2])])
   }
   return { fields, body: text.slice(m[0].length) }
+}
+
+const RESERVED_KEYS = new Set(['title', 'parent', 'task', 'created', 'updated', 'repo', 'archived', 'alias'])
+const FIELD_KEY_RE = /^[a-z_][\w.-]*$/
+
+/** Whether `key` can be stored as an extra canvas field (lowercase, `[a-z_][a-z0-9_.-]*`, not a built-in key). */
+export function isFieldKey(key: string): boolean {
+  return FIELD_KEY_RE.test(key) && !RESERVED_KEYS.has(key) && key.length <= 128
+}
+
+/**
+ * A field's value on a canvas or, failing that, on the nearest ancestor that
+ * sets it (task canvases inherit their client's settings).
+ */
+export function inheritedField(canvases: CanvasMeta[], id: string, key: string): { value: string; from: string } | null {
+  const byId = new Map(canvases.map((c) => [c.id, c]))
+  const seen = new Set<string>()
+  let cur = byId.get(id)
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id)
+    const v = cur.fields?.[key]
+    if (v !== undefined && v !== '') return { value: v, from: cur.id }
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined
+  }
+  return null
 }
 
 const isTrue = (v: string): boolean => /^(true|yes|1)$/i.test(v.trim())
@@ -219,6 +244,7 @@ const isTrue = (v: string): boolean => /^(true|yes|1)$/i.test(v.trim())
 export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; surface: string } {
   const meta: CanvasMeta = { id, title: id, parentId: null, task: false, createdAt: '', updatedAt: '', repos: [], archived: false, hasSurface: false }
   const aliases: string[] = []
+  const extra: Record<string, string> = {}
   const { fields, body } = parseFrontMatter(text)
   for (const [key, value] of fields) {
     switch (key) {
@@ -246,9 +272,13 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
       case 'alias':
         if (value && isValidCanvasId(value) && value !== id && !aliases.includes(value)) aliases.push(value)
         break
+      default:
+        // Anything else (extension fields) is kept and written back as is.
+        if (value !== '') extra[key] = value
     }
   }
   if (aliases.length) meta.aliases = aliases
+  if (Object.keys(extra).length) meta.fields = extra
   const surface = body.replace(/^\s*\n/, '').replace(/\s+$/, '')
   meta.hasSurface = surface.length > 0
   return { meta, surface }
@@ -263,6 +293,9 @@ export function serializeCanvasFile(meta: CanvasMeta, surface: string): string {
   for (const r of meta.repos) lines.push(`repo: ${quote(r)}`)
   if (meta.archived) lines.push('archived: true')
   for (const a of meta.aliases ?? []) lines.push(`alias: ${a}`)
+  for (const [k, v] of Object.entries(meta.fields ?? {})) {
+    if (isFieldKey(k) && !RESERVED_KEYS.has(k) && v !== '') lines.push(`${k}: ${quote(v.replace(/\r?\n/g, ' '))}`)
+  }
   lines.push('---', '')
   const body = surface.replace(/\s+$/, '')
   if (body) lines.push(body, '')

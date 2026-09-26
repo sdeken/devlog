@@ -5,7 +5,7 @@ import os from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 import { IPC, type MenuCommand } from '@shared/ipc'
 import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
-import { JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
+import { EXTENSIONS_DIR, JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@devlog/core'
 import { DevlogStore, RepoIndex, assertSupportedFormat } from '@devlog/core/node'
@@ -100,7 +100,7 @@ function syncOptionsFrom(s: Settings): SyncOptions {
     pullOnStart: s.pullOnStart,
     authorName: s.authorName,
     authorEmail: s.authorEmail,
-    quietPaths: [`${ACTIVITY_DIR}/`]
+    quietPaths: [`${ACTIVITY_DIR}/`, `${EXTENSIONS_DIR}/`]
   }
 }
 

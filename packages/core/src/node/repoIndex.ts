@@ -29,7 +29,7 @@ import {
 import type { CanvasMeta, Entry } from '../types'
 
 /** Bump when the schema or what gets indexed changes: the index is then rebuilt. */
-export const INDEX_SCHEMA = 2
+export const INDEX_SCHEMA = 3
 const TODO_FILE = 'todos.md'
 
 /** What a repository file means to the index. */

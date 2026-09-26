@@ -27,6 +27,16 @@ export async function ensureRepoFiles(root: string): Promise<void> {
   await ensureLines(path.join(root, '.gitattributes'), GITATTRIBUTES_LINES, '# Devlog: append-only files merge by keeping both sides')
 }
 
+/**
+ * Union-merge an extension's append-only files (`appendOnly` globs in its
+ * manifest, relative to its `extensions/<id>/` folder).
+ */
+export async function ensureExtensionAttributes(root: string, id: string, globs: string[]): Promise<void> {
+  if (globs.length === 0) return
+  const lines = globs.map((g) => `extensions/${id}/${g.replace(/^\/+/, '')} merge=union`)
+  await ensureLines(path.join(root, '.gitattributes'), lines, '# Devlog extensions: append-only files')
+}
+
 /** A block file in the sharded layout: a day file or a todo list. */
 export interface BlockFileRef {
   /** Repo-relative POSIX path. */

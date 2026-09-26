@@ -58,6 +58,7 @@ import {
   canvasFilePath,
   canvasShard,
   descendantCanvasIds,
+  isFieldKey,
   isValidCanvasId,
   isWithin,
   newCanvasId,
@@ -260,6 +261,17 @@ export class DevlogStore extends EventEmitter {
     }
     if (patch.task !== undefined) canvas.task = Boolean(patch.task)
     if (patch.repos !== undefined) canvas.repos = cleanRepos(patch.repos)
+    if (patch.fields !== undefined) {
+      const fields = { ...(canvas.fields ?? {}) }
+      for (const [rawKey, value] of Object.entries(patch.fields)) {
+        const key = rawKey.toLowerCase()
+        if (!isFieldKey(key)) throw new Error(`Not a canvas field name: ${rawKey}`)
+        if (value === null || value.trim() === '') delete fields[key]
+        else fields[key] = value.trim()
+      }
+      if (Object.keys(fields).length) canvas.fields = fields
+      else delete canvas.fields
+    }
     if (!canvas.createdAt) canvas.createdAt = new Date().toISOString()
     await this.writeCanvas(stripSurface(canvas), canvas.surface)
     return stripSurface(canvas)

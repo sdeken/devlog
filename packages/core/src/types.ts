@@ -91,6 +91,11 @@ export interface CanvasMeta {
   hasSurface: boolean
   /** Former ids (e.g. the folder name before storage format 2); references to them resolve here. */
   aliases?: string[]
+  /**
+   * Other front-matter keys, kept as written: extension fields such as
+   * `ext.sdeken.devlog-jira.issue`. Keys are lowercase.
+   */
+  fields?: Record<string, string>
 }
 
 export interface Canvas extends CanvasMeta {
@@ -103,6 +108,8 @@ export interface CanvasInput {
   parentId?: string | null
   task?: boolean
   repos?: string[]
+  /** Extra front-matter fields to set; an empty string or null removes one. */
+  fields?: Record<string, string | null>
 }
 
 /** A slice of a canvas's stream: whole days, oldest first. */
