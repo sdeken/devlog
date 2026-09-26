@@ -35,19 +35,10 @@ import { ExtensionHost } from './host'
 import { readMainCode, type ExtensionInstaller, type InstalledExtension } from './install'
 import { devlogKey, type ConsentStore, type SecretStore } from './localState'
 
-/** The platform helper that reports the foreground window (see activity/foreground.ts). */
-export interface ForegroundSource {
-  on(event: 'change', cb: (info: { app: string; title: string }) => void): unknown
-  start(): void
-  stop(): void
-}
-
 export interface ManagerDeps {
   root: string
   /** This machine's activity folder name, given to extensions as `ctx.machine`. */
   machine: string
-  /** Makes a foreground-window watcher; started only while an allowed extension listens. */
-  foreground?: () => ForegroundSource
   store: DevlogStore
   userData: string
   installer: ExtensionInstaller
@@ -74,8 +65,6 @@ interface Rec {
   grant: Grant | null
   changedSinceConsent: boolean
   activity: boolean
-  /** Listens for foreground-window changes. */
-  foreground: boolean
   /** Provides focus events for the app's views. */
   providesFocus: boolean
   files: { repo: ExtensionFileStore; local: ExtensionFileStore } | null
@@ -149,7 +138,6 @@ export class ExtensionManager {
       grant: null,
       changedSinceConsent: false,
       activity: false,
-      foreground: false,
       providesFocus: false,
       files: null,
       secretSet: new Set()
@@ -184,7 +172,7 @@ export class ExtensionManager {
     const ext = rec.installed
     if (!ext) return
     const consent = await this.deps.consent.get(this.deps.root, ext.id)
-    if (!consent || consent.sha256 !== ext.sha256) {
+    if (!consent || consent.sha256 !== ext.sha256 || (ext.manifest.permissions.unrestricted && !consent.grant.trusted)) {
       rec.state = 'needs-consent'
       rec.grant = null
       rec.changedSinceConsent = Boolean(consent)
@@ -219,12 +207,12 @@ export class ExtensionManager {
       filename: `devlog-extension://${ext.id}/${ext.manifest.main}`,
       apiVersion: EXTENSION_API_VERSION,
       machine: this.deps.machine,
+      ...(ext.manifest.permissions.unrestricted && rec.grant?.trusted ? { unrestricted: { packageDir: ext.dir } } : {}),
       settings: await this.settingValues(ext.id),
       handle: (method, args) => this.handle(rec, method, args)
     })
     rec.host = host
     rec.activity = false
-    rec.foreground = false
     rec.providesFocus = false
     rec.state = 'starting'
     rec.error = null
@@ -236,7 +224,6 @@ export class ExtensionManager {
         rec.error = host.error ?? 'Stopped'
       }
       rec.host = null
-      this.syncForeground()
       this.deps.onChange()
     })
     try {
@@ -255,49 +242,30 @@ export class ExtensionManager {
   private async stopHost(rec: Rec): Promise<void> {
     const host = rec.host
     rec.host = null
-    rec.foreground = false
     rec.providesFocus = false
-    this.syncForeground()
     if (host) await host.stop().catch(() => undefined)
   }
 
   // -------------------------------------------------------------------------
-  // The foreground-window feed and focus providers
+  // Machine state and focus providers
   // -------------------------------------------------------------------------
 
-  private watcher: ForegroundSource | null = null
-  /** Locked or asleep: nothing about windows is passed on. */
-  private readonly pausedBy = new Set<'locked' | 'asleep'>()
-  private get paused(): boolean {
-    return this.pausedBy.size > 0
-  }
+  /** Locked or asleep (from the OS), passed on to extensions as pause/resume. */
+  private readonly pausedBy = new Set<'locked' | 'suspended'>()
 
-  /** The machine was locked/unlocked or went to sleep/woke (from the OS, tracked or not). */
+  /** The machine was locked/unlocked or went to sleep/woke (from the OS, whether or not time is tracked). */
   setSystemState(state: 'locked' | 'asleep', on: boolean): void {
-    if (on) this.pausedBy.add(state)
-    else if (state === 'locked') this.pausedBy.clear() // unlocking means someone is back
-    else this.pausedBy.delete(state)
-  }
-
-  /** Run the platform helper only while an allowed extension is listening. */
-  private syncForeground(): void {
-    const wanted = !this.stopped && [...this.recs.values()].some((r) => r.host && r.foreground && r.grant?.foregroundWindow)
-    if (wanted && !this.watcher && this.deps.foreground) {
-      const w = this.deps.foreground()
-      w.on('change', (info) => this.foregroundChanged(info))
-      w.start()
-      this.watcher = w
-    } else if (!wanted && this.watcher) {
-      this.watcher.stop()
-      this.watcher = null
-    }
-  }
-
-  private foregroundChanged(info: { app: string; title: string }): void {
-    if (this.paused) return
-    const w = { t: new Date().toISOString(), app: String(info.app).slice(0, 200), title: String(info.title).slice(0, 1000) }
-    for (const rec of this.recs.values()) {
-      if (rec.host && rec.foreground && rec.grant?.foregroundWindow) void rec.host.call('system.foreground', [w], 10_000).catch(() => undefined)
+    const reason = state === 'locked' ? 'locked' : 'suspended'
+    const t = new Date().toISOString()
+    if (on) {
+      if (this.pausedBy.has(reason)) return
+      this.pausedBy.add(reason)
+      this.notify({ t, type: 'pause', reason })
+    } else {
+      if (!this.pausedBy.has(reason)) return
+      if (reason === 'locked') this.pausedBy.clear() // unlocking means someone is back
+      else this.pausedBy.delete(reason)
+      if (this.pausedBy.size === 0) this.notify({ t, type: 'resume' })
     }
   }
 
@@ -343,7 +311,6 @@ export class ExtensionManager {
     await this.serial(async () => {
       for (const key of [...this.recs.keys()]) await this.drop(key)
     })
-    this.syncForeground()
   }
 
   // -------------------------------------------------------------------------
@@ -406,10 +373,12 @@ export class ExtensionManager {
     return this.serial(async () => {
       const rec = this.need(key)
       if (!rec.installed) throw new Error('Not installed')
+      const perms = rec.installed.manifest.permissions
+      if (perms.unrestricted && !grant.trusted) throw new Error(`${rec.installed.manifest.displayName} runs unrestricted; it can only run if you say you trust it`)
       const g: Grant = {
-        read: rec.installed.manifest.permissions.read ? grant.read : null,
-        write: rec.installed.manifest.permissions.write ? grant.write : null,
-        ...(rec.installed.manifest.permissions.foregroundWindow && grant.foregroundWindow ? { foregroundWindow: true } : {})
+        read: perms.read ? grant.read : null,
+        write: perms.write ? grant.write : null,
+        ...(perms.unrestricted ? { trusted: true } : {})
       }
       await this.deps.consent.set(this.deps.root, rec.id, { sha256: rec.installed.sha256, grant: g, at: new Date().toISOString() })
       await this.stopHost(rec)
@@ -492,16 +461,16 @@ export class ExtensionManager {
     await rec.host.call('command.run', [commandId])
   }
 
-  /** Pass pause/resume/task changes to extensions that listen for them. */
+  /** Pass pause/resume/task changes from the tracker to extensions that listen for them. */
   activity(ev: ActivityEvent): void {
-    if (ev.type === 'lock' || ev.type === 'suspend') this.setSystemState(ev.type === 'lock' ? 'locked' : 'asleep', true)
-    else if (ev.type === 'unlock' || ev.type === 'resume') this.setSystemState(ev.type === 'unlock' ? 'locked' : 'asleep', false)
-    const kind = { lock: 'locked', idle: 'idle', suspend: 'suspended' } as const
-    let notice: ActivityNotice | null = null
-    if (ev.type === 'lock' || ev.type === 'idle' || ev.type === 'suspend') notice = { t: ev.t, type: 'pause', reason: kind[ev.type] }
-    else if (ev.type === 'unlock' || ev.type === 'active' || ev.type === 'resume') notice = { t: ev.t, type: 'resume' }
-    else if (ev.type === 'task' || ev.type === 'stop') notice = { t: ev.t, type: 'task', canvasId: ev.type === 'task' ? (ev.canvasId ?? null) : null }
-    if (!notice) return
+    if (ev.type === 'lock' || ev.type === 'suspend') return this.setSystemState(ev.type === 'lock' ? 'locked' : 'asleep', true)
+    if (ev.type === 'unlock' || ev.type === 'resume') return this.setSystemState(ev.type === 'unlock' ? 'locked' : 'asleep', false)
+    if (ev.type === 'idle') this.notify({ t: ev.t, type: 'pause', reason: 'idle' })
+    else if (ev.type === 'active') this.notify({ t: ev.t, type: 'resume' })
+    else if (ev.type === 'task' || ev.type === 'stop') this.notify({ t: ev.t, type: 'task', canvasId: ev.type === 'task' ? (ev.canvasId ?? null) : null })
+  }
+
+  private notify(notice: ActivityNotice): void {
     for (const rec of this.recs.values()) {
       if (!rec.activity || !rec.host) continue
       let n = notice
@@ -659,11 +628,6 @@ export class ExtensionManager {
         return null
       case 'ui.confirm':
         return this.deps.confirm(ext.manifest.displayName, str(0, 'message').slice(0, 1000))
-      case 'system.foreground.subscribe':
-        if (!grant.foregroundWindow) throw new Error('Not allowed to see window titles')
-        rec.foreground = true
-        this.syncForeground()
-        return null
       case 'provide.register':
         if (args[0] === 'focus') rec.providesFocus = true
         else throw new Error(`Cannot provide ${String(args[0])}`)

@@ -133,7 +133,7 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
               <p className="ext-perms">
                 {e.permissions.read ? <>Reads: {e.grant ? describeScope(canvases, e.grant.read) : 'asks for access'}. </> : 'Reads nothing. '}
                 {e.permissions.write ? <>Writes: {e.grant ? describeScope(canvases, e.grant.write) : 'asks for access'}. </> : null}
-                {e.permissions.foregroundWindow ? <>Window titles: {e.grant ? (e.grant.foregroundWindow ? 'allowed' : 'not allowed') : 'asks for access'}. </> : null}
+                {e.permissions.unrestricted ? <>Runs unrestricted{e.grant?.trusted ? ' (trusted)' : ''}. </> : null}
                 {e.permissions.network?.length ? <>Network: {e.permissions.network.join(', ')}. </> : null}
               </p>
               <div className="ext-actions">
@@ -326,7 +326,7 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
   const [write, setWrite] = useState<ScopeChoice>(choiceOf(ext.grant?.write, 'some'))
   const [readIds, setReadIds] = useState<string[]>(ext.grant?.read && 'canvases' in ext.grant.read ? ext.grant.read.canvases : [])
   const [writeIds, setWriteIds] = useState<string[]>(ext.grant?.write && 'canvases' in ext.grant.write ? ext.grant.write.canvases : [])
-  const [windows, setWindows] = useState(ext.grant ? Boolean(ext.grant.foregroundWindow) : true)
+  const [trusted, setTrusted] = useState(Boolean(ext.grant?.trusted))
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -339,7 +339,7 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
       const grant: Grant = {
         read: ext.permissions.read ? scope(read, readIds) : null,
         write: ext.permissions.write ? scope(write, writeIds) : null,
-        ...(ext.permissions.foregroundWindow && windows ? { foregroundWindow: true } : {})
+        ...(ext.permissions.unrestricted && trusted ? { trusted: true } : {})
       }
       await api.extensions.allow(ext.key, grant)
       onClose()
@@ -366,7 +366,7 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
         </p>
         {ext.changedSinceConsent && <p className="consent-note">Its code changed since you last allowed it.</p>}
         <ul className="consent-facts">
-          <li>It runs in its own process on this computer, with no access to your files or other programs.</li>
+          {!ext.permissions.unrestricted && <li>It runs in its own process on this computer, with no access to your files or other programs.</li>}
           <li>It keeps its own data in the devlog (<code>extensions/{ext.id}/</code>) and on this machine; other extensions cannot see it.</li>
           <li>
             {ext.permissions.network?.length ? (
@@ -385,14 +385,16 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
         {ext.permissions.write && (
           <ScopePicker label="It may add blocks to" choice={write} ids={writeIds} canvases={canvases} onChoice={setWrite} onIds={setWriteIds} name="write" />
         )}
-        {ext.permissions.foregroundWindow && (
-          <fieldset className="scope-picker" data-scope="windows">
-            <legend>Focused windows</legend>
+        {ext.permissions.unrestricted && (
+          <div className="consent-trust">
+            <p>
+              <strong>This extension runs unrestricted.</strong> Unlike other extensions it is not sandboxed: it can read and change any file you can, start
+              programs, and see everything on this computer that you can.
+            </p>
             <label className="check">
-              <input type="checkbox" checked={windows} onChange={(ev) => setWindows(ev.target.checked)} /> Tell it which window is in front (the app and its title,
-              which for browsers is the page) while this computer is unlocked
+              <input type="checkbox" checked={trusted} onChange={(ev) => setTrusted(ev.target.checked)} /> I trust {ext.displayName} and its author
             </label>
-          </fieldset>
+          </div>
         )}
         {!ext.permissions.read && !ext.permissions.write && <p className="hint">It does not ask to read or write your notes.</p>}
 
@@ -402,7 +404,7 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
           <button type="button" className="btn btn-quiet" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="btn btn-primary" disabled={busy} onClick={() => void allow()}>
+          <button type="button" className="btn btn-primary" disabled={busy || (ext.permissions.unrestricted && !trusted)} onClick={() => void allow()}>
             Allow
           </button>
         </div>

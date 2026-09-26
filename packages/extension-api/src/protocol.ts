@@ -13,6 +13,8 @@ export interface InitMessage {
   id: string
   apiVersion: string
   machine: string
+  /** Only for unrestricted (trusted) extensions. */
+  packageDir: string | null
   /** The bundle's source; evaluated in the extension process (which cannot read files). */
   code: string
   filename: string
@@ -44,7 +46,7 @@ export type FromExtension =
   | { t: 'registered'; command: string }
 
 /** Methods the app calls on the extension. */
-export type ExtensionSideMethod = 'command.run' | 'activity.notice' | 'system.foreground' | 'provide.focus'
+export type ExtensionSideMethod = 'command.run' | 'activity.notice' | 'provide.focus'
 
 export type { ActivityNotice }
 
@@ -68,7 +70,6 @@ export const APP_METHODS = [
   'activity.subscribe',
   'ui.notify',
   'ui.confirm',
-  'system.foreground.subscribe',
   'provide.register'
 ] as const
 

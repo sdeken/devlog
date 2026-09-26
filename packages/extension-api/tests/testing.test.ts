@@ -1,3 +1,4 @@
+import { EventEmitter } from 'node:events'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -47,19 +48,31 @@ describe('the test harness', () => {
     expect(t.ctx.settings.get('a')).toBe('1')
   })
 
-  it('runs devlog-focus: window changes in, focus events out', async () => {
-    const focus = createRequire(import.meta.url)(path.resolve(__dirname, '../../../builtin-extensions/devlog-focus/main.js')) as ExtensionModule
+  it('runs devlog-focus with a fake window watcher: changes in, nothing while locked, focus events out', async () => {
+    const focus = createRequire(import.meta.url)(path.resolve(__dirname, '../../../builtin-extensions/devlog-focus/main.js')) as {
+      run: (ctx: unknown, watcher: EventEmitter & { start(): void; stop(): void }) => void
+    }
+    const watcher = Object.assign(new EventEmitter(), { started: 0, start() { this.started++ }, stop() {} })
     const t = createTestContext({ id: 'builtin.devlog-focus', machine: 'desk-1a2b' })
-    await focus.activate(t.ctx)
-    const at = new Date(2026, 8, 26, 9, 15)
-    t.foreground({ t: at.toISOString(), app: 'Code', title: 'store.ts' })
-    t.notice({ t: new Date(2026, 8, 26, 9, 45).toISOString(), type: 'resume' })
-    const events = await t.focus('2026-09-26', '2026-09-26')
-    expect(events).toEqual([
-      { t: at.toISOString(), app: 'Code', title: 'store.ts', machine: 'desk-1a2b' },
-      { t: new Date(2026, 8, 26, 9, 45).toISOString(), app: 'Code', title: 'store.ts', machine: 'desk-1a2b' }
+    focus.run(t.ctx, watcher)
+    expect(watcher.started).toBe(1)
+    watcher.emit('change', { app: 'Code', title: 'store.ts' })
+    t.notice({ t: new Date().toISOString(), type: 'pause', reason: 'locked' })
+    watcher.emit('change', { app: 'LockApp', title: 'Lock screen' })
+    const back = new Date(Date.now() + 1000).toISOString()
+    t.notice({ t: back, type: 'resume' })
+    watcher.emit('change', { app: 'chrome', title: 'Jira' })
+    const d = new Date()
+    const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const events = await t.focus(date, date)
+    // The lock screen is not recorded; coming back says again which window was in front.
+    expect(events.map((e) => [e.app, e.machine])).toEqual([
+      ['Code', 'desk-1a2b'],
+      ['Code', 'desk-1a2b'],
+      ['chrome', 'desk-1a2b']
     ])
-    expect([...t.files.repo.keys()]).toEqual(['desk-1a2b/2026/09/2026-09-26.jsonl'])
-    expect(await t.focus('2026-09-27', '2026-09-30')).toEqual([])
+    expect(events[1].t).toBe(back)
+    expect([...t.files.repo.keys()]).toEqual([`desk-1a2b/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.jsonl`])
+    expect(await t.focus('2000-01-01', '2000-01-02')).toEqual([])
   })
 })

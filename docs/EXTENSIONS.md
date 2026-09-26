@@ -193,8 +193,7 @@ that would get around it. An extension:
 - **cannot start programs, load native code or spawn workers** (the same
   permission model denies child processes, addons, workers and WASI). The
   things that need them stay in the app and are offered as narrow
-  capabilities instead (the foreground-window feed for devlog-focus, for
-  example).
+  capabilities instead, or the extension asks to run unrestricted (below).
 - **sees the devlog only through its grant**, and only its own folders,
   settings and secrets.
 - **cannot reach other extensions, the app's windows or Electron.** Each
@@ -205,6 +204,17 @@ that would get around it. An extension:
 - **UI without code**: what extensions show inside the notebook is Adaptive
   Cards (below), rendered by the app. No extension code runs in the
   notebook's window.
+
+**Unrestricted extensions (trusted).** An extension that needs to do what
+the sandbox forbids (start a platform helper, read files) says so with
+`"permissions": { "unrestricted": true }`. It then runs only if you say, in
+the consent dialog, that you trust it and its author, and it runs without
+the permission model: full file-system and process access, the app's
+environment, and `ctx.packageDir` (its own unpacked folder, for scripts it
+ships). Everything else (consent per build, a new build asks again, its
+private folders, grants for the devlog API) stays the same. This is the
+middle ground: the sandbox is the default, and leaving it is an explicit,
+per-extension decision you make, not something the app grants itself.
 
 **Not in v1: the network.** An extension can make any request; the domains
 it declares are shown at consent but not enforced (enforcing needs all
@@ -252,38 +262,28 @@ extension, Devlog uses Adaptive Cards:
 Recording the foreground window is useful to some people and noise to
 others, and it is the most privacy-sensitive thing Devlog records. It is a
 first-party extension, **devlog-focus** ("Window tracking"), built into the
-app (nothing to download) and off until a devlog adds it (#16, built in
-0.8.0).
+app (nothing to download) and off until a devlog adds it (#16).
 
+- **Nothing about windows is in the core.** devlog-focus runs unrestricted
+  (you are asked whether you trust it) and starts its own platform helper:
+  PowerShell with `GetForegroundWindow` on Windows, an `osascript` loop on
+  macOS, `xdotool` on Linux. 0.8 had the app run the helper and pass a
+  window feed to the extension; 0.9 moved it into the extension and removed
+  the feed from the API (1.2).
 - **What stays core:** the task clock. Task switches, start/stop,
   lock/unlock, idle/active, sleep/wake and heartbeats stay in the core
   activity log, because tracked time, the review and timesheets depend on
-  them. The platform helper that reads the foreground window (PowerShell /
-  `osascript` / `xdotool`) also stays in the app, since extensions cannot
-  start programs; it runs only while an extension that was allowed window
-  titles is listening, and nothing is passed on while the machine is locked
-  or asleep (from the OS's own events, whether or not time tracking is on).
-- **What moved:** recording `focus` events. The core tracker no longer
-  records them, and the "record the focused window" setting is gone (people
-  who had it on are told once where it went).
+  them. Extensions hear about locks and sleep through `ctx.activity`,
+  straight from the OS whether or not time is tracked; devlog-focus records
+  nothing while paused.
 - **Its data** is in its own synced folder, one JSON-lines file per machine
   and day: `extensions/builtin.devlog-focus/<machine>/YYYY/MM/<date>.jsonl`,
   `{"t", "app", "title"}` per line, append-only and union-merged.
-- **What it gets:** `ctx.system.onForegroundWindow` (API 1.1, needs the
-  `foregroundWindow` permission and your consent) and `ctx.activity`, so it
-  can say again which window is in front when the machine comes back from
-  idle. No read access to notes.
 - **What it gives back:** `ctx.provide.focus(from, to)` returns its events,
   which the app merges into the activity it hands the timeline, review and
-  summary. Those views draw focus exactly as before; the data just comes from
-  the extension. (Generic contribution points, such as extra timeline lanes,
-  can come later; screen time did not need them.)
+  summary. Those views draw focus exactly as before.
 - **Existing data:** `focus` events already in the core activity logs stay
   there and still show. New ones come from the extension.
-
-This is also the proof that the model works: a real feature, with its own
-synced files, a system capability behind a permission prompt, and data the
-app draws, built only on the public API.
 
 ## Trust
 

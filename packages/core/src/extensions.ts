@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID } from './format/canvases'
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.1.0'
+export const EXTENSION_API_VERSION = '1.2.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'
@@ -37,8 +37,11 @@ export interface ExtensionPermissions {
   write?: boolean
   /** Domains it talks to: shown at consent, not enforced in v1. */
   network?: string[]
-  /** Wants the foreground-window feed (window titles). */
-  foregroundWindow?: boolean
+  /**
+   * Runs without the sandbox: it can read and change your files, start
+   * programs and see everything you can. It runs only if you say you trust it.
+   */
+  unrestricted?: boolean
 }
 
 export interface ExtensionManifest {
@@ -119,7 +122,7 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
   const permissions: ExtensionPermissions = {}
   if (p.read === true) permissions.read = true
   if (p.write === true) permissions.write = true
-  if (p.foregroundWindow === true) permissions.foregroundWindow = true
+  if (p.unrestricted === true) permissions.unrestricted = true
   if (p.network !== undefined) {
     if (!Array.isArray(p.network) || p.network.some((d) => typeof d !== 'string' || !/^(\*\.)?[a-z0-9.-]+(:\d+)?$/i.test(d))) errors.push('"permissions.network" must be a list of domains')
     else permissions.network = (p.network as string[]).map((d) => d.toLowerCase())
@@ -289,7 +292,8 @@ export type GrantScope = { all: true } | { canvases: string[] }
 export interface Grant {
   read: GrantScope | null
   write: GrantScope | null
-  foregroundWindow?: boolean
+  /** You said you trust it to run unrestricted (only for extensions that ask). */
+  trusted?: boolean
 }
 
 export const NO_GRANT: Grant = { read: null, write: null }
@@ -349,5 +353,5 @@ export function sanitizeGrant(raw: unknown): Grant {
     return null
   }
   const o = (raw ?? {}) as Record<string, unknown>
-  return { read: scope(o.read), write: scope(o.write), ...(o.foregroundWindow === true ? { foregroundWindow: true } : {}) }
+  return { read: scope(o.read), write: scope(o.write), ...(o.trusted === true ? { trusted: true } : {}) }
 }

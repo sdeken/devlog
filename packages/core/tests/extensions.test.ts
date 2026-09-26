@@ -114,7 +114,8 @@ describe('grants', () => {
   })
 
   it('sanitises stored grants', () => {
-    expect(sanitizeGrant({ read: { all: true }, write: { canvases: ['a', 3] }, foregroundWindow: 'yes' })).toEqual({ read: { all: true }, write: { canvases: ['a'] } })
+    expect(sanitizeGrant({ read: { all: true }, write: { canvases: ['a', 3] }, trusted: 'yes' })).toEqual({ read: { all: true }, write: { canvases: ['a'] } })
+    expect(sanitizeGrant({ read: null, write: null, trusted: true })).toEqual({ read: null, write: null, trusted: true })
     expect(sanitizeGrant(null)).toEqual({ read: null, write: null })
   })
 })

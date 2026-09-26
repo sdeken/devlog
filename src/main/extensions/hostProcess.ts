@@ -1,7 +1,8 @@
 /**
  * The extension process. Started by the app as a Node child of the Devlog
  * binary (ELECTRON_RUN_AS_NODE) under Node's permission model with no file,
- * child-process, worker or addon allowances beyond reading this one file.
+ * child-process, worker or addon allowances beyond reading this one file
+ * (or, for an extension you said you trust, without the permission model).
  * It receives the extension's bundle over IPC, evaluates it, and turns the
  * `ctx` API into messages to the app, which does the real work.
  *
@@ -10,7 +11,7 @@
  */
 import { builtinModules } from 'node:module'
 import vm from 'node:vm'
-import type { ActivityNotice, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent, ForegroundWindow } from '@devlog/extension-api'
+import type { ActivityNotice, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent } from '@devlog/extension-api'
 import type { CallMessage, FromExtension, InitMessage, ToExtension } from '@devlog/extension-api/protocol'
 
 const send = (msg: FromExtension): void => {
@@ -31,7 +32,6 @@ function call(method: string, ...args: unknown[]): Promise<unknown> {
 const commands = new Map<string, () => void | Promise<void>>()
 const activityListeners: Array<(n: ActivityNotice) => void> = []
 const settingsListeners: Array<(s: Record<string, string>) => void> = []
-const foregroundListeners: Array<(w: ForegroundWindow) => void> = []
 let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
 let settings: Record<string, string> = {}
 let mod: Partial<ExtensionModule> = {}
@@ -53,11 +53,11 @@ function files(store: 'repo' | 'local'): ExtensionFiles {
 
 function makeContext(init: InitMessage): DevlogContext {
   let subscribed = false
-  let foregroundSubscribed: Promise<unknown> | null = null
   return {
     id: init.id,
     apiVersion: init.apiVersion,
     machine: init.machine,
+    packageDir: init.packageDir,
     devlog: {
       canvases: () => call('devlog.canvases') as ReturnType<DevlogContext['devlog']['canvases']>,
       field: (canvasId, key) => call('devlog.field', canvasId, key) as Promise<string | null>,
@@ -100,14 +100,6 @@ function makeContext(init: InitMessage): DevlogContext {
         send({ t: 'registered', command: String(id) })
       }
     },
-    system: {
-      onForegroundWindow: (cb) => {
-        foregroundListeners.push(cb)
-        foregroundSubscribed ??= call('system.foreground.subscribe').catch((err: unknown) => {
-          console.error(err instanceof Error ? err.message : err)
-        })
-      }
-    },
     provide: {
       focus: (fn) => {
         if (typeof fn !== 'function') throw new Error('provide.focus(fn): fn must be a function')
@@ -146,8 +138,6 @@ async function handleCall(msg: CallMessage): Promise<void> {
       value = await run()
     } else if (msg.method === 'activity.notice') {
       for (const cb of activityListeners) cb(msg.args[0] as ActivityNotice)
-    } else if (msg.method === 'system.foreground') {
-      for (const cb of foregroundListeners) cb(msg.args[0] as ForegroundWindow)
     } else if (msg.method === 'provide.focus') {
       if (!focusProvider) throw new Error('No focus provider')
       value = await focusProvider(String(msg.args[0]), String(msg.args[1]))

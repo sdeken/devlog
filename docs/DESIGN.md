@@ -272,13 +272,11 @@ running, which is why the window closes to the tray when tracking is on.
 
 Signals come from Electron's `powerMonitor`: `lock-screen`/`unlock-screen`,
 `suspend`/`resume`, and a 15-second poll of `getSystemIdleState` for idle.
-Each is written as an event. Foreground windows come from a long-running
-helper process per platform (`src/main/activity/foreground.ts`): PowerShell
-with `GetForegroundWindow` on Windows, an `osascript` loop on macOS, `xdotool`
-on Linux. They emit only on change. There are no native modules. Since 0.8
-the tracker does not record them: the helper runs for the devlog-focus
-extension (see `docs/EXTENSIONS.md`), which keeps `focus` events in its own
-folder, and the app merges them back into the activity the views read.
+Each is written as an event. Foreground windows are not the core's: the
+devlog-focus extension (`builtin-extensions/devlog-focus`, see
+`docs/EXTENSIONS.md`) runs its own helper and keeps `focus` events in its
+own folder, and the app merges them back into the activity the views read.
+There are no native modules.
 
 Events go to `ActivityLog`: JSON lines, one file per local day, one folder
 per machine (`activity/<host>-<id>/…`, the folder name kept in

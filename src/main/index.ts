@@ -11,7 +11,6 @@ import { localDate, parseDurationMarker } from '@devlog/core'
 import { DevlogStore, RepoIndex, assertSupportedFormat, readManifest } from '@devlog/core/node'
 import { ACTIVITY_DIR, ActivityLog, machineFolder } from '@devlog/core/node'
 import { Tracker } from './activity/tracker'
-import { ForegroundWatcher } from './activity/foreground'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { Updater } from './updates'
@@ -265,7 +264,6 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   extensions = new ExtensionManager({
     root,
     machine: machineId(),
-    foreground: () => new ForegroundWatcher(),
     store: nextStore,
     userData: app.getPath('userData'),
     installer: svc.installer,
@@ -768,7 +766,7 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
-    // The window feed to extensions stops while locked or asleep, whether or not time tracking is on.
+    // Extensions hear about locks and sleep straight from the OS, whether or not time tracking is on.
     powerMonitor.on('lock-screen', () => {
       screenLocked = true
       extensions?.setSystemState('locked', true)

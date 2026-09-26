@@ -858,11 +858,13 @@ try {
   const focusItem = page.locator('.ext-item[data-ext="devlog-focus"]')
   await focusItem.locator('button', { hasText: 'Review and allow' }).waitFor({ timeout: 15_000 })
   await focusItem.locator('button', { hasText: 'Review and allow' }).click()
-  await page.waitForSelector('.modal-consent .scope-picker[data-scope="windows"]', { timeout: 5_000 })
-  check(await page.locator('.scope-picker[data-scope="windows"] input').isChecked(), 'its consent asks about focused windows')
-  await page.locator('.modal-consent button', { hasText: 'Allow' }).click()
+  await page.waitForSelector('.modal-consent .consent-trust', { timeout: 5_000 })
+  const allowButton = page.locator('.modal-consent button', { hasText: 'Allow' })
+  check(await allowButton.isDisabled(), 'an unrestricted extension cannot be allowed without saying you trust it')
+  await page.locator('.consent-trust input').check()
+  await allowButton.click()
   await focusItem.locator('.ext-state', { hasText: 'Running' }).waitFor({ timeout: 20_000 })
-  check((await focusItem.locator('.ext-perms').textContent()).includes('Window titles: allowed'), 'window tracking runs once allowed')
+  check((await focusItem.locator('.ext-perms').textContent()).includes('Runs unrestricted (trusted)'), 'window tracking runs once trusted')
   await page.locator('.modal-extensions button', { hasText: 'Done' }).click()
   // Focus changes it keeps in its own files reach the app's views through activity.range.
   const machineFolder = JSON.parse(await fs.readFile(path.join(userData, 'machine.json'), 'utf8')).folder

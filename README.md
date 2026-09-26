@@ -317,12 +317,12 @@ asleep), and git events from watched repositories.
 
 **Window tracking** (which app and window title is in front, for screen
 time in the timeline, review and summary) is the built-in **Window
-tracking** extension (devlog-focus): add it under Extensions and allow it
-window titles. It records only while the machine is unlocked and awake,
-into `extensions/builtin.devlog-focus/<machine>/` in the devlog. The window
-is read by a small PowerShell helper on Windows, `osascript` on macOS
-(window titles need the Accessibility permission) and `xdotool` on Linux if
-present; the helper runs only while the extension is allowed and running.
+tracking** extension (devlog-focus): add it under Extensions and allow it.
+It runs unrestricted, so you are asked whether you trust it: it starts a
+small helper to read the window in front (PowerShell on Windows, `osascript`
+on macOS, where window titles need the Accessibility permission, `xdotool`
+on Linux if present). It records only while the machine is unlocked and
+awake, into `extensions/builtin.devlog-focus/<machine>/` in the devlog.
 
 ## Working copies: commits as blocks, branches as events
 
@@ -464,7 +464,9 @@ opts into. Open **Extensions** from the quick switcher or Settings:
   blocks to**: the whole devlog, or chosen canvases (with everything inside
   them). A new version asks again.
 - It runs in its own process with **no access to your files or other
-  programs**, and cannot see other extensions. Its own data lives in
+  programs**, and cannot see other extensions. An extension that needs more
+  (such as window tracking) says so, and runs unrestricted only if you tick
+  "I trust it" when allowing it. Its own data lives in
   `extensions/<id>/` in the devlog (synced) and in user data on this
   machine. Network access is not restricted, so only grant read access you
   are comfortable sending to what it talks to.

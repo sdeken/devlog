@@ -304,42 +304,29 @@ describe('the installer', () => {
   })
 })
 
-describe('devlog-focus (window tracking as an extension)', () => {
-  const BUILTINS = path.resolve(__dirname, '../builtin-extensions')
+describe('trusted (unrestricted) extensions', () => {
   let root: string
   let userData: string
   let manager: ExtensionManager
-  let watcher: { started: number; stopped: number; emit: (app: string, title: string) => void } | null
 
   beforeEach(async () => {
-    root = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-focusrepo-'))
-    userData = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-focusud-'))
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-trustrepo-'))
+    userData = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-trustud-'))
     const store = new DevlogStore(root)
     await store.initLayout()
     await updateManifest(root, (m) => {
-      m.extensions = { 'devlog-focus': 'builtin' }
+      m.extensions = { trusted: 'builtin', 'devlog-focus': 'builtin' }
     })
-    watcher = null
     manager = new ExtensionManager({
       root,
       machine: 'desk-1a2b',
-      foreground: () => {
-        const listeners: Array<(i: { app: string; title: string }) => void> = []
-        const w = {
-          started: 0,
-          stopped: 0,
-          emit: (app: string, title: string) => listeners.forEach((l) => l({ app, title }))
-        }
-        watcher = w
-        return {
-          on: (_e: 'change', cb: (i: { app: string; title: string }) => void) => listeners.push(cb),
-          start: () => void w.started++,
-          stop: () => void w.stopped++
-        }
-      },
       store,
       userData,
-      installer: new ExtensionInstaller({ cacheDir: path.join(userData, 'extensions'), builtinDir: BUILTINS, devOverrides: async () => ({}) }),
+      installer: new ExtensionInstaller({
+        cacheDir: path.join(userData, 'extensions'),
+        builtinDir: path.resolve(__dirname, '../builtin-extensions'),
+        devOverrides: async () => ({ trusted: path.join(FIXTURES, 'trusted') })
+      }),
       consent: new ConsentStore(path.join(userData, 'consent.json')),
       secrets: new SecretStore(path.join(userData, 'secrets'), fakeCipher),
       hostScript: async () => hostScript,
@@ -357,67 +344,31 @@ describe('devlog-focus (window tracking as an extension)', () => {
     await fs.rm(userData, { recursive: true, force: true })
   })
 
-  const settle = (ms = 300): Promise<void> => new Promise((r) => setTimeout(r, ms))
-  const today = (): string => {
-    const d = new Date()
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-  }
-
-  it('ships with the app, asks for window titles, and runs the helper only once allowed', async () => {
-    const [info] = await manager.list()
-    expect(info).toMatchObject({ key: 'devlog-focus', id: 'builtin.devlog-focus', source: 'builtin', state: 'needs-consent', permissions: { foregroundWindow: true } })
-    expect(watcher).toBeNull()
-    await manager.allow('devlog-focus', { read: null, write: null, foregroundWindow: true })
-    await settle()
-    expect(watcher?.started).toBe(1)
-    await manager.revoke('devlog-focus')
-    expect(watcher?.stopped).toBe(1)
+  it('runs only if you say you trust it, and then without the sandbox', async () => {
+    const info = (await manager.list()).find((e) => e.key === 'trusted')!
+    expect(info).toMatchObject({ state: 'needs-consent', permissions: { unrestricted: true } })
+    await expect(manager.allow('trusted', { read: null, write: null })).rejects.toThrow(/trust/)
+    expect((await manager.list()).find((e) => e.key === 'trusted')!.state).toBe('needs-consent')
+    await manager.allow('trusted', { read: null, write: null, trusted: true })
+    await manager.runCommand('trusted', 'probe')
+    const report = JSON.parse(await fs.readFile(path.join(root, 'extensions', 'builtin.trusted', 'report.json'), 'utf8'))
+    expect(report).toEqual({ packageDir: path.join(FIXTURES, 'trusted'), readOwnManifest: 'trusted', hasPath: true })
   })
 
-  it('without the window permission it hears nothing and the helper never starts', async () => {
-    await manager.allow('devlog-focus', { read: null, write: null })
-    await settle()
-    expect((await manager.list())[0].state).toBe('running')
-    expect(watcher).toBeNull()
+  it('a stored consent without trust does not let it run', async () => {
+    const consent = new ConsentStore(path.join(userData, 'consent.json'))
+    const info = (await manager.list()).find((e) => e.key === 'trusted')!
+    await consent.set(root, 'builtin.trusted', { sha256: info.sha256!, grant: { read: null, write: null }, at: 't' })
+    await manager.restart('trusted')
+    expect((await manager.list()).find((e) => e.key === 'trusted')!.state).toBe('needs-consent')
   })
 
-  it('records focus changes per machine and day, nothing while locked or asleep, and feeds them back', async () => {
-    await manager.allow('devlog-focus', { read: null, write: null, foregroundWindow: true })
-    await settle()
-    watcher!.emit('Code', 'store.ts — devlog')
-    await settle(50)
-    manager.setSystemState('locked', true)
-    watcher!.emit('LockApp', 'Windows Default Lock Screen')
-    manager.setSystemState('locked', false)
-    await settle(50)
-    manager.setSystemState('asleep', true)
-    watcher!.emit('Nope', 'asleep')
-    manager.setSystemState('asleep', false)
-    watcher!.emit('chrome', 'Jira — ACME-123')
-    await settle()
-    const date = today()
-    const file = path.join(root, 'extensions', 'builtin.devlog-focus', 'desk-1a2b', date.slice(0, 4), date.slice(5, 7), `${date}.jsonl`)
-    const lines = (await fs.readFile(file, 'utf8')).trim().split('\n').map((l) => JSON.parse(l))
-    expect(lines.map((l) => l.app)).toEqual(['Code', 'chrome'])
-    const events = await manager.focusEvents(date, date)
-    expect(events.map((e) => [e.type, e.app, e.title, e.machine])).toEqual([
-      ['focus', 'Code', 'store.ts — devlog', 'desk-1a2b'],
-      ['focus', 'chrome', 'Jira — ACME-123', 'desk-1a2b']
-    ])
-    expect(await manager.focusEvents('2000-01-01', '2000-01-02')).toEqual([])
+  it('devlog-focus is a built-in that asks for trust', async () => {
+    const info = (await manager.list()).find((e) => e.key === 'devlog-focus')!
+    expect(info).toMatchObject({ id: 'builtin.devlog-focus', source: 'builtin', state: 'needs-consent', permissions: { unrestricted: true } })
+    await manager.allow('devlog-focus', { read: null, write: null, trusted: true })
+    expect((await manager.list()).find((e) => e.key === 'devlog-focus')!.state).toBe('running')
     expect(await fs.readFile(path.join(root, '.gitattributes'), 'utf8')).toContain('extensions/builtin.devlog-focus/**/*.jsonl merge=union')
-  })
-
-  it('says again which window is in front when the machine comes back', async () => {
-    await manager.allow('devlog-focus', { read: null, write: null, foregroundWindow: true })
-    await settle()
-    watcher!.emit('Code', 'a.ts')
-    await settle(50)
-    manager.activity({ t: new Date(Date.now() + 1000).toISOString(), type: 'idle' })
-    manager.activity({ t: new Date(Date.now() + 60_000).toISOString(), type: 'active' })
-    await settle()
-    const date = today()
-    const events = await manager.focusEvents(date, date)
-    expect(events.map((e) => e.app)).toEqual(['Code', 'Code'])
+    expect(await manager.focusEvents('2000-01-01', '2000-01-02')).toEqual([])
   })
 })

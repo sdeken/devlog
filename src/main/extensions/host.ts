@@ -19,6 +19,12 @@ export interface HostOptions {
   apiVersion: string
   machine: string
   settings: Record<string, string>
+  /**
+   * Run without the permission model (an extension that asked to, and that
+   * you said you trust). It then also gets the app's environment and its
+   * package folder.
+   */
+  unrestricted?: { packageDir: string }
   /** Handles the extension's API calls. */
   handle: (method: string, args: unknown[]) => Promise<unknown>
   /** Heap limit in MB. */
@@ -42,13 +48,14 @@ export class ExtensionHost extends EventEmitter {
 
   /** Start the process and activate the extension. Resolves once `activate` has returned. */
   start(): Promise<void> {
-    const env: NodeJS.ProcessEnv = { ELECTRON_RUN_AS_NODE: '1' }
-    for (const k of ENV_KEEP) if (process.env[k]) env[k] = process.env[k]
+    const free = this.opts.unrestricted
+    const env: NodeJS.ProcessEnv = free ? { ...process.env, ELECTRON_RUN_AS_NODE: '1' } : { ELECTRON_RUN_AS_NODE: '1' }
+    if (!free) for (const k of ENV_KEEP) if (process.env[k]) env[k] = process.env[k]
     this.state = 'starting'
     this.error = null
     const child = fork(this.opts.hostScript, [], {
       execPath: process.execPath,
-      execArgv: ['--permission', `--allow-fs-read=${this.opts.hostScript}`, `--max-old-space-size=${this.opts.maxMemoryMb ?? 256}`],
+      execArgv: [...(free ? [] : ['--permission', `--allow-fs-read=${this.opts.hostScript}`]), `--max-old-space-size=${this.opts.maxMemoryMb ?? 256}`],
       env,
       serialization: 'advanced',
       stdio: ['ignore', 'pipe', 'pipe', 'ipc']
@@ -113,7 +120,7 @@ export class ExtensionHost extends EventEmitter {
         this.fail(err.message)
         reject(err)
       })
-      this.post({ t: 'init', id: this.opts.id, apiVersion: this.opts.apiVersion, machine: this.opts.machine, code: this.opts.code, filename: this.opts.filename, settings: this.opts.settings })
+      this.post({ t: 'init', id: this.opts.id, apiVersion: this.opts.apiVersion, machine: this.opts.machine, packageDir: free?.packageDir ?? null, code: this.opts.code, filename: this.opts.filename, settings: this.opts.settings })
     })
   }
 
