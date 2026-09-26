@@ -162,40 +162,16 @@ Marketing site rebuild. Weekly sync on Tuesdays.
 - Tracker: https://issues.example.com/acme
 ```
 
-`alias` lines record ids a canvas had before (see *Upgrading* below), so old
-activity logs and links still find it.
+`alias` lines record ids a canvas had before (older devlogs used title
+slugs), so old activity logs and links still find it.
 
-### Upgrading older devlogs
+### Older devlogs
 
-Devlog 0.5 uses storage format 3 (above). Opening an older devlog (0.3's
-format 1, or 0.4's format 2) upgrades it once, automatically:
-
-1. **Pull first** (when a remote is configured and reachable), so the upgrade
-   covers everything already pushed from your other machines.
-2. **Migrate.** From format 1, canvases move from `canvases/<slug>/` to
-   `canvases/<xx>/<id>/`; every reference (parents, task links, todo links,
-   image paths in blocks and surfaces) is rewritten; the old folder name
-   becomes an `alias`. The new tree is built in `.devlog-migrate/` and
-   swapped in at the end, so an interrupted upgrade is rolled back (or
-   finished) on the next open rather than left half done. From either
-   format, block files are rewritten as append-only logs (below); format 2
-   files are rewritten one at a time in place, so an interrupted upgrade
-   just carries on next time.
-3. **Commit** it as its own commit, `devlog: migrate to storage format 3`,
-   and push.
-
-The migration is deterministic: an upgraded canvas's id is derived from its
-old folder name, so two machines that upgrade the same history produce
-byte-identical files. If another machine already pushed the upgrade, this one
-just pulls it; if this machine also has unsynced changes from before the
-upgrade, it migrates them the same way and merges, instead of replaying them
-onto the moved files. Devlog 0.2 devlogs (`pages/` and `categories/`) go
-through the same upgrade.
-
-**Update the app on every machine before opening the devlog there:** older
-versions cannot read the new format (0.3 would show an empty sidebar, 0.4
-would misread the logs; nothing is lost either way, but they would not see
-new work).
+This version reads and writes storage format 3 only. A devlog from before
+Devlog 0.5 (format 1 or 2, or a 0.2 `pages/` + `categories/` layout) is
+refused with a message: open it once with Devlog 0.5, which upgrades it,
+then again with this version. A devlog written by a newer Devlog is refused
+too, rather than misread.
 
 ## Canvases, surfaces and tasks
 
@@ -468,7 +444,7 @@ app show up too). Delete it any time; it is rebuilt from the files.
 | Post / edit / delete / paste  | File written immediately; a commit is scheduled (default 30s) |
 | Every N minutes (default 5)   | Commit if dirty, fetch, pull `--rebase` if behind, push        |
 | **Sync now** (⌘⇧S)            | Same, immediately                                             |
-| App start                     | Pull (if a remote is configured); upgrade an older layout first |
+| App start                     | Pull (if a remote is configured)                              |
 | App quit                      | Commit and push pending changes (up to 20s)                   |
 
 The status bar shows the current state (uncommitted changes, committing,
@@ -514,7 +490,6 @@ macOS builds still run but will not self-update.
 npm run typecheck   # main + renderer
 npm test            # unit tests: file format, store, git sync (uses a local bare remote)
 npm run smoke       # builds, then drives the real app with Playwright (needs a display; use xvfb-run on Linux)
-node scripts/smoke-migrate.mjs  # after a build: opens a Devlog 0.3 repository and checks the upgrade
 npm run screens     # builds, seeds a demo devlog and screenshots every view in light and dark mode
 ```
 
@@ -531,7 +506,7 @@ Code map:
 | `packages/core/src/format/`       | Block and canvas file formats, ids, hierarchy helpers          |
 | `packages/core/src/node/store.ts` | `DevlogStore`: canvases, blocks, todos, assets                 |
 | `packages/core/src/node/repoIndex.ts` | `RepoIndex`: SQLite cache for listings and full-text search |
-| `packages/core/src/node/migrate.ts` | Storage format upgrades, including across machines         |
+| `packages/core/src/node/manifest.ts` | `devlog.json`: the storage format check                    |
 | `packages/core/src/node/sync.ts`  | `SyncManager`: commit / pull / push scheduler on `simple-git`  |
 | `packages/core/src/node/activityLog.ts` | Per-machine append-only activity log                   |
 | `src/shared/theme.ts`             | Colour presets and derived theme variables                     |

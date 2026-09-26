@@ -57,12 +57,12 @@ describe('image src rewriting', () => {
     expect(collectImageSrcs(root)).toEqual(['entries/2026/09/assets/2026-09-19-1.png', 'entries/2026/08/assets/x.png'])
   })
 
-  it('rewrites paths relative to any directory, including category wikis', () => {
+  it('rewrites paths relative to any directory, including canvas files', () => {
     const md = '![d](assets/x.png) ![e](https://x/y.png)'
-    const root = toRootRelativeFrom(md, 'categories/acme-corp/web')
-    expect(root).toBe('![d](categories/acme-corp/web/assets/x.png) ![e](https://x/y.png)')
-    expect(toRelativeFrom(root, 'categories/acme-corp/web')).toBe(md)
-    expect(toRelativeFrom('![n](entries/2026/09/assets/n.png)', 'categories/acme-corp')).toBe('![n](../../entries/2026/09/assets/n.png)')
+    const root = toRootRelativeFrom(md, 'canvases/k3/k3m9x2q7vd')
+    expect(root).toBe('![d](canvases/k3/k3m9x2q7vd/assets/x.png) ![e](https://x/y.png)')
+    expect(toRelativeFrom(root, 'canvases/k3/k3m9x2q7vd')).toBe(md)
+    expect(toRelativeFrom('![n](entries/2026/09/assets/n.png)', 'canvases/k3/k3m9x2q7vd')).toBe('![n](../../../entries/2026/09/assets/n.png)')
   })
 
   it('places a cross-month asset correctly when posted on a later day', () => {
@@ -99,28 +99,26 @@ describe('day file format', () => {
     expect(parsed).toEqual(day)
   })
 
-  it('ignores a hand-written preamble and tolerates missing time headings', () => {
+  it('ignores a hand-written preamble and keeps headings in bodies', () => {
     const text = [
+      '<!-- devlog:format 3 -->',
       '# 2026-09-19',
       '',
       'Some notes someone typed by hand.',
       '',
-      '<!-- devlog:entry id=zzzzzzzz created=2026-09-19T01:00:00.000Z -->',
-      'No heading here',
-      '',
+      '<!-- devlog:add id=zzzzzzzz pos=a0 at=2026-09-19T01:00:00.000Z -->',
       '### 03:00',
       '',
-      'a user heading that looks like a time, kept because it is not first',
-      '<!-- devlog:entry id=yyyyyyyy created=2026-09-19T00:30:00.000Z -->',
-      '### 00:30',
+      'a heading that looks like a time is just text',
       '',
-      'earlier entry, kept in file order',
+      '<!-- devlog:add id=yyyyyyyy pos=a1 at=2026-09-19T00:30:00.000Z -->',
+      'earlier entry, placed by its order key',
       ''
     ].join('\n')
     const parsed = parseDayFile('2026-09-19', text)
     expect(parsed.entries.map((e) => e.id)).toEqual(['zzzzzzzz', 'yyyyyyyy'])
-    expect(parsed.entries[0].markdown).toBe('No heading here\n\n### 03:00\n\na user heading that looks like a time, kept because it is not first')
-    expect(parsed.entries[1].markdown).toBe('earlier entry, kept in file order')
+    expect(parsed.entries[0].markdown).toBe('### 03:00\n\na heading that looks like a time is just text')
+    expect(parsed.entries[1].markdown).toBe('earlier entry, placed by its order key')
   })
 
   it('handles CRLF files', () => {
@@ -128,9 +126,9 @@ describe('day file format', () => {
     expect(parseDayFile('2026-09-19', text)).toEqual(day)
   })
 
-  it('assigns ids to markers that lack one', () => {
-    const parsed = parseDayFile('2026-09-19', '<!-- devlog:entry created=2026-09-19T01:00:00.000Z -->\nhi\n')
-    expect(parsed.entries[0].id).toMatch(/^[a-z0-9]{8}$/)
+  it('skips records without an id', () => {
+    const parsed = parseDayFile('2026-09-19', '<!-- devlog:format 3 -->\n<!-- devlog:add pos=a0 at=2026-09-19T01:00:00.000Z -->\nhi\n')
+    expect(parsed.entries).toEqual([])
   })
 })
 
@@ -222,7 +220,7 @@ describe('threads and ordering', () => {
   })
 
   it('drops dangling parent links', () => {
-    const parsed = parseDayFile('2026-09-19', '<!-- devlog:entry id=zz parent=gone created=2026-09-19T01:00:00.000Z -->\nhi\n')
+    const parsed = parseDayFile('2026-09-19', '<!-- devlog:format 3 -->\n<!-- devlog:add id=zz parent=gone pos=a0 at=2026-09-19T01:00:00.000Z -->\nhi\n')
     expect(parsed.entries[0].parentId).toBeUndefined()
   })
 })
@@ -315,15 +313,8 @@ describe('marker safety', () => {
     }
   })
 
-  it('reads v1 files (derived time headings) and tells the formats apart', () => {
-    const v1 = '# 2026-09-19\n\n<!-- devlog:entry id=aaaaaaaa created=2026-09-19T14:32:00.000Z -->\n### 14:32\n\nhello\n'
-    expect(blockFileFormat(v1)).toBe(1)
-    expect(parseDayFile('2026-09-19', v1).entries.map((x) => x.markdown)).toEqual(['hello'])
-    const v3 = serializeDayFile(parseDayFile('2026-09-19', v1))
-    expect(blockFileFormat(v3)).toBe(3)
-    expect(v3).not.toContain('### 14:32')
-    const v2 = '<!-- devlog:format 2 -->\n# 2026-09-19\n\n<!-- devlog:entry id=aaaaaaaa created=2026-09-19T14:32:00.000Z -->\n### 14:32\n\n\\<!-- devlog:entry kept -->\n'
-    expect(blockFileFormat(v2)).toBe(2)
-    expect(parseDayFile('2026-09-19', v2).entries.map((x) => x.markdown)).toEqual(['### 14:32\n\n<!-- devlog:entry kept -->'])
+  it('tells formatted files from others', () => {
+    expect(blockFileFormat(serializeDayFile({ date: '2026-09-19', entries: [] }))).toBe(3)
+    expect(blockFileFormat('# 2026-09-19\n\nhand-written\n')).toBe(0)
   })
 })

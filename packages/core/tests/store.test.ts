@@ -24,7 +24,7 @@ describe('DevlogStore', () => {
     // A fresh repository starts at the current storage format.
     expect(JSON.parse(await fs.readFile(path.join(root, 'devlog.json'), 'utf8'))).toEqual({ format: 3 })
     expect(await fs.readFile(path.join(root, '.gitattributes'), 'utf8')).toContain('**/todos.md merge=union')
-    expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toContain('.devlog-migrate/')
+    expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toContain('Thumbs.db')
   })
 
   it('adds, lists, updates and deletes entries', async () => {

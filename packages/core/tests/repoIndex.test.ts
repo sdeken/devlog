@@ -123,7 +123,7 @@ describe('RepoIndex', () => {
     await fs.rm(path.join(root, 'entries/2026/01/2026-01-04.md'))
     // A canvas folder with blocks but no canvas.md.
     await fs.mkdir(path.join(root, canvasDir('bare000000'), 'entries/2026/01'), { recursive: true })
-    await fs.writeFile(path.join(root, canvasDir('bare000000'), 'entries/2026/01/2026-01-10.md'), '<!-- devlog:entry id=zzzzzzzz created=2026-01-10T09:00:00.000Z -->\nbare needle\n')
+    await fs.writeFile(path.join(root, canvasDir('bare000000'), 'entries/2026/01/2026-01-10.md'), '<!-- devlog:format 3 -->\n<!-- devlog:add id=zzzzzzzz pos=a0 at=2026-01-10T09:00:00.000Z -->\nbare needle\n')
 
     const report = await index.refresh()
     // The new canvas's canvas.md and day file, the edited day, the bare canvas's day; one day gone.

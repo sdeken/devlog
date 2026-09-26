@@ -164,7 +164,7 @@ describe('op-log records', () => {
     ])
   })
 
-  it('compacts deterministically and reads older formats through the same path', () => {
+  it('compacts deterministically', () => {
     const entries: Entry[] = [
       { id: 'a', createdAt: T(0), markdown: 'one', hidden: true },
       { id: 'r', createdAt: T(1), markdown: 'reply', parentId: 'a', kind: 'commit', meta: { hash: 'h' } },
@@ -174,8 +174,6 @@ describe('op-log records', () => {
     expect(text).toBe(serializeBlockFile(entries.map((e) => ({ ...e })), DIR, '# 2026-09-19'))
     expect(compactOps(entries).map((o) => o.attrs.pos)).toEqual(['a0', 'a0', 'a1'])
     expect(parseBlockFile(text, DIR)).toEqual(entries)
-    const v1 = '# 2026-09-19\n\n<!-- devlog:entry id=a created=2026-09-19T09:00:00.000Z -->\n### 09:00\n\nold\n'
-    expect(readBlockLog(v1, DIR).entries).toEqual([{ id: 'a', createdAt: T(0), markdown: 'old' }])
   })
 })
 

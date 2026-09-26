@@ -27,7 +27,7 @@
 │    RepoIndex     SQLite cache: listings + full-text search│
 │    SyncManager   simple-git: commit / fetch / rebase / push│
 │    ActivityLog   per-machine JSON-lines log               │
-│    migrate       storage format upgrades                  │
+│    manifest      storage format check                     │
 │  Tracker, CommitWatcher, protocol, SettingsStore, updater │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -35,7 +35,7 @@
 The data layer is its own package, `@devlog/core`, with no Electron
 dependency: a pure entry (types, file formats, hierarchy helpers, also used
 by the renderer) and a Node entry (store, index, sync, activity log,
-migrations). The desktop app is one client of it; an API server or CLI could
+manifest). The desktop app is one client of it; an API server or CLI could
 be another. Keeping every file-format rule and every write in one unit-tested
 package is the point: nothing else opens a day file.
 
@@ -116,8 +116,7 @@ Reasons for this over alternatives:
   on concurrent inserts after the same block and on deleted predecessors.
 - **Compaction, built but not applied.** Files grow with every edit.
   `DevlogStore.compact({ quietSince, dryRun })` rewrites a file as one `add`
-  per live block carrying its current state (exactly what the migrations
-  write), dropping superseded edits, moves and deleted blocks. It is the
+  per live block carrying its current state, dropping superseded edits, moves and deleted blocks. It is the
   only operation that rewrites a block file, so it only touches format 3
   files whose newest record is older than `quietSince` (another machine
   must not still be appending to a file rewritten under it), replays the
@@ -125,9 +124,9 @@ Reasons for this over alternatives:
   deterministic (two machines compacting the same file agree), holds the
   file's lock, and keeps the index current. Git history keeps every dropped
   record. The app does not call it yet.
-- Parsing tolerates hand edits: missing ids get generated (format 1/2),
-  CRLF is fine, and anything before the first record is ignored rather than
-  destroyed. Format 1 and 2 files are still read.
+- Parsing tolerates hand edits: CRLF is fine, and anything before the first
+  record is ignored rather than destroyed. Records without an id are
+  skipped.
 
 ### Notes as nodes
 
@@ -235,38 +234,14 @@ returns archived hits with a badge. Archiving a canvas flags every canvas
 beneath it; unarchiving reverses the same set. Keeping it a flag means git
 history stays linear and a mistaken archive is a one-line change.
 
-**Migrations** (`packages/core/src/node/migrate.ts`) run when a repository
-is opened, before anything reads it. Devlog 0.2's `pages/` + `categories/`
-become format 1 canvases (category paths become chains of canvases, wikis
-become surfaces); format 1 goes straight to format 3 (sharded layout and
-append-only block files), and format 2 (0.4) has its block files rewritten
-in place, one atomic write each, manifest last, so it resumes if
-interrupted. The format 1 layout step is:
-
-- **Staged and swapped.** The new `canvases/` and `entries/` trees are built
-  in `.devlog-migrate/` (git-ignored); the old ones are moved aside to
-  `.devlog-migrate-old/`, the new ones moved in, and `devlog.json` written
-  last. On the next open, leftovers are rolled back (no manifest yet) or
-  cleaned up (manifest present), so an interrupted upgrade never leaves a
-  half-migrated tree.
-- **Deterministic.** A migrated canvas's id is a hash of its old folder name
-  (collisions resolved in sorted order), and every file is re-serialised
-  canonically, so two machines migrating the same history get byte-identical
-  trees. That is what makes the multi-machine story work:
-  `upgradeRepository` pulls first when the remote is still on an older
-  format; pulls only, when another machine already pushed the upgrade and
-  this one has nothing unsynced; and otherwise merges the remote's last
-  pre-upgrade commit (found with `git log -G` on the manifest)
-  (an ordinary merge), migrates, records the remote's migration commit as
-  merged with `-s ours` (our tree is the same migration of a superset of its
-  history) and merges the remote. The obvious alternative, rebasing old
-  commits onto the migrated remote, "succeeds" because git follows the
-  renames, and splices old-format text into new files; tests cover it for
-  both older formats.
-- **References rewritten**: parents, task and todo links, and root-relative
-  image paths into moved canvases; old ids become `alias` lines, which the
-  store (`resolveCanvasId`, `aliasMap`), the tracker's persisted task and the
-  activity reader follow.
+**Older formats.** Devlog 0.5 upgraded formats 1 and 2 (and 0.2's `pages/`
++ `categories/`) to format 3 when it opened a repository; that code was
+removed once every devlog had been upgraded (it is in git history, up to
+release 0.5.3). The app now checks `devlog.json` on open
+(`assertSupportedFormat`) and refuses anything but format 3 with a message
+saying which Devlog version to use. Canvases that had slug ids keep them as
+`alias` lines, which the store (`resolveCanvasId`, `aliasMap`), the
+tracker's persisted task and the activity reader still follow.
 
 ### The local index
 

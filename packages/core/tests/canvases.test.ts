@@ -10,13 +10,9 @@ import {
   flattenTree,
   isValidCanvasId,
   isWithin,
-  legacyCategoryId,
   newCanvasId,
   parseCanvasFile,
-  parseLegacyPageFile,
-  parseLegacyWikiFile,
-  serializeCanvasFile,
-  slugify
+  serializeCanvasFile
 } from '../src/format/canvases'
 import { hasTaskTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
 import type { CanvasMeta } from '../src/types'
@@ -35,13 +31,6 @@ const c = (id: string, title: string, parentId: string | null = null, extra: Par
 })
 
 describe('canvases', () => {
-  it('slugifies titles', () => {
-    expect(slugify('Acme Corp')).toBe('acme-corp')
-    expect(slugify('  Ünïcödé & Co. ')).toBe('unicode-co')
-    expect(slugify('!!!')).toBe('canvas')
-    expect(legacyCategoryId(['Acme Corp', 'Web'])).toBe('acme-corp-web')
-  })
-
   it('validates ids and maps bases', () => {
     expect(isValidCanvasId('journal')).toBe(true)
     expect(isValidCanvasId('acme-corp')).toBe(true)
@@ -134,18 +123,6 @@ describe('canvases', () => {
     expect(buildCanvasTree(all, { includeArchived: true })[0].children.map((n) => n.canvas.id)).toEqual(['mobile', 'old', 'web'])
   })
 
-  it('reads legacy page and wiki files', () => {
-    expect(parseLegacyPageFile('acme', '---\ntitle: Acme\ncategory: Clients / Big\nrepo: /x\narchived: yes\n---\n\nDesc')).toEqual({
-      id: 'acme',
-      title: 'Acme',
-      category: 'Clients / Big',
-      description: 'Desc',
-      createdAt: '',
-      repos: ['/x'],
-      archived: true
-    })
-    expect(parseLegacyWikiFile('---\npath: Acme Corp / Web\nupdated: t\n---\n\n# Hi\n', ['x'])).toEqual({ path: ['Acme Corp', 'Web'], archived: false, updatedAt: 't', markdown: '# Hi' })
-  })
 })
 
 describe('task tags and titles', () => {

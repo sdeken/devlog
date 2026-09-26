@@ -8,8 +8,7 @@
  * `canvas.md` (metadata + surface) and its own `entries/` tree in the same
  * day-file format.
  *
- * This assumes storage format 2; open older repositories through
- * `migrateRepository()` first.
+ * This assumes storage format 3 (see `assertSupportedFormat`).
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -52,8 +51,6 @@ import {
   CANVASES_DIR,
   JOURNAL,
   JOURNAL_ID,
-  LEGACY_CATEGORIES_DIR,
-  LEGACY_PAGES_DIR,
   MANIFEST_FILE,
   STORAGE_FORMAT,
   canvasDir,
@@ -141,8 +138,7 @@ export class DevlogStore extends EventEmitter {
 
   /** Create the on-disk skeleton for a new devlog (idempotent). */
   async initLayout(): Promise<void> {
-    // A repository with no devlog content yet starts at the current format;
-    // anything older is left for migrateRepository() to upgrade.
+    // A repository with no devlog content yet starts at the current format.
     if (!(await exists(path.join(this.root, MANIFEST_FILE))) && !(await this.hasContent())) {
       await fs.writeFile(path.join(this.root, MANIFEST_FILE), `${JSON.stringify({ format: STORAGE_FORMAT }, null, 2)}\n`)
     }
@@ -158,9 +154,9 @@ export class DevlogStore extends EventEmitter {
           '',
           `- Journal notes live in \`${ENTRIES_DIR}/YYYY/MM/YYYY-MM-DD.md\`, one file per day.`,
           `- Canvases (clients, projects, tasks, …) live in \`${CANVASES_DIR}/<xx>/<id>/\` (xx = the first two characters of the id) with a \`canvas.md\` (metadata + surface) and their own \`entries/\`.`,
-          `- \`${MANIFEST_FILE}\` records the storage format; the Devlog app upgrades older layouts when it opens the repository.`,
+          `- \`${MANIFEST_FILE}\` records the storage format.`,
           `- Pasted images live next to the notes in an \`${ASSETS_DIR}/\` folder.`,
-          '- Every block is delimited by a `<!-- devlog:entry … -->` comment that carries its id, parent and timestamps.',
+          '- Day files are append-only logs of `<!-- devlog:add … -->`, `edit`, `set` and `delete` records; the app replays them into blocks.',
           ''
         ].join('\n')
       )
@@ -169,9 +165,7 @@ export class DevlogStore extends EventEmitter {
   }
 
   private async hasContent(): Promise<boolean> {
-    for (const dir of [CANVASES_DIR, LEGACY_PAGES_DIR, LEGACY_CATEGORIES_DIR]) {
-      if ((await readdirSafe(path.join(this.root, dir))).length > 0) return true
-    }
+    if ((await readdirSafe(path.join(this.root, CANVASES_DIR))).length > 0) return true
     return (await readdirSafe(path.join(this.root, ENTRIES_DIR))).some((d) => d.isDirectory() || d.name === 'todos.md')
   }
 
@@ -196,7 +190,7 @@ export class DevlogStore extends EventEmitter {
     return out
   }
 
-  /** Old canvas ids (from before the format 2 migration, or merged canvases) → current ids. */
+  /** Old canvas ids (from before canvases got random ids, or merged canvases) → current ids. */
   async aliasMap(): Promise<Map<string, string>> {
     const map = new Map<string, string>()
     for (const c of await this.listCanvases()) for (const a of c.aliases ?? []) map.set(a, c.id)

@@ -50,7 +50,7 @@ export class Tracker extends EventEmitter {
 
   /**
    * Start recording. Restores the persisted active task, passed through
-   * `resolve` (which maps ids renamed by a storage migration, or drops ones
+   * `resolve` (which maps old ids through canvas aliases, or drops ones
    * that no longer exist).
    */
   async start(resolve?: (canvasId: string) => Promise<string | null>): Promise<void> {
@@ -246,9 +246,8 @@ export class Tracker extends EventEmitter {
 
   private async loadState(): Promise<PersistedState> {
     try {
-      const raw = JSON.parse(await fs.readFile(this.stateFile, 'utf8')) as Partial<PersistedState> & { activePageId?: string }
-      const id = typeof raw.activeCanvasId === 'string' ? raw.activeCanvasId : typeof raw.activePageId === 'string' ? raw.activePageId : null
-      return { activeCanvasId: id }
+      const raw = JSON.parse(await fs.readFile(this.stateFile, 'utf8')) as Partial<PersistedState>
+      return { activeCanvasId: typeof raw.activeCanvasId === 'string' ? raw.activeCanvasId : null }
     } catch {
       return { activeCanvasId: null }
     }

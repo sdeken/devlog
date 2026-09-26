@@ -15,19 +15,16 @@
  * renderer and asset server can resolve them without knowing which day they
  * belong to.
  */
-import { ENTRY_KINDS, type Entry, type EntryKind, type EntryPosition } from '../types'
+import type { Entry, EntryPosition } from '../types'
 
 export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'
 
-const MARKER_RE = /^<!--\s*devlog:entry\s+([^>]*?)\s*-->\s*$/
 const FORMAT_RE = /^<!--\s*devlog:format\s+(\d+)\s*-->\s*$/
-/** v1 files carry a derived `### HH:MM` heading after each marker; v2 files do not. */
-const TIME_HEADING_RE = /^#{3,6}\s+(?:↳\s+)?\d{1,2}:\d{2}(?::\d{2})?\s*$/
 /** A body line that could be mistaken for one of our markers (optionally already escaped). */
 const MARKERISH_RE = /^(\s*)(\\*)(<!--\s*devlog:)/i
 
-/** Escape body lines that look like devlog markers (formats 2 and 3). Reversible by `unescapeMarkerLines`. */
+/** Escape body lines that look like devlog markers. Reversible by `unescapeMarkerLines`. */
 export function escapeMarkerLines(body: string): string {
   return body
     .split('\n')
@@ -42,14 +39,13 @@ export function unescapeMarkerLines(body: string): string {
     .join('\n')
 }
 
-/** Format version of a block file's text: from its header line, else 1. */
+/** Format version of a block file's text, from its header line; 0 without one. */
 export function blockFileFormat(text: string): number {
   for (const line of text.split(/\r?\n/, 5)) {
     const m = FORMAT_RE.exec(line)
     if (m) return Number(m[1])
-    if (MARKER_RE.test(line)) break
   }
-  return 1
+  return 0
 }
 const TITLE_RE = /^#\s+\d{4}-\d{2}-\d{2}\s*$/
 
@@ -165,7 +161,7 @@ export function rewriteImageSrcs(markdown: string, fn: (src: string) => string):
 
 /** Root-relative image paths always start with one of the top-level content folders. */
 export function isRootRelativeSrc(src: string): boolean {
-  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('canvases/') || src.startsWith('pages/') || src.startsWith('categories/')
+  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('canvases/')
 }
 
 /** Convert image paths relative to the file in `dir` into repo-root-relative paths. */
@@ -206,8 +202,6 @@ export function collectImageSrcs(markdown: string): string[] {
 // Parsing & serialising day files
 // ---------------------------------------------------------------------------
 
-const RESERVED_ATTRS = new Set(['id', 'parent', 'created', 'updated', 'kind', 'hidden'])
-
 export function quoteAttr(v: string): string {
   return /[\s"]/.test(v) || v === '' ? `"${v.replace(/"/g, '&quot;')}"` : v
 }
@@ -227,64 +221,6 @@ export function trimBlankLines(lines: string[]): string[] {
   while (start < end && lines[start].trim() === '') start++
   while (end > start && lines[end - 1].trim() === '') end--
   return lines.slice(start, end)
-}
-
-/**
- * Parse a format 1 or 2 block file (a day file, a canvas's todo list). `dir`
- * is the file's repo-relative directory, used to make image paths root-relative.
- */
-export function parseLegacyBlockFile(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): Entry[] {
-  const lines = text.split(/\r?\n/)
-  const v2 = blockFileFormat(text) >= 2
-  const entries: Entry[] = []
-  let current: { attrs: Record<string, string>; lines: string[] } | null = null
-
-  const flush = (): void => {
-    if (!current) return
-    let body = current.lines
-    if (v2) {
-      body = body.map((l) => l.replace(MARKERISH_RE, (_m, ws: string, slashes: string, rest: string) => `${ws}${slashes.slice(1)}${rest}`))
-    } else {
-      // v1: drop the derived time heading that immediately follows the marker.
-      const firstIdx = body.findIndex((l) => l.trim() !== '')
-      if (firstIdx !== -1 && TIME_HEADING_RE.test(body[firstIdx])) body = body.slice(firstIdx + 1)
-    }
-    body = trimBlankLines(body)
-    const createdAt = current.attrs.created ?? fallbackCreatedAt
-    const entry: Entry = {
-      id: current.attrs.id || newEntryId(),
-      createdAt,
-      markdown: toRootRelativeFrom(body.join('\n'), dir)
-    }
-    if (current.attrs.parent) entry.parentId = current.attrs.parent
-    if (current.attrs.updated) entry.updatedAt = current.attrs.updated
-    if (current.attrs.kind && (ENTRY_KINDS as readonly string[]).includes(current.attrs.kind)) entry.kind = current.attrs.kind as EntryKind
-    if (current.attrs.hidden && /^(1|true|yes)$/i.test(current.attrs.hidden)) entry.hidden = true
-    const meta: Record<string, string> = {}
-    for (const [k, v] of Object.entries(current.attrs)) {
-      if (!RESERVED_ATTRS.has(k)) meta[k] = v
-    }
-    if (Object.keys(meta).length > 0) entry.meta = meta
-    entries.push(entry)
-    current = null
-  }
-
-  for (const line of lines) {
-    const m = MARKER_RE.exec(line)
-    if (m) {
-      flush()
-      current = { attrs: parseMarkerAttrs(m[1]), lines: [] }
-    } else if (current) {
-      current.lines.push(line)
-    }
-    // Lines before the first marker (title, hand-written preamble) are ignored.
-  }
-  flush()
-
-  // Drop dangling parent links (hand edits, deleted parents) so they render as top-level notes.
-  const ids = new Set(entries.map((e) => e.id))
-  for (const e of entries) if (e.parentId && !ids.has(e.parentId)) delete e.parentId
-  return entries
 }
 
 // ---------------------------------------------------------------------------

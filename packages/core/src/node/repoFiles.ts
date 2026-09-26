@@ -1,4 +1,4 @@
-/** Small repository housekeeping files the store and the migrations share. */
+/** Small repository housekeeping files, and the list of block files. */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -9,7 +9,7 @@ import path from 'node:path'
  */
 export const GITATTRIBUTES_LINES = ['**/entries/**/*.md merge=union', '**/todos.md merge=union', 'activity/**/*.jsonl merge=union']
 
-export const GITIGNORE_LINES = ['.DS_Store', 'Thumbs.db', '.devlog-migrate/', '.devlog-migrate-old/']
+export const GITIGNORE_LINES = ['.DS_Store', 'Thumbs.db']
 
 /** Append any of `lines` missing from `file` (created if needed). Leaves everything else as it is. */
 export async function ensureLines(file: string, lines: string[], comment?: string): Promise<void> {
@@ -40,7 +40,7 @@ export interface BlockFileRef {
 const YEAR_RE = /^\d{4}$/
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.md$/
 
-/** Every block file in a sharded (format 2+) repository: the journal's and each canvas's. */
+/** Every block file in the repository: the journal's and each canvas's. */
 export async function listBlockFiles(root: string): Promise<BlockFileRef[]> {
   const out: BlockFileRef[] = []
   const stream = async (base: string): Promise<void> => {

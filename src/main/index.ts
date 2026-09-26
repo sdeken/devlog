@@ -8,7 +8,7 @@ import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, 
 import { JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@devlog/core'
-import { DevlogStore, RepoIndex, upgradeRepository } from '@devlog/core/node'
+import { DevlogStore, RepoIndex, assertSupportedFormat } from '@devlog/core/node'
 import { ACTIVITY_DIR, ActivityLog, machineFolder } from '@devlog/core/node'
 import { Tracker } from './activity/tracker'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
@@ -170,6 +170,7 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     throw new Error('That folder is not a git repository. Use "Create a new devlog" to initialise one.')
   }
   await nextStore.initLayout()
+  await assertSupportedFormat(root)
   if (!isRepo || create) await SyncManager.initRepo(root, syncOptionsFrom(s))
 
   const nextSync = new SyncManager(root, syncOptionsFrom(s))
@@ -180,14 +181,6 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   })
   nextStore.on('change', () => nextSync.noteChange())
 
-  // Bring an older storage layout up to date (pulling or merging other machines' work as needed).
-  const upgrade = await upgradeRepository(root, nextSync)
-  if (upgrade.report) {
-    console.log(`migrated storage format ${upgrade.report.from} → ${upgrade.report.to}: ${Object.keys(upgrade.report.canvases).length} canvases, ${upgrade.report.files} files (remote: ${upgrade.remote})`)
-    void nextSync.syncNow('startup')
-  }
-  if (upgrade.error) console.error('storage upgrade: remote not merged', upgrade.error)
-
   const nextIndex = openIndex(root)
   if (nextIndex) nextStore.attachIndex(nextIndex)
   store = nextStore
@@ -195,14 +188,6 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   repoIndex = nextIndex
   void refreshIndex()
 
-  // Activity logged on this machine before it went into the repository joins this machine's folder there.
-  if (s.activityInRepo) {
-    const moved = await activityLog.adoptLegacyLog(path.join(app.getPath('userData'), 'activity')).catch((err) => {
-      console.error('could not move the local activity log into the repository', err)
-      return 0
-    })
-    if (moved) console.log(`moved ${moved} days of activity into ${root}`)
-  }
   await settings.set({ repoPath: root })
   await nextSync.start()
 

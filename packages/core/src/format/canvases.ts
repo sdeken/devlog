@@ -1,11 +1,9 @@
 /**
  * Canvases: the one container type in a devlog.
  *
- * Storage format 2 (this file): canvases live at
- * `canvases/<first two characters of the id>/<id>/`, ids are random (or, for
- * canvases migrated from format 1, derived from their old folder name), and
- * the old folder name is kept as an `alias:` so references from before the
- * migration still resolve.
+ * Canvases live at `canvases/<first two characters of the id>/<id>/` with
+ * random ids. Ids a canvas had before (older devlogs used title slugs) are
+ * kept as `alias:` lines so old references still resolve.
  *
  * A canvas is a client, a project, a task, a topic — anything you want to
  * write about. Every canvas has a *surface* (free-form markdown: links,
@@ -27,8 +25,6 @@ export const CANVAS_FILE = 'canvas.md'
 /** Repository manifest; its `format` is the storage format version. */
 export const MANIFEST_FILE = 'devlog.json'
 export const STORAGE_FORMAT = 3
-/** The first storage format with the sharded `canvases/<xx>/<id>/` layout. */
-export const SHARDED_FORMAT = 2
 
 /** Alphabet for canvas ids: lowercase, no easily confused characters (i, l, o, u). */
 export const CANVAS_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
@@ -69,11 +65,6 @@ export function canvasDir(id: string): string {
   return `${CANVASES_DIR}/${canvasShard(id)}/${id}`
 }
 
-/** Where a canvas lived in storage format 1 (`canvases/<slug>/`); used only by the migration. */
-export function canvasDirV1(id: string): string {
-  return `${CANVASES_DIR}/${id}`
-}
-
 /** Repo-relative directory holding a canvas's day files. */
 export function canvasEntriesBase(id: string): string {
   return id === JOURNAL_ID ? 'entries' : `${canvasDir(id)}/entries`
@@ -82,18 +73,6 @@ export function canvasEntriesBase(id: string): string {
 /** Repo-relative path of a canvas's metadata + surface file (never for the journal). */
 export function canvasFilePath(id: string): string {
   return `${canvasDir(id)}/${CANVAS_FILE}`
-}
-
-export function slugify(title: string): string {
-  const slug = title
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64)
-    .replace(/-+$/g, '')
-  return slug || 'canvas'
 }
 
 // ---------------------------------------------------------------------------
@@ -288,62 +267,4 @@ export function serializeCanvasFile(meta: CanvasMeta, surface: string): string {
   const body = surface.replace(/\s+$/, '')
   if (body) lines.push(body, '')
   return lines.join('\n')
-}
-
-// ---------------------------------------------------------------------------
-// Legacy layout (pages/ + categories/), read only for migration
-// ---------------------------------------------------------------------------
-
-export const LEGACY_PAGES_DIR = 'pages'
-export const LEGACY_CATEGORIES_DIR = 'categories'
-
-export interface LegacyPage {
-  id: string
-  title: string
-  /** "Acme Corp / Web" */
-  category: string
-  description: string
-  createdAt: string
-  repos: string[]
-  archived: boolean
-}
-
-/** Split a category string like "Acme Corp / Website" into trimmed segments. */
-export function categoryPath(category: string): string[] {
-  return category
-    .split('/')
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
-export function parseLegacyPageFile(id: string, text: string): LegacyPage {
-  const meta: LegacyPage = { id, title: id, category: '', description: '', createdAt: '', repos: [], archived: false }
-  const { fields, body } = parseFrontMatter(text)
-  for (const [key, value] of fields) {
-    if (key === 'title') meta.title = value || id
-    else if (key === 'category') meta.category = value
-    else if (key === 'created') meta.createdAt = value
-    else if (key === 'repo' && value) meta.repos.push(value)
-    else if (key === 'archived') meta.archived = isTrue(value)
-  }
-  meta.description = body.trim()
-  return meta
-}
-
-export function parseLegacyWikiFile(text: string, fallbackPath: string[]): { path: string[]; archived: boolean; updatedAt: string; markdown: string } {
-  const { fields, body } = parseFrontMatter(text)
-  let p = fallbackPath
-  let archived = false
-  let updatedAt = ''
-  for (const [key, value] of fields) {
-    if (key === 'path' && categoryPath(value).length > 0) p = categoryPath(value)
-    else if (key === 'archived') archived = isTrue(value)
-    else if (key === 'updated') updatedAt = value
-  }
-  return { path: p, archived, updatedAt, markdown: body.replace(/^\s*\n/, '').replace(/\s+$/, '') }
-}
-
-/** Id a legacy category path maps to: "Acme Corp / Web" → acme-corp-web. */
-export function legacyCategoryId(path: string[]): string {
-  return slugify(path.join(' '))
 }

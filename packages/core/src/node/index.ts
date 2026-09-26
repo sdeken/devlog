@@ -6,16 +6,5 @@
 export { DevlogStore, type CompactionReport } from './store'
 export { SyncManager, type SyncOptions } from './sync'
 export { ActivityLog, ACTIVITY_DIR, LEGACY_MACHINE, datesBetween, machineFolder } from './activityLog'
-export {
-  migrateRepository,
-  upgradeRepository,
-  type UpgradeResult,
-  needsMigration,
-  readStorageFormat,
-  recoverInterruptedMigration,
-  migratedCanvasId,
-  STAGE_DIR,
-  OLD_DIR,
-  type MigrationReport
-} from './migrate'
+export { readStorageFormat, writeManifest, assertSupportedFormat } from './manifest'
 export { RepoIndex, INDEX_SCHEMA, classifyPath, type RefreshReport } from './repoIndex'

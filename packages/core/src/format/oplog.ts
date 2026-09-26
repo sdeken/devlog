@@ -44,7 +44,6 @@ import {
   blockFileFormat,
   dayDir,
   escapeMarkerLines,
-  parseLegacyBlockFile,
   parseMarkerAttrs,
   quoteAttr,
   toRelativeFrom,
@@ -284,13 +283,12 @@ export function replayOps(ops: Op[], fallbackCreatedAt = '1970-01-01T00:00:00.00
 }
 
 // ---------------------------------------------------------------------------
-// Whole files, any format
+// Whole files
 // ---------------------------------------------------------------------------
 
-/** Replay any block file. Format 1 and 2 files are read as if compacted into format 3. */
+/** Replay a block file. */
 export function readBlockLog(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): BlockLog {
-  if (blockFileFormat(text) >= 3) return replayOps(parseOps(text, dir), fallbackCreatedAt)
-  return replayOps(compactOps(parseLegacyBlockFile(text, dir, fallbackCreatedAt)), fallbackCreatedAt)
+  return replayOps(parseOps(text, dir), fallbackCreatedAt)
 }
 
 /** Parse any file of blocks (a day file, a todo list) into live blocks in display order. */
@@ -331,7 +329,7 @@ export function compactOps(entries: Entry[]): Op[] {
   })
 }
 
-/** A whole file in compacted format 3 (used by migrations; the app itself only appends). */
+/** A whole file in compacted format 3 (used by compaction; the app itself only appends). */
 export function serializeBlockFile(entries: Entry[], dir: string, title: string): string {
   return blockFileHeader(title) + serializeOps(compactOps(entries), dir)
 }

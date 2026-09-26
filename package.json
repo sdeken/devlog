@@ -19,7 +19,7 @@
     "package:linux": "electron-vite build && electron-builder --linux",
     "smoke": "electron-vite build && node scripts/smoke.mjs",
     "screens": "electron-vite build && node scripts/screens.mjs",
-    "smoke:ci": "node scripts/smoke.mjs && node scripts/smoke-migrate.mjs"
+    "smoke:ci": "node scripts/smoke.mjs"
   },
   "dependencies": {
     "@tiptap/core": "^3.31.3",

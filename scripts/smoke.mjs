@@ -27,7 +27,7 @@ git(['init', '--initial-branch=main'])
 git(['remote', 'add', 'origin', bare])
 await fs.writeFile(
   path.join(userData, 'settings.json'),
-  JSON.stringify({ repoPath: repo, syncIntervalMinutes: 60, commitDebounceSeconds: 2, autoPush: true, pullOnStart: false, commitOnQuit: true, authorName: 'Smoke Test', authorEmail: 'smoke@example.com', trackingEnabled: true, trackFocus: false, idleMinutes: 0, activityInRepo: false, captureCommits: true })
+  JSON.stringify({ repoPath: repo, syncIntervalMinutes: 60, commitDebounceSeconds: 2, autoPush: true, pullOnStart: false, commitOnQuit: true, authorName: 'Smoke Test', authorEmail: 'smoke@example.com', trackingEnabled: true, trackFocus: false, idleMinutes: 0, activityInRepo: true, captureCommits: true })
 )
 
 const app = await electron.launch({
@@ -652,7 +652,7 @@ try {
   check((await page.locator('.todo-panel .todo.is-done').count()) === 1, 'it is listed under Done')
 
   // Ticking several in a row folds their done blocks into one line in the stream.
-  await page.locator('.todo-panel .todo:not(.is-done)', { hasText: 'Renew the staging certificate' }).locator('.todo-check').check()
+  await page.locator('.todo-panel .todo:not(.is-done)', { hasText: 'Renew the staging certificate' }).locator('.todo-check').click() // not .check(): the row moves to Done, so its state can't be read back
   await page.waitForSelector('.done-stub', { timeout: 10_000 })
   check((await page.locator('.done-stub .done-count').textContent()).includes('2 todos done'), 'two done blocks in a row fold into one line')
   check((await page.locator('.done-stub .done-titles').textContent()).includes('Send Dana the redirect list · Renew the staging certificate'), 'the folded line names the todos')
@@ -684,7 +684,7 @@ try {
   await page.locator('.done-stub').click()
   await page.waitForFunction(() => document.querySelectorAll('.done-run .entry').length === 0, null, { timeout: 5_000 })
   check(true, 'Hide folds them back into one line')
-  await page.locator('.todo-panel .todo.is-done', { hasText: 'Renew the staging certificate' }).locator('.todo-check').uncheck()
+  await page.locator('.todo-panel .todo.is-done', { hasText: 'Renew the staging certificate' }).locator('.todo-check').click() // not .uncheck(): the row moves back to the open list
   await page.waitForFunction(() => !document.querySelector('.done-stub'), null, { timeout: 10_000 })
   check((await page.locator('.entry').last().locator('.entry-body').textContent()).includes('✓ Send Dana the redirect list'), 'unticking leaves a single done block, shown as itself')
 
