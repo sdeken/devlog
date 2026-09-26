@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { JOURNAL_ID, canvasLabel, descendantCanvasIds } from '@devlog/core'
 import { buildTree, splitTodoLines, type EntryNode } from '@devlog/core'
 import type { CanvasMeta, Entry } from '@shared/types'
@@ -66,21 +66,105 @@ function writeFlag(key: string, v: boolean): void {
   }
 }
 
-/** One comment in a todo's thread, with its own replies. */
-function Comment({ node }: { node: EntryNode }): React.JSX.Element {
+/** Comments in a thread, with hidden ones folded into one line at the end. */
+function CommentList({ nodes, canvasId, onChanged }: { nodes: EntryNode[]; canvasId: string; onChanged: () => Promise<void> }): React.JSX.Element | null {
+  const [showHidden, setShowHidden] = useState(false)
+  const hidden = nodes.filter((n) => n.entry.hidden).length
+  const shown = showHidden ? nodes : nodes.filter((n) => !n.entry.hidden)
+  if (nodes.length === 0) return null
   return (
-    <li className="todo-comment">
-      <div className="todo-comment-meta">{timeFmt.format(new Date(node.entry.createdAt))}</div>
-      <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(node.entry.markdown) }} />
-      {node.children.length > 0 && (
+    <>
+      {shown.length > 0 && (
         <ul className="todo-comments">
-          {node.children.map((c) => (
-            <Comment key={c.entry.id} node={c} />
+          {shown.map((c) => (
+            <Comment key={c.entry.id} node={c} canvasId={canvasId} onChanged={onChanged} />
           ))}
         </ul>
       )}
+      {hidden > 0 && (
+        <button type="button" className={`todo-hidden-toggle${showHidden ? ' is-open' : ''}`} onClick={() => setShowHidden((v) => !v)} aria-expanded={showHidden}>
+          {showHidden ? 'Fold' : `${hidden} hidden comment${hidden === 1 ? '' : 's'}`}
+        </button>
+      )}
+    </>
+  )
+}
+
+/** One comment in a todo's thread, with its own replies and its actions (edit, hide, delete). */
+function Comment({ node, canvasId, onChanged }: { node: EntryNode; canvasId: string; onChanged: () => Promise<void> }): React.JSX.Element {
+  const c = node.entry
+  const [editing, setEditing] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const replies = descendantCount(node)
+  return (
+    <li className={`todo-comment${c.hidden ? ' is-hidden' : ''}`}>
+      <div className="todo-comment-meta">
+        <span>
+          {timeFmt.format(new Date(c.createdAt))}
+          {c.updatedAt ? ' · edited' : ''}
+          {c.hidden ? ' · hidden' : ''}
+        </span>
+        {!editing && (
+          <span className="todo-comment-actions">
+            {confirmDelete ? (
+              <>
+                <button
+                  type="button"
+                  className="todo-comment-action is-danger"
+                  onClick={() => void reported(api.todos.remove(canvasId, c.id).then(() => onChanged()))}
+                >
+                  Delete{replies ? ` with ${replies} repl${replies === 1 ? 'y' : 'ies'}` : ''}
+                </button>
+                <button type="button" className="todo-comment-action" onClick={() => setConfirmDelete(false)}>
+                  Keep
+                </button>
+              </>
+            ) : (
+              <>
+                <button type="button" className="todo-comment-action" onClick={() => setEditing(true)}>
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  className="todo-comment-action"
+                  onClick={() => void reported(api.todos.setHidden(canvasId, c.id, !c.hidden).then(() => onChanged()))}
+                  title={c.hidden ? 'Show it with the other comments again' : 'Fold it away; it stays in the file and in search'}
+                >
+                  {c.hidden ? 'Unhide' : 'Hide'}
+                </button>
+                <button type="button" className="todo-comment-action" onClick={() => setConfirmDelete(true)}>
+                  Delete
+                </button>
+              </>
+            )}
+          </span>
+        )}
+      </div>
+      {editing ? (
+        <div className="todo-comment-edit">
+          <Composer
+            mode="edit"
+            initialMarkdown={c.markdown}
+            assetCanvasId={canvasId}
+            autoFocus
+            onSubmit={async (md) => {
+              await api.todos.update(canvasId, c.id, md)
+              setEditing(false)
+              await onChanged()
+            }}
+            onCancel={() => setEditing(false)}
+          />
+        </div>
+      ) : (
+        <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(c.markdown) }} />
+      )}
+      <CommentList nodes={node.children} canvasId={canvasId} onChanged={onChanged} />
     </li>
   )
+}
+
+function descendantCount(node: EntryNode): number {
+  return node.children.reduce((n, c) => n + 1 + descendantCount(c), 0)
 }
 
 function TodoItem({
@@ -111,10 +195,12 @@ function TodoItem({
   // The box ticks at once; the saved state catches up when the list reloads.
   const [pending, setPending] = useState<boolean | null>(null)
   useEffect(() => setPending(null), [done])
-  const comments = node.children.length
+  const comments = node.children.filter((c) => !c.entry.hidden).length
+  const threadSize = descendantCount(node)
 
   return (
     <li
+      data-todo-id={todo.id}
       className={`todo${done ? ' is-done' : ''}${open ? ' is-open' : ''}${drop ? ` drop-${drop}` : ''}`}
       draggable={!done && !editing}
       onDragStart={(ev) => {
@@ -179,20 +265,16 @@ function TodoItem({
       </div>
       {open && !editing && (
         <div className="todo-detail">
-          {comments > 0 && (
-            <ul className="todo-comments">
-              {node.children.map((c) => (
-                <Comment key={c.entry.id} node={c} />
-              ))}
-            </ul>
-          )}
+          <CommentList nodes={node.children} canvasId={canvasId} onChanged={onChanged} />
           {!done && (
             <div className="todo-reply">
               <Composer
                 key={replyKey}
                 mode="reply"
-                placeholder="Comment…  Enter posts"
+                placeholder="Comment…  Enter posts, Esc closes"
                 assetCanvasId={canvasId}
+                autoFocus
+                onCancel={onToggleOpen}
                 onSubmit={async (md) => {
                   await api.todos.reply(canvasId, todo.id, md)
                   setReplyKey((k) => k + 1)
@@ -229,7 +311,7 @@ function TodoItem({
                     )
                   }
                 >
-                  Delete{comments ? ` with ${comments} comment${comments === 1 ? '' : 's'}` : ''}
+                  Delete{threadSize ? ` with ${threadSize} comment${threadSize === 1 ? '' : 's'}` : ''}
                 </button>
                 <button type="button" className="btn btn-quiet btn-xs" onClick={() => setConfirmDelete(false)}>
                   Keep
@@ -285,6 +367,36 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
   const [showDone, setShowDone] = useState(false)
   const [draft, setDraft] = useState('')
   const input = useRef<HTMLTextAreaElement>(null)
+
+  // Keep the list still while it changes under the pointer: opening or
+  // closing a todo keeps that todo where it was (another one closing above
+  // it would otherwise pull it up), and ticking one off keeps the scroll
+  // position (the list reloads once the write is done).
+  const body = useRef<HTMLDivElement>(null)
+  const hold = useRef<{ id: string; top: number } | { scrollTop: number } | null>(null)
+  const rowTop = (id: string): number | null => {
+    const el = body.current?.querySelector<HTMLElement>(`[data-todo-id="${CSS.escape(id)}"]`)
+    return el && body.current ? el.getBoundingClientRect().top - body.current.getBoundingClientRect().top : null
+  }
+  const holdRow = (id: string): void => {
+    const top = rowTop(id)
+    hold.current = top === null ? null : { id, top }
+  }
+  const holdScroll = (): void => {
+    if (body.current) hold.current = { scrollTop: body.current.scrollTop }
+  }
+  useLayoutEffect(() => {
+    const h = hold.current
+    const el = body.current
+    if (!h || !el) return
+    hold.current = null
+    if ('scrollTop' in h) {
+      el.scrollTop = h.scrollTop
+      return
+    }
+    const top = rowTop(h.id)
+    if (top !== null) el.scrollTop += top - h.top
+  })
 
   const home = canvasId && canvasId !== JOURNAL_ID ? canvasId : null
   const wholeLog = all || !home
@@ -364,10 +476,14 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
       node={node}
       canvasId={id}
       open={openId === node.entry.id}
-      onToggleOpen={() => setOpenId((cur) => (cur === node.entry.id ? null : node.entry.id))}
+      onToggleOpen={() => {
+        holdRow(node.entry.id)
+        setOpenId((cur) => (cur === node.entry.id ? null : node.entry.id))
+      }}
       onChanged={load}
       onDone={async (done) => {
         const res = await api.todos.setDone(id, node.entry.id, done)
+        holdScroll()
         await load()
         onStreamChanged(id, res.date)
       }}
@@ -456,7 +572,7 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
           }}
         />
       </div>
-      <div className="todo-body">
+      <div className="todo-body" ref={body}>
         {lists === null && <p className="todo-empty">Loading…</p>}
         {lists && openCount === 0 && <p className="todo-empty">Nothing to do{wholeLog ? '' : ' here'}. Type above, or paste a list.</p>}
         {groups

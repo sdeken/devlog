@@ -427,6 +427,19 @@ export class DevlogStore extends EventEmitter {
     })
   }
 
+  /** Hide (or reveal) a todo or a comment. Hidden comments stay in the file and in search; the panel folds them away. */
+  async setTodoEntryHidden(canvasId: string, id: string, hidden: boolean, now: Date = new Date()): Promise<Entry> {
+    return this.mutateTodos(canvasId, (log) => {
+      const entry = log.entries.find((e) => e.id === id)
+      if (!entry) throw new Error('Todo not found')
+      const next: Entry = { ...entry }
+      if (hidden) next.hidden = true
+      else delete next.hidden
+      if (Boolean(entry.hidden) === hidden) return { ops: [], result: next }
+      return { ops: planSet(log, id, { hidden: hidden ? '1' : '0' }, stampFor(log, now)), result: next }
+    })
+  }
+
   async reorderTodo(canvasId: string, id: string, position: { afterId?: string; beforeId?: string }, now: Date = new Date()): Promise<Entry[]> {
     await this.mutateTodos(canvasId, (log) => ({ ops: planMove(log, id, position, stampFor(log, now)), result: null }))
     return this.readTodos(canvasId)

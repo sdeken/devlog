@@ -92,6 +92,8 @@ const api = {
     reply: (canvasId: string, parentId: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoReply, canvasId, parentId, markdown),
     update: (canvasId: string, id: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoUpdate, canvasId, id, markdown),
     remove: (canvasId: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.todoDelete, canvasId, id),
+    /** Hide (or reveal) a todo comment. */
+    setHidden: (canvasId: string, id: string, hidden: boolean): Promise<Entry> => ipcRenderer.invoke(IPC.todoHide, canvasId, id, hidden),
     reorder: (canvasId: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Entry[]> =>
       ipcRenderer.invoke(IPC.todoReorder, canvasId, id, position),
     /** Tick off (writes a done block into today's stream) or tick back on (removes today's). */

@@ -17,3 +17,25 @@ export function clearActiveComposer(sink: ImageSink): void {
 export function getActiveComposer(): ImageSink | null {
   return active
 }
+
+/**
+ * The dock composer (the note box for the canvas on screen), so typing with
+ * nothing focused can start a note there.
+ */
+export interface DockEditor {
+  /** Focus the note box and type `text` at its end. */
+  type(text: string): void
+}
+
+let dock: DockEditor | null = null
+
+export function setDockEditor(editor: DockEditor): () => void {
+  dock = editor
+  return () => {
+    if (dock === editor) dock = null
+  }
+}
+
+export function getDockEditor(): DockEditor | null {
+  return dock
+}

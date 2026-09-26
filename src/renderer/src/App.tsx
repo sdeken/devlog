@@ -19,7 +19,7 @@ import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Welcome } from './components/Welcome'
-import { getActiveComposer } from './editor/active'
+import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
 import { errorMessage, reported, showToast } from './toasts'
 import { kbd } from './keys'
@@ -243,6 +243,24 @@ export function App(): React.JSX.Element {
       if ((ev.target as HTMLElement | null)?.closest('.ProseMirror')) return
       ev.preventDefault()
       setSwitcherOpen((v) => !v)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Typing with nothing focused starts a note in the dock composer.
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      if (ev.defaultPrevented || ev.isComposing || ev.ctrlKey || ev.metaKey || ev.altKey || ev.key.length !== 1) return
+      const target = ev.target instanceof Element ? ev.target : null
+      if (target?.closest('input, textarea, select, [contenteditable]:not([contenteditable="false"])')) return
+      // Space and Enter still press the focused button or link.
+      if (ev.key === ' ' && target?.closest('button, a, summary, [role="button"], [role="separator"]')) return
+      if (document.querySelector('.modal-backdrop, .lightbox, [role="dialog"]')) return
+      const dock = getDockEditor()
+      if (!dock) return
+      ev.preventDefault()
+      dock.type(ev.key)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -524,6 +542,7 @@ export function App(): React.JSX.Element {
               assetCanvasId={targetCanvasId}
               draftKey={`devlog:draft:${repo.path}:${targetCanvasId}`}
               autoFocus={view === 'canvas'}
+              dock
               onSubmit={async (md, opts) => {
                 await addEntry(targetCanvasId, md, undefined, opts)
                 if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)

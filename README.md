@@ -15,7 +15,8 @@ tracked against; any block can become one.
   you type, with the usual shortcuts (`**bold**`, `- ` for a list, ```` ```ts ````
   for a code block, ⌘B / ⌘I / ⌘K…). The composer is a bare input: the only
   formatting UI is a small bubble menu that appears when you select text.
-  Enter posts, Shift+Enter starts a new line.
+  Enter posts, Shift+Enter starts a new line. Start typing with nothing
+  focused and the text goes into the note box for the canvas on screen.
 - **Every block is a node.** Reply to a block to start a thread, hover
   between two blocks and press **+** to insert one there, double-click a
   block (or press ↑ in the empty composer) to edit it, drag its grip to
@@ -234,9 +235,12 @@ collapses to a thin strip showing the open count.
   grouped by canvas when there is more than one; *All* shows every open todo.
   On the journal and on the review, summary and timeline views it is always
   everything.
-- **Working a todo.** Click it for its comment thread, **Edit**, **Delete**
-  and **Make task** (a task canvas beneath this one, clock started). Drag to
-  reorder.
+- **Working a todo.** Click it for its comment thread (the comment box takes
+  the focus, and keeps it after posting; Esc closes the todo), **Edit**,
+  **Delete** and **Make task** (a task canvas beneath this one, clock
+  started). Hover a comment to **Edit**, **Hide** or **Delete** it; hidden
+  comments fold into one line at the end of the thread. Drag to reorder.
+  Opening, closing and ticking todos leave the list where it was.
 - **Done.** Ticking the box moves it to *Done* at the bottom of the panel and
   writes a read-only "✓ …" block into today's stream on that canvas, marked
   with the automatic brace. Unticking the same day removes that block again.

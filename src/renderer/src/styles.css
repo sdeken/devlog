@@ -3707,8 +3707,67 @@ body.is-resizing {
 }
 
 .todo-comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
   color: var(--fg-muted);
+}
+
+.todo-comment.is-hidden > .markdown-body {
+  opacity: 0.6;
+}
+
+/* Comment actions: quiet, shown on hover or keyboard focus. */
+.todo-comment-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.todo-comment-meta:hover .todo-comment-actions,
+.todo-comment:hover > .todo-comment-meta .todo-comment-actions,
+.todo-comment-actions:focus-within {
+  opacity: 1;
+}
+
+.todo-comment-action {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  padding: 0 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.todo-comment-action:hover {
+  color: var(--fg);
+  background: var(--bg-2);
+}
+
+.todo-comment-action.is-danger {
+  color: var(--danger);
+}
+
+.todo-comment-edit .composer-editor {
+  font-size: 13px;
+}
+
+.todo-hidden-toggle {
+  display: block;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11px;
+  padding: 0 0 4px 10px;
+  cursor: pointer;
+}
+
+.todo-hidden-toggle:hover {
+  color: var(--fg);
 }
 
 .todo-reply .composer-editor {

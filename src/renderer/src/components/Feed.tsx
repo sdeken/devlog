@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { buildTree, previewText, type EntryNode } from '@devlog/core'
 import { JOURNAL_ID, canvasLabel } from '@devlog/core'
-import type { CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
+import type { CanvasMeta, Day, Entry, EntryPosition, SearchResult } from '@shared/types'
 import { Composer } from './Composer'
 import { EntryView } from './EntryView'
 
@@ -338,10 +338,14 @@ function DayGroup({
   )
 }
 
+/** A block someone wrote (as opposed to an automatic one: a commit, a ticked-off todo). */
+function isWritten(entry: Entry): boolean {
+  return !entry.kind || entry.kind === 'note' || entry.kind === 'task'
+}
+
 export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loading, editRequest, header, onLoadMore, onAdd, onUpdate, onDelete, onMove, onPromote, onSetHidden, onReorder, onJumpTo, onOpenCanvas }: Props): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const lastCanvas = useRef<string | null>(null)
-  const lastKey = useRef<string>('')
   const pendingRestore = useRef<{ height: number; top: number } | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
 
@@ -349,10 +353,13 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
   const last = days[days.length - 1]
   const lastEntry = last?.entries[last.entries.length - 1]
   const key = `${canvas.id}:${total}:${lastEntry?.id ?? ''}`
+  const lastSeen = useRef<{ total: number; lastId: string | undefined }>({ total: 0, lastId: undefined })
 
-  // "Pinned to the bottom": set when a canvas opens or a block is appended, and
+  // "Pinned to the bottom": set when a canvas opens or a block is posted, and
   // kept while content keeps growing (surface loading, images decoding), until
   // the user scrolls up. This is what makes switching canvases land at the end.
+  // Anything else (a delete, an edit, a done block from the todo panel, a
+  // captured commit) leaves the scroll position alone unless already pinned.
   const pinned = useRef(false)
   const scrollToEnd = useCallback((smooth: boolean) => {
     const el = scroller.current
@@ -363,15 +370,16 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
   useEffect(() => {
     if (search) return
     const canvasChanged = lastCanvas.current !== canvas.id
-    const changed = lastKey.current !== key
+    const before = lastSeen.current
     lastCanvas.current = canvas.id
-    lastKey.current = key
+    lastSeen.current = { total, lastId: lastEntry?.id }
     if (pendingRestore.current) return
-    if (canvasChanged || (changed && lastEntry && !lastEntry.parentId)) {
+    const posted = total > before.total && lastEntry !== undefined && lastEntry.id !== before.lastId && !lastEntry.parentId && isWritten(lastEntry)
+    if (canvasChanged || posted) {
       pinned.current = true
       requestAnimationFrame(() => scrollToEnd(!canvasChanged))
     }
-  }, [key, canvas.id, search, lastEntry, scrollToEnd])
+  }, [key, canvas.id, search, total, lastEntry, scrollToEnd])
 
   useEffect(() => {
     const el = scroller.current

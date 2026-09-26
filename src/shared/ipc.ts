@@ -38,6 +38,7 @@ export const IPC = {
   todoReply: 'todo:reply',
   todoUpdate: 'todo:update',
   todoDelete: 'todo:delete',
+  todoHide: 'todo:hide',
   todoReorder: 'todo:reorder',
   todoSetDone: 'todo:setDone',
   todoPromote: 'todo:promote',

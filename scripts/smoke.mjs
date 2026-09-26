@@ -633,12 +633,46 @@ try {
   // Comment on a todo.
   await page.locator('.todo-panel .todo .todo-text', { hasText: 'Send Dana' }).click()
   await page.waitForSelector('.todo-panel .todo.is-open .todo-reply .composer-editor', { timeout: 5_000 })
-  await page.locator('.todo-panel .todo.is-open .todo-reply .composer-editor').click()
+  const replyFocused = () =>
+    page
+      .waitForFunction(() => Boolean(document.activeElement?.closest('.todo-panel .todo.is-open .todo-reply')), null, { timeout: 5_000 })
+      .then(() => true, () => false)
+  check(await replyFocused(), 'opening a todo focuses its comment box')
   await page.keyboard.type('Waiting on their ops team')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.todo-panel .todo.is-open .todo-comment', { timeout: 10_000 })
   check((await page.locator('.todo-panel .todo.is-open .todo-comment').textContent()).includes('Waiting on their ops team'), 'todos take comments')
   check((await page.locator('.todo-panel .todo.is-open .todo-reply .composer-editor').textContent()).trim() === '', 'the comment box clears after posting')
+  check(await replyFocused(), 'the comment box keeps focus after posting')
+
+  // A comment can be edited, hidden and deleted.
+  await page.keyboard.type('teh typo')
+  await page.keyboard.press('Enter')
+  const typo = page.locator('.todo-panel .todo.is-open .todo-comment', { hasText: 'typo' })
+  await typo.waitFor({ timeout: 10_000 })
+  await typo.hover()
+  await typo.locator('.todo-comment-action', { hasText: 'Edit' }).click()
+  await page.waitForFunction(() => Boolean(document.activeElement?.closest('.todo-comment-edit')), null, { timeout: 5_000 })
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.type('the typo, fixed')
+  await page.keyboard.press('Enter')
+  const edited = await page
+    .waitForFunction(() => [...document.querySelectorAll('.todo-panel .todo-comment')].some((e) => e.textContent.includes('the typo, fixed') && e.textContent.includes('edited')), null, { timeout: 10_000 })
+    .then(() => '', async () => JSON.stringify(await page.locator('.todo-panel .todo.is-open .todo-detail').innerText()))
+  check(edited === '', `a todo comment can be edited${edited ? ` (${edited})` : ''}`)
+  await typo.hover()
+  await typo.locator('.todo-comment-action', { hasText: 'Hide' }).click()
+  await page.waitForSelector('.todo-panel .todo.is-open .todo-hidden-toggle', { timeout: 10_000 })
+  check((await typo.count()) === 0 && (await page.locator('.todo-panel .todo.is-open .todo-hidden-toggle').textContent()) === '1 hidden comment', 'a hidden comment folds into one line')
+  check((await page.locator('.todo-panel .todo', { hasText: 'Send Dana' }).locator('.todo-count').textContent()) === '1', 'the comment count leaves hidden comments out')
+  await page.locator('.todo-panel .todo.is-open .todo-hidden-toggle').click()
+  check((await page.locator('.todo-panel .todo.is-open .todo-comment.is-hidden').count()) === 1, 'the hidden comment can be shown again')
+  await typo.hover()
+  await typo.locator('.todo-comment-action', { hasText: 'Delete' }).click()
+  await typo.locator('.todo-comment-action.is-danger').click()
+  await page.waitForFunction(() => ![...document.querySelectorAll('.todo-panel .todo-comment')].some((e) => e.textContent.includes('typo')), null, { timeout: 10_000 })
+  check((await page.locator('.todo-panel .todo.is-open .todo-hidden-toggle').count()) === 0, 'a todo comment can be deleted')
+  check((await fs.readFile(path.join(canvasFolder(websiteId), 'todos.md'), 'utf8')).includes('<!-- devlog:delete '), 'deleting a comment appends a delete record')
 
   // Tick it off: it moves to Done and a read-only block appears in the stream.
   const streamBefore = await page.locator('.entry').count()
@@ -760,6 +794,8 @@ try {
     const c = await window.devlog.canvases.create({ title: 'Big list' })
     const added = await window.devlog.todos.add(c.id, Array.from({ length: 12 }, (_, i) => `Item ${i + 1}`))
     for (const t of added) await window.devlog.todos.setDone(c.id, t.id, true)
+    // Enough blocks after them for the stream to scroll.
+    for (let i = 1; i <= 30; i++) await window.devlog.blocks.add(c.id, `Filler ${String(i).padStart(2, '0')}\n\nsome text so the block has a little height`)
     return c.id
   })
   // Created through the API, so reload for the sidebar to list it.
@@ -772,6 +808,30 @@ try {
   await page.waitForFunction(() => document.querySelectorAll('.done-run .entry').length === 12, null, { timeout: 5_000 })
   const items = await page.locator('.done-run .entry .entry-body').allTextContents()
   check(items[0].includes('✓ Item 1') && items[11].includes('✓ Item 12'), 'expanded, every completed todo is listed in order')
+
+  // Deleting a block near the top leaves the stream where it was.
+  const feed = page.locator('.feed')
+  await feed.evaluate((el) => (el.scrollTop = 0))
+  const filler = page.locator('.entry', { hasText: 'Filler 01' })
+  await filler.scrollIntoViewIfNeeded()
+  const topBefore = await feed.evaluate((el) => el.scrollTop)
+  await filler.hover()
+  await filler.locator('.entry-actions button', { hasText: 'Delete' }).click()
+  await filler.locator('.entry-actions .btn-danger').click()
+  await page.waitForFunction(() => ![...document.querySelectorAll('.entry')].some((e) => e.textContent.includes('Filler 01')), null, { timeout: 10_000 })
+  await page.waitForTimeout(600)
+  const topAfter = await feed.evaluate((el) => el.scrollTop)
+  const maxTop = await feed.evaluate((el) => el.scrollHeight - el.clientHeight)
+  check(maxTop > 400 && Math.abs(topAfter - topBefore) < 40, `deleting a block does not scroll the stream to the end (${topBefore} → ${topAfter}, end ${maxTop})`)
+
+  // Typing with nothing focused starts a note in the canvas's note box.
+  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur())
+  await page.keyboard.type('typed from nowhere')
+  const dockText = await page.locator('.composer-dock .composer-editor').textContent()
+  check(dockText.includes('typed from nowhere'), `typing with nothing focused goes to the note box (${JSON.stringify(dockText)})`)
+  check(await page.evaluate(() => Boolean(document.activeElement?.closest('.composer-dock'))), 'and the note box keeps focus')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => [...document.querySelectorAll('.entry')].some((e) => e.textContent.includes('typed from nowhere')), null, { timeout: 10_000 })
   await page.evaluate((id) => window.devlog.canvases.remove(id), bigList)
   await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')

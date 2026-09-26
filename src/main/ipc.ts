@@ -163,6 +163,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.todoReply, (_e, canvasId: string, parentId: string, markdown: string) => requireStore(deps).addTodoReply(canvasId, parentId, markdown))
   ipcMain.handle(IPC.todoUpdate, (_e, canvasId: string, id: string, markdown: string) => requireStore(deps).updateTodoEntry(canvasId, id, markdown))
   ipcMain.handle(IPC.todoDelete, (_e, canvasId: string, id: string) => requireStore(deps).deleteTodoEntry(canvasId, id))
+  ipcMain.handle(IPC.todoHide, (_e, canvasId: string, id: string, hidden: boolean) => requireStore(deps).setTodoEntryHidden(canvasId, id, Boolean(hidden)))
   ipcMain.handle(IPC.todoReorder, (_e, canvasId: string, id: string, position: { afterId?: string; beforeId?: string }) =>
     requireStore(deps).reorderTodo(canvasId, id, position ?? {})
   )

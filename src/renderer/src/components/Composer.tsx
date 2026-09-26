@@ -8,7 +8,7 @@ import type { EditorView } from '@tiptap/pm/view'
 import { isBlankMarkdown, localDate } from '@devlog/core'
 import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
-import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
+import { clearActiveComposer, setActiveComposer, setDockEditor } from '@renderer/editor/active'
 import { kbd } from '@renderer/keys'
 import { detectCodePaste } from '@renderer/editor/smartPaste'
 import type { CanvasMeta } from '@shared/types'
@@ -37,6 +37,8 @@ export interface ComposerProps {
   /** Persist draft under this key in localStorage (new mode). */
   draftKey?: string
   focusToken?: number
+  /** This is the dock composer: typing with nothing focused lands here. */
+  dock?: boolean
   /** New mode: offer a canvas picker so a block can be posted anywhere from here. */
   canvases?: CanvasMeta[]
   targetCanvasId?: string
@@ -89,6 +91,7 @@ export function Composer({
   onEditLast,
   draftKey,
   focusToken,
+  dock = false,
   canvases,
   targetCanvasId,
   onTargetChange
@@ -352,6 +355,26 @@ export function Composer({
   useEffect(() => {
     if (focusToken !== undefined && editor) editor.commands.focus('end')
   }, [focusToken, editor])
+
+  useEffect(() => {
+    if (!dock || !editor) return
+    return setDockEditor({
+      type: (text) => {
+        if (editor.isDestroyed) return
+        // Insert in the same transaction that moves the caret to the end;
+        // focus itself lands a frame later, and keys typed before then come
+        // back through here.
+        editor
+          .chain()
+          .focus('end')
+          .command(({ tr }) => {
+            tr.insertText(text)
+            return true
+          })
+          .run()
+      }
+    })
+  }, [dock, editor])
 
   const openLink = (): void => {
     if (!editor) return

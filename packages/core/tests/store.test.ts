@@ -410,6 +410,15 @@ describe('canvases in the store', () => {
       ['Waiting on their ops team', added[0].id],
       ['Check the CDN rules', null]
     ])
+    // Comments can be edited, hidden and deleted on their own.
+    const typo = await store.addTodoReply(acme.id, added[0].id, 'teh typo', when)
+    await store.updateTodoEntry(acme.id, typo.id, 'the typo', when)
+    expect(await store.setTodoEntryHidden(acme.id, typo.id, true, when)).toMatchObject({ hidden: true, markdown: 'the typo' })
+    expect((await store.readTodos(acme.id)).find((e) => e.id === typo.id)).toMatchObject({ hidden: true, markdown: 'the typo', parentId: added[0].id })
+    await store.setTodoEntryHidden(acme.id, typo.id, false, when)
+    expect((await store.readTodos(acme.id)).find((e) => e.id === typo.id)?.hidden).toBeUndefined()
+    expect(await store.deleteTodoEntry(acme.id, typo.id)).toBe(1)
+    expect((await store.readTodos(acme.id)).map((e) => e.id)).toEqual([added[0].id, reply.id, added[1].id])
     // Reordering moves the thread with the todo.
     await store.reorderTodo(acme.id, added[1].id, { beforeId: added[0].id })
     expect((await store.readTodos(acme.id)).map((e) => e.id)).toEqual([added[1].id, added[0].id, reply.id])
