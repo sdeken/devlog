@@ -648,11 +648,30 @@ export class DevlogStore extends EventEmitter {
     })
   }
 
+  /**
+   * A block written by an extension: a note marked `ext=<id>` (plus any
+   * metadata it adds), read-only in the app like other automatic blocks.
+   */
+  async addExtensionBlock(canvasId: string, extensionId: string, markdown: string, meta: Record<string, string> = {}, now: Date = new Date()): Promise<{ date: string; entry: Entry }> {
+    if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty block')
+    if (markdown.length > 100_000) throw new Error('That block is too long')
+    const clean: Record<string, string> = {}
+    for (const [k, v] of Object.entries(meta)) {
+      if (!/^[a-z][a-z0-9_-]{0,31}$/.test(k) || ['id', 'at', 'parent', 'pos', 'kind', 'hidden', 'updated', 'ext'].includes(k)) throw new Error(`Not a metadata key: ${k}`)
+      clean[k] = String(v).replace(/[\r\n]+/g, ' ').slice(0, 500)
+    }
+    const date = localDate(now)
+    return this.mutateDay(canvasId, date, (log) => {
+      const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim(), meta: { ext: extensionId, ...clean } }
+      return { ops: planAdd(log, entry, {}, entry.createdAt), result: { date, entry } }
+    })
+  }
+
   async updateEntry(canvasId: string, date: string, id: string, markdown: string, now: Date = new Date()): Promise<Entry> {
     return this.mutateDay(canvasId, date, (log) => {
       const entry = log.entries.find((e) => e.id === id)
       if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
-      if (entry.kind === 'commit' || entry.kind === 'done') throw new Error('Automatic blocks are read-only; reply, move or delete instead')
+      if (entry.kind === 'commit' || entry.kind === 'done' || entry.meta?.ext) throw new Error('Automatic blocks are read-only; reply, move or delete instead')
       const at = stampFor(log, now)
       const md = normalizeDurationMarker(markdown.trim())
       return { ops: planEdit(log, id, md, at), result: { ...entry, markdown: md, updatedAt: at } }

@@ -5,11 +5,16 @@ import { hasTaskTag, stripTaskTag } from '@devlog/core'
 import type { DevlogStore } from '@devlog/core/node'
 import type { SyncManager } from '@devlog/core/node'
 import type { SettingsStore } from './settings'
+import type { ExtensionManager } from './extensions/manager'
+import { sanitizeGrant } from '@devlog/core'
 import { randomUUID } from 'node:crypto'
 import { inspectWorkingCopy } from './workingCopy'
 
 export interface IpcDeps {
   settings: SettingsStore
+  getExtensions: () => ExtensionManager | null
+  /** A GitHub token for installing extensions from private repositories (kept in the OS keychain). */
+  githubToken: { has: () => Promise<boolean>; set: (token: string | null) => Promise<void> }
   getStore: () => DevlogStore | null
   getSync: () => SyncManager | null
   openRepo: (root: string, opts?: { create?: boolean }) => Promise<RepoInfo>
@@ -41,6 +46,29 @@ function requireStore(deps: IpcDeps): DevlogStore {
 
 export function registerIpc(deps: IpcDeps): void {
   const { settings } = deps
+
+  // Extensions
+  const ext = (): ExtensionManager => {
+    const m = deps.getExtensions()
+    if (!m) throw new Error('No devlog is open')
+    return m
+  }
+  /** devlog.json or the lockfile changed: let sync commit it. */
+  const touched = <T>(p: Promise<T>): Promise<T> => p.finally(() => deps.getSync()?.noteChange())
+  ipcMain.handle(IPC.extList, () => deps.getExtensions()?.list() ?? [])
+  ipcMain.handle(IPC.extAdd, (_e, key: string, spec: string) => touched(ext().add(String(key).trim(), String(spec).trim())))
+  ipcMain.handle(IPC.extRemove, (_e, key: string) => touched(ext().remove(String(key))))
+  ipcMain.handle(IPC.extAllow, (_e, key: string, grant: unknown) => ext().allow(String(key), sanitizeGrant(grant)))
+  ipcMain.handle(IPC.extRevoke, (_e, key: string) => ext().revoke(String(key)))
+  ipcMain.handle(IPC.extRestart, (_e, key: string) => ext().restart(String(key)))
+  ipcMain.handle(IPC.extUpdate, () => touched(ext().update()))
+  ipcMain.handle(IPC.extSetSettings, (_e, key: string, values: Record<string, string>) => touched(ext().setSettings(String(key), values && typeof values === 'object' ? values : {})))
+  ipcMain.handle(IPC.extSetSecret, (_e, key: string, secretKey: string, value: string | null) => ext().setSecret(String(key), String(secretKey), typeof value === 'string' ? value : null))
+  ipcMain.handle(IPC.extRun, (_e, key: string, commandId: string) => ext().runCommand(String(key), String(commandId)))
+  ipcMain.handle(IPC.extGithubToken, async (_e, token?: string | null) => {
+    if (token !== undefined) await deps.githubToken.set(typeof token === 'string' && token.trim() ? token.trim() : null)
+    return deps.githubToken.has()
+  })
 
   ipcMain.handle(IPC.settingsGet, () => settings.get())
   ipcMain.handle(IPC.settingsSet, async (_e, patch: Partial<Settings>) => {

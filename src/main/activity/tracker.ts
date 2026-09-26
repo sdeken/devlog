@@ -239,11 +239,13 @@ export class Tracker extends EventEmitter {
 
   private async record(ev: Omit<ActivityEvent, 't'>): Promise<void> {
     if (!this.status.tracking && ev.type !== 'start') return
+    const full = { t: new Date().toISOString(), ...ev } as ActivityEvent
     try {
-      await this.log.append({ t: new Date().toISOString(), ...ev })
+      await this.log.append(full)
     } catch (err) {
       console.error('activity log write failed', err)
     }
+    this.emit('event', full)
   }
 
   private emitStatus(): void {

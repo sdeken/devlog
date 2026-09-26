@@ -33,6 +33,17 @@ export const IPC = {
   entryMove: 'entry:move',
   entryPromote: 'entry:promote',
   entryHide: 'entry:hide',
+  extList: 'ext:list',
+  extAdd: 'ext:add',
+  extRemove: 'ext:remove',
+  extAllow: 'ext:allow',
+  extRevoke: 'ext:revoke',
+  extRestart: 'ext:restart',
+  extUpdate: 'ext:update',
+  extSetSettings: 'ext:setSettings',
+  extSetSecret: 'ext:setSecret',
+  extRun: 'ext:run',
+  extGithubToken: 'ext:githubToken',
   todosList: 'todos:list',
   todosAdd: 'todos:add',
   todoReply: 'todo:reply',
@@ -70,7 +81,9 @@ export const IPC = {
   evMenu: 'ev:menu',
   evAttachImages: 'ev:attachImages',
   evTrackerStatus: 'ev:trackerStatus',
-  evUpdateStatus: 'ev:updateStatus'
+  evUpdateStatus: 'ev:updateStatus',
+  evExtensionsChanged: 'ev:extensionsChanged',
+  evNotify: 'ev:notify'
 } as const
 
 export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask' | 'back' | 'forward'

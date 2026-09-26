@@ -11,9 +11,10 @@ interface Props {
   onRepoChanged: (r: RepoInfo | null) => void
   /** Live-preview colours while the dialog is open. */
   onPreview?: (s: Settings) => void
+  onOpenExtensions?: () => void
 }
 
-export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged, onPreview }: Props): React.JSX.Element {
+export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged, onPreview, onOpenExtensions }: Props): React.JSX.Element {
   const [form, setForm] = useState<Settings>(settings)
   const [remote, setRemote] = useState(repo?.remoteUrl ?? '')
   const [saving, setSaving] = useState(false)
@@ -107,6 +108,18 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             <p className="hint">Pushes use your existing git credentials (SSH agent or credential helper). Leave blank to keep the log local.</p>
           </div>
         </section>
+
+        {repo && onOpenExtensions && (
+          <section>
+            <h3>Extensions</h3>
+            <div className="field-row">
+              <p className="hint">Integrations this devlog uses (time export, calendars…), each allowed on this machine separately.</p>
+              <button type="button" className="btn btn-quiet" onClick={onOpenExtensions}>
+                Manage extensions…
+              </button>
+            </div>
+          </section>
+        )}
 
         <section>
           <h3>Appearance</h3>

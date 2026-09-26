@@ -1,12 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, isWithin } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
+import type { ExtensionInfo } from '@shared/extensions'
 import { api } from '@renderer/api'
 
 interface Props {
   /** Existing canvas to edit, or null to create one. */
   canvas: CanvasMeta | null
   canvases: CanvasMeta[]
+  /** Extensions that add fields to canvases (a Jira issue, a client id). */
+  extensions?: ExtensionInfo[]
   /** Pre-selected parent for a new canvas. */
   initialParentId?: string | null
   initialTask?: boolean
@@ -15,7 +18,7 @@ interface Props {
   onDeleted: (id: string) => void
 }
 
-export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
+export function CanvasDialog({ canvas, canvases, extensions = [], initialParentId, initialTask, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
   const [title, setTitle] = useState(canvas?.title ?? '')
   const [parentId, setParentId] = useState<string>(canvas?.parentId ?? (initialParentId && initialParentId !== JOURNAL_ID ? initialParentId : '') ?? '')
   const [task, setTask] = useState(canvas?.task ?? initialTask ?? false)
@@ -24,6 +27,8 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const withFields = extensions.filter((e) => e.canvasFields.length > 0)
+  const [fields, setFields] = useState<Record<string, string>>(() => ({ ...(canvas?.fields ?? {}) }))
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
@@ -47,8 +52,16 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
     setBusy(true)
     setError(null)
     try {
-      const input = { title, parentId: parentId || null, task, repos }
-      const saved = canvas ? await api.canvases.update(canvas.id, input) : await api.canvases.create(input)
+      // Extension fields: only the ones shown here change; an empty value removes one.
+      const fieldPatch: Record<string, string | null> = {}
+      for (const e of withFields) for (const f of e.canvasFields) {
+        const k = `ext.${e.id}.${f.key}`
+        const v = (fields[k] ?? '').trim()
+        if (v !== (canvas?.fields?.[k] ?? '')) fieldPatch[k] = v || null
+      }
+      const input = { title, parentId: parentId || null, task, repos, ...(Object.keys(fieldPatch).length ? { fields: fieldPatch } : {}) }
+      let saved = canvas ? await api.canvases.update(canvas.id, input) : await api.canvases.create(input)
+      if (!canvas && input.fields) saved = await api.canvases.update(saved.id, { fields: input.fields })
       if (importHistory) {
         const settings = await api.settings.get()
         for (const r of saved.repos.filter((x) => !(canvas?.repos ?? []).includes(x))) await api.repo.importHistory(saved.id, r, settings.commitBackfillDays)
@@ -154,6 +167,21 @@ export function CanvasDialog({ canvas, canvases, initialParentId, initialTask, o
           )}
           <p className="hint">The working copies you code in. Commits land here as read-only blocks; branch switches and pushes show on the timeline.</p>
         </div>
+        {withFields.map((e) => (
+          <fieldset className="field ext-fields" key={e.key}>
+            <legend>{e.displayName}</legend>
+            {e.canvasFields.map((f) => {
+              const k = `ext.${e.id}.${f.key}`
+              return (
+                <div className="field" key={k}>
+                  <label htmlFor={`f-${k}`}>{f.label}</label>
+                  <input id={`f-${k}`} type="text" placeholder={f.placeholder} value={fields[k] ?? ''} onChange={(ev) => setFields((cur) => ({ ...cur, [k]: ev.target.value }))} />
+                </div>
+              )
+            })}
+            <p className="hint">Canvases inside this one use these values unless they set their own.</p>
+          </fieldset>
+        ))}
         {canvas && (
           <p className="hint">
             Stored in <code>canvases/{canvas.id}/</code> · {canvasLabel(canvases, canvas.id)}

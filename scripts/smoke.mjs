@@ -30,6 +30,9 @@ await fs.writeFile(
   JSON.stringify({ repoPath: repo, syncIntervalMinutes: 60, commitDebounceSeconds: 2, autoPush: true, pullOnStart: false, commitOnQuit: true, authorName: 'Smoke Test', authorEmail: 'smoke@example.com', trackingEnabled: true, trackFocus: false, idleMinutes: 0, activityInRepo: true, captureCommits: true })
 )
 
+// The probe test extension, loaded from its folder (a machine-local development override).
+await fs.writeFile(path.join(userData, 'extension-dev.json'), JSON.stringify({ probe: path.join(appRoot, 'tests/fixtures/extensions/probe') }))
+
 const app = await electron.launch({
   args: [appRoot, '--no-sandbox', '--disable-gpu'],
   env: { ...process.env, DEVLOG_USER_DATA: userData, NODE_ENV: 'production' }
@@ -168,6 +171,7 @@ try {
   await page.keyboard.press('ArrowUp')
   await page.waitForSelector('.entry-editing', { timeout: 5_000 })
   check(true, 'Up arrow in the empty composer opens the last note for editing')
+  await page.waitForFunction(() => Boolean(document.activeElement?.closest('.entry-editing')), null, { timeout: 5_000 })
   await page.keyboard.press('Escape')
   await page.waitForFunction(() => !document.querySelector('.entry-editing'), null, { timeout: 5_000 })
 
@@ -788,6 +792,71 @@ try {
   check((await page.locator('#remote').inputValue()) === bare, 'settings show the remote url')
   await page.screenshot({ path: path.join(shots, '04-settings.png') })
   await page.keyboard.press('Escape')
+
+  // 6a. Extensions: add, review and allow with a scope, run commands, canvas fields, sandbox.
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('.switcher input', { timeout: 5_000 })
+  await page.keyboard.type('extensions')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.modal-extensions', { timeout: 5_000 })
+  check((await page.locator('.ext-empty').count()) === 1, 'the extensions dialog opens from the quick switcher, empty at first')
+  await page.locator('.ext-add input[aria-label="Source"]').fill('probe')
+  await page.locator('.ext-add input[aria-label="Version"]').fill('builtin')
+  await page.locator('.ext-add button', { hasText: 'Add' }).click()
+  const probeItem = page.locator('.ext-item[data-ext="probe"]')
+  await probeItem.locator('.ext-state', { hasText: 'Not allowed yet' }).waitFor({ timeout: 15_000 })
+  check((await probeItem.locator('.ext-source').textContent()).includes('Development folder'), 'an added extension installs and waits to be allowed')
+  const manifestJson = JSON.parse(await fs.readFile(path.join(repo, 'devlog.json'), 'utf8'))
+  check(manifestJson.extensions?.probe === 'builtin' && manifestJson.format === 3, 'devlog.json names the extension')
+  await probeItem.locator('button', { hasText: 'Review and allow' }).click()
+  await page.waitForSelector('.modal-consent', { timeout: 5_000 })
+  check((await page.locator('.modal-consent').textContent()).includes('example.com'), 'the consent dialog shows what it says it talks to')
+  await page.screenshot({ path: path.join(shots, '04b-consent.png') })
+  await page.locator('.scope-picker[data-scope="read"] .scope-canvases label', { hasText: 'Website' }).locator('input').check()
+  await page.locator('.scope-picker[data-scope="write"] .scope-canvases label', { hasText: 'Website' }).locator('input').check()
+  await page.locator('.modal-consent button', { hasText: 'Allow' }).click()
+  await probeItem.locator('.ext-state', { hasText: 'Running' }).waitFor({ timeout: 20_000 })
+  check((await probeItem.locator('.ext-perms').textContent()).includes('Reads: Website'), 'allowed with a scope, it runs')
+  await probeItem.locator('button', { hasText: 'Settings' }).click()
+  await page.locator('#set-probe-greeting').fill('Howdy')
+  await page.locator('.ext-settings button', { hasText: 'Save settings' }).click()
+  await page.waitForSelector('.ext-settings .hint:has-text("Saved")', { timeout: 5_000 })
+  await page.locator('.modal-extensions button', { hasText: 'Done' }).click()
+
+  // Its commands are in the quick switcher; ui.notify shows as a toast.
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('.switcher input', { timeout: 5_000 })
+  await page.keyboard.type('say hello')
+  check((await page.locator('.switcher-item.is-active .switcher-label').textContent()) === 'Probe: Say hello', 'extension commands appear in the quick switcher')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.toast:has-text("Probe: Howdy #1")', { timeout: 10_000 })
+  check(true, 'a command runs and its notification shows')
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('.switcher input', { timeout: 5_000 })
+  await page.keyboard.type('probe the sandbox')
+  await page.keyboard.press('Enter')
+  const probeFile = path.join(repo, 'extensions', 'builtin.probe', 'probe.json')
+  for (let i = 0; i < 50 && !(await fs.stat(probeFile).catch(() => null)); i++) await page.waitForTimeout(200)
+  const probe = JSON.parse(await fs.readFile(probeFile, 'utf8'))
+  check(probe.readFile?.error === 'ERR_ACCESS_DENIED' && probe.writeFile?.error === 'ERR_ACCESS_DENIED' && probe.spawn?.error === 'ERR_ACCESS_DENIED', `the extension cannot touch files or start programs (${JSON.stringify([probe.readFile, probe.spawn])})`)
+  const seen = new Map(probe.canvases.map((c) => [c.id, c]))
+  const underWebsite = (c) => c.id === websiteId || (c.parentId && seen.has(c.parentId) && underWebsite(seen.get(c.parentId)))
+  const outside = probe.canvases.filter((c) => c.title !== 'Acme Corp' && !underWebsite(c))
+  check(seen.has(websiteId) && probe.canvases.some((c) => c.title === 'Acme Corp') && outside.length === 0, `it sees only the granted canvas, what is inside it, and its parents (outside: ${outside.map((c) => c.title).join(', ') || 'none'})`)
+  check(probe['add:Website']?.ok === true && probe['add:Acme Corp']?.ok === false, 'it writes only where allowed')
+  check((await fs.readFile(path.join(repo, '.gitattributes'), 'utf8')).includes('extensions/builtin.probe/log/*.jsonl merge=union'), 'its append-only files union-merge in git')
+
+  // Canvas fields: the canvas dialog shows the extension's fields; they land in canvas.md.
+  await page.locator('.canvas-tree .canvas-link', { hasText: 'Website' }).first().click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")', { timeout: 10_000 })
+  await page.locator('.page-head button[title^="Rename"]').click()
+  await page.waitForSelector('.ext-fields', { timeout: 5_000 })
+  await page.locator('.ext-fields input').fill('WEB-42')
+  await page.locator('.modal button[type="submit"]').click()
+  await page.waitForSelector('.modal', { state: 'detached', timeout: 5_000 })
+  check((await fs.readFile(canvasFile, 'utf8')).includes('ext.builtin.probe.code: WEB-42'), 'extension canvas fields are saved in canvas.md')
+  await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
 
   // 6b. A long run of completed todos folds into one line and expands to every item.
   const bigList = await page.evaluate(async () => {

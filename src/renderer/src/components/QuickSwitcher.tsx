@@ -1,11 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
+import type { ExtensionInfo } from '@shared/extensions'
 
-export type SwitchTarget = { kind: 'canvas'; canvasId: string } | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }
+export type SwitchTarget =
+  | { kind: 'canvas'; canvasId: string }
+  | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }
+  | { kind: 'extensions' }
+  | { kind: 'command'; extension: string; command: string }
 
 interface Props {
   canvases: CanvasMeta[]
+  /** Running extensions contribute their commands. */
+  extensions?: ExtensionInfo[]
   onPick: (target: SwitchTarget) => void
   onClose: () => void
 }
@@ -29,7 +36,7 @@ function score(query: string, label: string): number {
   return i === q.length ? 1 : 0
 }
 
-export function QuickSwitcher({ canvases, onPick, onClose }: Props): React.JSX.Element {
+export function QuickSwitcher({ canvases, extensions = [], onPick, onClose }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -39,8 +46,14 @@ export function QuickSwitcher({ canvases, onPick, onClose }: Props): React.JSX.E
       { key: 'canvas:journal', label: 'Journal', hint: 'journal', target: { kind: 'canvas', canvasId: JOURNAL_ID } },
       { key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } },
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
-      { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } }
+      { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } },
+      { key: 'extensions', label: 'Extensions', hint: 'manage', target: { kind: 'extensions' } }
     ]
+    for (const e of extensions) {
+      for (const c of e.commands) {
+        if (e.state === 'running' && c.ready) out.push({ key: `cmd:${e.key}:${c.id}`, label: `${e.displayName}: ${c.label}`, hint: 'command', target: { kind: 'command', extension: e.key, command: c.id } })
+      }
+    }
     for (const { canvas: c } of flattenTree(buildCanvasTree(canvases, { includeArchived: true }))) {
       out.push({
         key: `canvas:${c.id}`,
@@ -50,7 +63,7 @@ export function QuickSwitcher({ canvases, onPick, onClose }: Props): React.JSX.E
       })
     }
     return out
-  }, [canvases])
+  }, [canvases, extensions])
 
   const results = useMemo(() => {
     return items

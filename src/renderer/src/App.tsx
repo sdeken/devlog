@@ -18,6 +18,7 @@ import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
+import { ExtensionsDialog, useExtensions } from './components/ExtensionsDialog'
 import { Welcome } from './components/Welcome'
 import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
@@ -74,6 +75,8 @@ export function App(): React.JSX.Element {
   const [hits, setHits] = useState<SearchResult | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [extensionsOpen, setExtensionsOpen] = useState(false)
+  const extensions = useExtensions()
   const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
   const [focusToken, setFocusToken] = useState(0)
   const [linkRepo, setLinkRepo] = useState<{ canvasId: string; root: string } | null>(null)
@@ -266,6 +269,9 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  // Extensions speak through toasts.
+  useEffect(() => api.extensions.onNotify((text) => showToast(text, 'info')), [])
+
   // The composer target follows the canvas being viewed.
   useEffect(() => {
     if (view === 'canvas') setTargetCanvasId(canvasId)
@@ -392,6 +398,14 @@ export function App(): React.JSX.Element {
 
   const goTo = useCallback(
     (target: SwitchTarget) => {
+      if (target.kind === 'extensions') {
+        setExtensionsOpen(true)
+        return
+      }
+      if (target.kind === 'command') {
+        void reported(api.extensions.run(target.extension, target.command))
+        return
+      }
       setSearch('')
       if (target.kind === 'view') {
         if (target.view === 'timeline') setTimelineDate(localDate(new Date()))
@@ -583,6 +597,7 @@ export function App(): React.JSX.Element {
       {switcherOpen && (
         <QuickSwitcher
           canvases={canvases}
+          extensions={extensions}
           onPick={(t) => {
             setSwitcherOpen(false)
             goTo(t)
@@ -591,8 +606,20 @@ export function App(): React.JSX.Element {
         />
       )}
       {settingsOpen && (
-        <SettingsDialog settings={settings} repo={repo} onClose={() => setSettingsOpen(false)} onSaved={setSettings} onRepoChanged={(r) => setRepo(r)} onPreview={applyTheme} />
+        <SettingsDialog
+          settings={settings}
+          repo={repo}
+          onClose={() => setSettingsOpen(false)}
+          onSaved={setSettings}
+          onRepoChanged={(r) => setRepo(r)}
+          onPreview={applyTheme}
+          onOpenExtensions={() => {
+            setSettingsOpen(false)
+            setExtensionsOpen(true)
+          }}
+        />
       )}
+      {extensionsOpen && <ExtensionsDialog canvases={canvases} onClose={() => setExtensionsOpen(false)} />}
       {linkRepo && (
         <LinkRepoDialog
           repoPath={linkRepo.root}
@@ -616,6 +643,7 @@ export function App(): React.JSX.Element {
         <CanvasDialog
           canvas={canvasDialog.canvas}
           canvases={canvases}
+          extensions={extensions}
           initialParentId={canvasDialog.parentId}
           initialTask={canvasDialog.task}
           onClose={() => setCanvasDialog(null)}

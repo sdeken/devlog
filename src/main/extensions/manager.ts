@@ -1,0 +1,574 @@
+/**
+ * ExtensionManager: the extensions of one open devlog. Reads `devlog.json`
+ * and `devlog.lock.json`, installs what they name, asks before running
+ * anything (per build, per devlog), runs each allowed extension in its own
+ * sandboxed process, and answers its API calls, filtered by what you
+ * granted it. See docs/EXTENSIONS.md.
+ */
+import path from 'node:path'
+import {
+  EXTENSION_API_VERSION,
+  EXTENSIONS_DIR,
+  extensionId,
+  inheritedField,
+  parseExtensionEntry,
+  scopeCanvasIds,
+  visibleCanvases,
+  type CanvasMeta,
+  type Entry,
+  type Grant
+} from '@devlog/core'
+import {
+  ExtensionFileStore,
+  ensureExtensionAttributes,
+  readLockFile,
+  readManifest,
+  updateManifest,
+  writeLockFile,
+  type DevlogStore,
+  type LockFile
+} from '@devlog/core/node'
+import type { ActivityNotice, ExtensionBlock, ExtensionCanvas } from '@devlog/extension-api'
+import type { ActivityEvent } from '@shared/types'
+import type { ExtensionInfo, ExtensionState, ExtensionUpdateReport } from '@shared/extensions'
+import { ExtensionHost } from './host'
+import { readMainCode, type ExtensionInstaller, type InstalledExtension } from './install'
+import { devlogKey, type ConsentStore, type SecretStore } from './localState'
+
+export interface ManagerDeps {
+  root: string
+  store: DevlogStore
+  userData: string
+  installer: ExtensionInstaller
+  consent: ConsentStore
+  secrets: SecretStore
+  /** The host script, somewhere the extension process may read it. */
+  hostScript: () => Promise<string>
+  notify: (text: string) => void
+  confirm: (title: string, message: string) => Promise<boolean>
+  /** The list of extensions (or their state) changed. */
+  onChange: () => void
+  /** An extension wrote a block. */
+  onBlockAdded: (canvasId: string, date: string) => void
+}
+
+interface Rec {
+  key: string
+  spec: string
+  id: string
+  installed: InstalledExtension | null
+  host: ExtensionHost | null
+  state: ExtensionState
+  error: string | null
+  grant: Grant | null
+  changedSinceConsent: boolean
+  activity: boolean
+  files: { repo: ExtensionFileStore; local: ExtensionFileStore } | null
+  secretSet: Set<string>
+}
+
+const KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/
+
+export class ExtensionManager {
+  private readonly recs = new Map<string, Rec>()
+  private chain: Promise<unknown> = Promise.resolve()
+  private stopped = false
+
+  constructor(private readonly deps: ManagerDeps) {}
+
+  /** Run lifecycle changes one at a time. */
+  private serial<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.chain.then(fn)
+    this.chain = run.catch(() => undefined)
+    return run
+  }
+
+  // -------------------------------------------------------------------------
+  // Lifecycle
+  // -------------------------------------------------------------------------
+
+  /** (Re)read devlog.json and bring the running set in line with it. */
+  load(): Promise<void> {
+    return this.serial(async () => {
+      if (this.stopped) return
+      const manifest = await readManifest(this.deps.root)
+      const wanted = Object.entries(manifest.extensions ?? {}).filter(([, v]) => typeof v === 'string') as Array<[string, string]>
+      for (const key of [...this.recs.keys()]) {
+        if (!wanted.some(([k]) => k === key)) await this.drop(key)
+      }
+      const lock = await readLockFile(this.deps.root)
+      let lockChanged = false
+      for (const [key, spec] of wanted) {
+        const cur = this.recs.get(key)
+        if (cur && cur.spec === spec && (cur.state === 'running' || cur.state === 'needs-consent')) continue
+        if (cur) await this.drop(key)
+        lockChanged = (await this.installAndStart(key, spec, lock)) || lockChanged
+      }
+      for (const key of Object.keys(lock.extensions)) {
+        if (!wanted.some(([k]) => k === key)) {
+          delete lock.extensions[key]
+          lockChanged = true
+        }
+      }
+      if (lockChanged) await writeLockFile(this.deps.root, lock)
+      this.deps.onChange()
+    })
+  }
+
+  /** Install one entry (recording it in `lock`) and start it if allowed. Returns whether `lock` changed. */
+  private async installAndStart(key: string, spec: string, lock: LockFile, fresh = false): Promise<boolean> {
+    let id = key
+    try {
+      id = extensionId(parseExtensionEntry(key, spec))
+    } catch {
+      /* reported below */
+    }
+    const rec: Rec = { key, spec, id, installed: null, host: null, state: 'installing', error: null, grant: null, changedSinceConsent: false, activity: false, files: null, secretSet: new Set() }
+    this.recs.set(key, rec)
+    this.deps.onChange()
+    let changed = false
+    try {
+      const installed = await this.deps.installer.install(key, spec, lock.extensions[key], { fresh })
+      rec.installed = installed
+      rec.id = installed.id
+      if (!installed.dev && installed.source.kind !== 'builtin') {
+        const prev = lock.extensions[key]
+        const next = { id: installed.id, spec, version: installed.version, url: installed.url, sha256: installed.sha256 }
+        if (!prev || JSON.stringify(prev) !== JSON.stringify(next)) {
+          lock.extensions[key] = next
+          changed = true
+        }
+      }
+      await ensureExtensionAttributes(this.deps.root, installed.id, installed.manifest.appendOnly)
+      for (const s of installed.manifest.contributes.secrets) if (await this.deps.secrets.has(installed.id, s.key)) rec.secretSet.add(s.key)
+    } catch (err) {
+      rec.state = 'error'
+      rec.error = err instanceof Error ? err.message : String(err)
+      return changed
+    }
+    await this.startIfAllowed(rec)
+    return changed
+  }
+
+  private async startIfAllowed(rec: Rec): Promise<void> {
+    const ext = rec.installed
+    if (!ext) return
+    const consent = await this.deps.consent.get(this.deps.root, ext.id)
+    if (!consent || consent.sha256 !== ext.sha256) {
+      rec.state = 'needs-consent'
+      rec.grant = null
+      rec.changedSinceConsent = Boolean(consent)
+      this.deps.onChange()
+      return
+    }
+    rec.grant = consent.grant
+    rec.changedSinceConsent = false
+    await this.startHost(rec)
+  }
+
+  private async startHost(rec: Rec): Promise<void> {
+    const ext = rec.installed!
+    rec.files = {
+      repo: new ExtensionFileStore(path.join(this.deps.root, EXTENSIONS_DIR, ext.id), { anchor: this.deps.root }),
+      local: new ExtensionFileStore(path.join(this.deps.userData, 'extension-data', ext.id, devlogKey(this.deps.root)), { anchor: this.deps.userData })
+    }
+    const code = await readMainCode(ext).catch((err: unknown) => {
+      rec.state = 'error'
+      rec.error = `Could not read ${ext.manifest.main}: ${err instanceof Error ? err.message : String(err)}`
+      return null
+    })
+    if (code === null) {
+      if (!ext.manifest.main) rec.state = 'running' // declarations only (fields, settings): nothing to run
+      this.deps.onChange()
+      return
+    }
+    const host = new ExtensionHost({
+      id: ext.id,
+      hostScript: await this.deps.hostScript(),
+      code,
+      filename: `devlog-extension://${ext.id}/${ext.manifest.main}`,
+      apiVersion: EXTENSION_API_VERSION,
+      settings: await this.settingValues(ext.id),
+      handle: (method, args) => this.handle(rec, method, args)
+    })
+    rec.host = host
+    rec.activity = false
+    rec.state = 'starting'
+    rec.error = null
+    this.deps.onChange()
+    host.on('exit', () => {
+      if (rec.host !== host) return
+      if (rec.state === 'running' || rec.state === 'starting') {
+        rec.state = 'failed'
+        rec.error = host.error ?? 'Stopped'
+      }
+      rec.host = null
+      this.deps.onChange()
+    })
+    try {
+      await host.start()
+      if (rec.host === host) rec.state = 'running'
+    } catch (err) {
+      if (rec.host === host) {
+        rec.state = 'failed'
+        rec.error = err instanceof Error ? err.message : String(err)
+        rec.host = null
+      }
+    }
+    this.deps.onChange()
+  }
+
+  private async stopHost(rec: Rec): Promise<void> {
+    const host = rec.host
+    rec.host = null
+    if (host) await host.stop().catch(() => undefined)
+  }
+
+  private async drop(key: string): Promise<void> {
+    const rec = this.recs.get(key)
+    if (!rec) return
+    await this.stopHost(rec)
+    this.recs.delete(key)
+  }
+
+  async stopAll(): Promise<void> {
+    this.stopped = true
+    await this.serial(async () => {
+      for (const key of [...this.recs.keys()]) await this.drop(key)
+    })
+  }
+
+  // -------------------------------------------------------------------------
+  // What the renderer asks for
+  // -------------------------------------------------------------------------
+
+  async list(): Promise<ExtensionInfo[]> {
+    const out: ExtensionInfo[] = []
+    for (const rec of this.recs.values()) {
+      const ext = rec.installed
+      const m = ext?.manifest
+      out.push({
+        key: rec.key,
+        spec: rec.spec,
+        id: rec.id,
+        source: ext?.dev ? 'dev' : (ext?.source.kind ?? 'url'),
+        displayName: m?.displayName ?? rec.key,
+        ...(m?.description ? { description: m.description } : {}),
+        version: ext?.version ?? null,
+        sha256: ext?.sha256 ?? null,
+        state: rec.state,
+        error: rec.error,
+        permissions: m?.permissions ?? {},
+        grant: rec.grant,
+        changedSinceConsent: rec.changedSinceConsent,
+        canvasFields: m?.contributes.canvasFields ?? [],
+        settings: m?.contributes.settings ?? [],
+        settingValues: ext ? await this.settingValues(ext.id) : {},
+        secrets: (m?.contributes.secrets ?? []).map((s) => ({ ...s, set: rec.secretSet.has(s.key) })),
+        commands: (m?.contributes.commands ?? []).map((c) => ({ ...c, ready: Boolean(rec.host?.commands.includes(c.id)) }))
+      })
+    }
+    return out.sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }
+
+  /** Add an extension to devlog.json (it is installed, then waits for your consent). */
+  async add(key: string, spec: string): Promise<void> {
+    parseExtensionEntry(key, spec) // validate before writing anything
+    await updateManifest(this.deps.root, (m) => {
+      m.extensions = { ...(m.extensions ?? {}), [key]: spec }
+    })
+    await this.load()
+    const rec = this.recs.get(key)
+    if (rec?.state === 'error') throw new Error(rec.error ?? 'Could not install')
+  }
+
+  async remove(key: string): Promise<void> {
+    const id = this.recs.get(key)?.id
+    await updateManifest(this.deps.root, (m) => {
+      const next = { ...(m.extensions ?? {}) }
+      delete next[key]
+      m.extensions = next
+    })
+    await this.load()
+    if (id) await this.deps.consent.set(this.deps.root, id, null)
+  }
+
+  /** Allow (or re-allow with different scopes) and start. */
+  allow(key: string, grant: Grant): Promise<void> {
+    return this.serial(async () => {
+      const rec = this.need(key)
+      if (!rec.installed) throw new Error('Not installed')
+      const g: Grant = {
+        read: rec.installed.manifest.permissions.read ? grant.read : null,
+        write: rec.installed.manifest.permissions.write ? grant.write : null,
+        ...(rec.installed.manifest.permissions.foregroundWindow && grant.foregroundWindow ? { foregroundWindow: true } : {})
+      }
+      await this.deps.consent.set(this.deps.root, rec.id, { sha256: rec.installed.sha256, grant: g, at: new Date().toISOString() })
+      await this.stopHost(rec)
+      await this.startIfAllowed(rec)
+    })
+  }
+
+  /** Withdraw consent: the extension stops and asks again next time. */
+  revoke(key: string): Promise<void> {
+    return this.serial(async () => {
+      const rec = this.need(key)
+      await this.deps.consent.set(this.deps.root, rec.id, null)
+      await this.stopHost(rec)
+      await this.startIfAllowed(rec)
+    })
+  }
+
+  /** Start a stopped (failed) extension again. */
+  restart(key: string): Promise<void> {
+    return this.serial(async () => {
+      const rec = this.need(key)
+      await this.stopHost(rec)
+      await this.startIfAllowed(rec)
+    })
+  }
+
+  /** Re-check every version range; download what changed and pin it. Changed code asks for consent again. */
+  update(): Promise<ExtensionUpdateReport> {
+    return this.serial(async () => {
+      const report: ExtensionUpdateReport = { updated: [], unchanged: [], errors: [] }
+      const lock = await readLockFile(this.deps.root)
+      let changed = false
+      for (const rec of [...this.recs.values()]) {
+        const before = rec.installed?.sha256 ?? null
+        const beforeVersion = rec.installed?.version ?? null
+        if (rec.installed?.dev || rec.installed?.source.kind === 'builtin') {
+          report.unchanged.push(rec.key)
+          continue
+        }
+        await this.stopHost(rec)
+        changed = (await this.installAndStart(rec.key, rec.spec, lock, true)) || changed
+        const now = this.recs.get(rec.key)
+        if (now?.state === 'error') report.errors.push({ key: rec.key, error: now.error ?? 'Failed' })
+        else if (now?.installed && now.installed.sha256 !== before) report.updated.push({ key: rec.key, from: beforeVersion, to: now.installed.version })
+        else report.unchanged.push(rec.key)
+      }
+      if (changed) await writeLockFile(this.deps.root, lock)
+      this.deps.onChange()
+      return report
+    })
+  }
+
+  async setSettings(key: string, values: Record<string, string>): Promise<void> {
+    const rec = this.need(key)
+    const declared = new Set(rec.installed?.manifest.contributes.settings.map((s) => s.key) ?? [])
+    const clean: Record<string, string> = {}
+    for (const [k, v] of Object.entries(values)) if (declared.has(k) && typeof v === 'string' && v.trim()) clean[k] = v.trim()
+    await updateManifest(this.deps.root, (m) => {
+      const all = { ...(m.settings ?? {}) }
+      if (Object.keys(clean).length) all[rec.id] = clean
+      else delete all[rec.id]
+      m.settings = all
+    })
+    rec.host?.updateSettings(clean)
+    this.deps.onChange()
+  }
+
+  async setSecret(key: string, secretKey: string, value: string | null): Promise<void> {
+    const rec = this.need(key)
+    if (!KEY_RE.test(secretKey)) throw new Error('Bad secret name')
+    await this.deps.secrets.set(rec.id, secretKey, value && value.length ? value : null)
+    if (value) rec.secretSet.add(secretKey)
+    else rec.secretSet.delete(secretKey)
+    this.deps.onChange()
+  }
+
+  async runCommand(key: string, commandId: string): Promise<void> {
+    const rec = this.need(key)
+    if (!rec.host) throw new Error(`${rec.installed?.manifest.displayName ?? key} is not running`)
+    await rec.host.call('command.run', [commandId])
+  }
+
+  /** Pass pause/resume/task changes to extensions that listen for them. */
+  activity(ev: ActivityEvent): void {
+    const kind = { lock: 'locked', idle: 'idle', suspend: 'suspended' } as const
+    let notice: ActivityNotice | null = null
+    if (ev.type === 'lock' || ev.type === 'idle' || ev.type === 'suspend') notice = { t: ev.t, type: 'pause', reason: kind[ev.type] }
+    else if (ev.type === 'unlock' || ev.type === 'active' || ev.type === 'resume') notice = { t: ev.t, type: 'resume' }
+    else if (ev.type === 'task' || ev.type === 'stop') notice = { t: ev.t, type: 'task', canvasId: ev.type === 'task' ? (ev.canvasId ?? null) : null }
+    if (!notice) return
+    for (const rec of this.recs.values()) {
+      if (!rec.activity || !rec.host) continue
+      let n = notice
+      if (n.type === 'task' && n.canvasId) {
+        // Only name a task it is allowed to see.
+        const visible = this.visibleIdsSync(rec)
+        if (!visible?.has(n.canvasId)) n = { ...n, canvasId: undefined }
+      }
+      void rec.host.call('activity.notice', [n], 10_000).catch(() => undefined)
+    }
+  }
+
+  private visibleCache = new Map<string, Set<string>>()
+  private visibleIdsSync(rec: Rec): Set<string> | undefined {
+    return this.visibleCache.get(rec.key)
+  }
+
+  private need(key: string): Rec {
+    const rec = this.recs.get(key)
+    if (!rec) throw new Error(`No extension ${key}`)
+    return rec
+  }
+
+  private async settingValues(id: string): Promise<Record<string, string>> {
+    const m = await readManifest(this.deps.root)
+    const s = m.settings?.[id]
+    const out: Record<string, string> = {}
+    if (s && typeof s === 'object') for (const [k, v] of Object.entries(s)) if (typeof v === 'string') out[k] = v
+    return out
+  }
+
+  // -------------------------------------------------------------------------
+  // The extension API, as seen from the app
+  // -------------------------------------------------------------------------
+
+  private async handle(rec: Rec, method: string, args: unknown[]): Promise<unknown> {
+    const ext = rec.installed
+    if (!ext || !rec.files) throw new Error('Not running')
+    const grant = rec.grant ?? { read: null, write: null }
+    const str = (i: number, what: string): string => {
+      const v = args[i]
+      if (typeof v !== 'string') throw new Error(`${method}: ${what} must be a string`)
+      return v
+    }
+    const canvases = async (): Promise<CanvasMeta[]> => (await this.deps.store.listCanvases()).filter((c) => c.id !== 'journal')
+    const canRead = async (canvasId: string): Promise<boolean> => scopeCanvasIds(await canvases(), grant.read).has(canvasId)
+    const canWrite = async (canvasId: string): Promise<boolean> => scopeCanvasIds(await canvases(), grant.write).has(canvasId)
+    const fieldPrefix = `ext.${ext.id}.`
+
+    switch (method) {
+      case 'devlog.canvases': {
+        const all = await this.deps.store.listCanvases()
+        const visible = visibleCanvases(all, grant)
+        this.visibleCache.set(rec.key, new Set(visible.map((c) => c.id)))
+        return visible.map(
+          (c): ExtensionCanvas => ({
+            id: c.id,
+            title: c.title,
+            parentId: c.parentId,
+            task: c.task,
+            archived: c.archived,
+            fields: Object.fromEntries(Object.entries(c.fields ?? {}).flatMap(([k, v]) => (k.startsWith(fieldPrefix) ? [[k.slice(fieldPrefix.length), v]] : [])))
+          })
+        )
+      }
+      case 'devlog.field': {
+        const canvasId = str(0, 'canvasId')
+        const key = str(1, 'key').toLowerCase()
+        const all = await this.deps.store.listCanvases()
+        if (!visibleCanvases(all, grant).some((c) => c.id === canvasId)) throw new Error('No access to that canvas')
+        return inheritedField(all, canvasId, `${fieldPrefix}${key}`)?.value ?? null
+      }
+      case 'devlog.days': {
+        const canvasId = str(0, 'canvasId')
+        if (!(await canRead(canvasId))) throw new Error('No read access to that canvas')
+        return (await this.deps.store.listDays(canvasId)).map((d) => d.date)
+      }
+      case 'devlog.blocks': {
+        const canvasId = str(0, 'canvasId')
+        const date = str(1, 'date')
+        if (!(await canRead(canvasId))) throw new Error('No read access to that canvas')
+        return (await this.deps.store.readDay(canvasId, date)).entries.map(toBlock)
+      }
+      case 'devlog.search': {
+        if (!grant.read) return { blocks: [] }
+        const query = str(0, 'query')
+        const readable = scopeCanvasIds(await canvases(), grant.read)
+        const res = await this.deps.store.search(query)
+        return { blocks: res.blocks.filter((h) => readable.has(h.canvasId)).map((h) => ({ canvasId: h.canvasId, date: h.date, block: toBlock(h.entry) })) }
+      }
+      case 'devlog.addBlock': {
+        const canvasId = str(0, 'canvasId')
+        const markdown = str(1, 'markdown')
+        const opts = (args[2] ?? {}) as { meta?: Record<string, string> }
+        if (!(await canWrite(canvasId))) throw new Error('No write access to that canvas')
+        const { date, entry } = await this.deps.store.addExtensionBlock(canvasId, ext.id, markdown, opts.meta ?? {})
+        this.deps.onBlockAdded(canvasId, date)
+        return { date, block: toBlock(entry) }
+      }
+      case 'secrets.get':
+        return this.deps.secrets.get(ext.id, checkKey(str(0, 'key')))
+      case 'secrets.set': {
+        const k = checkKey(str(0, 'key'))
+        await this.deps.secrets.set(ext.id, k, str(1, 'value'))
+        rec.secretSet.add(k)
+        this.deps.onChange()
+        return null
+      }
+      case 'secrets.delete': {
+        const k = checkKey(str(0, 'key'))
+        await this.deps.secrets.set(ext.id, k, null)
+        rec.secretSet.delete(k)
+        this.deps.onChange()
+        return null
+      }
+      case 'files.read':
+      case 'files.write':
+      case 'files.append':
+      case 'files.list':
+      case 'files.stat':
+      case 'files.remove': {
+        const which = args[0]
+        if (which !== 'repo' && which !== 'local') throw new Error('files: store must be "repo" or "local"')
+        const files = rec.files[which]
+        const p = typeof args[1] === 'string' ? args[1] : ''
+        switch (method) {
+          case 'files.read': {
+            const b = await files.read(p)
+            return b === undefined ? null : new Uint8Array(b)
+          }
+          case 'files.write': {
+            const data = args[2]
+            if (typeof data !== 'string' && !(data instanceof Uint8Array)) throw new Error('files.write: data must be a string or bytes')
+            await files.write(p, data)
+            return null
+          }
+          case 'files.append':
+            await files.append(p, str(2, 'text'))
+            return null
+          case 'files.list':
+            return files.list(p)
+          case 'files.stat':
+            return (await files.stat(p)) ?? null
+          default:
+            await files.remove(p)
+            return null
+        }
+      }
+      case 'activity.subscribe':
+        rec.activity = true
+        if (!this.visibleCache.has(rec.key)) this.visibleCache.set(rec.key, new Set(visibleCanvases(await this.deps.store.listCanvases(), grant).map((c) => c.id)))
+        return null
+      case 'ui.notify':
+        this.deps.notify(`${ext.manifest.displayName}: ${str(0, 'message').slice(0, 300)}`)
+        return null
+      case 'ui.confirm':
+        return this.deps.confirm(ext.manifest.displayName, str(0, 'message').slice(0, 1000))
+      default:
+        throw new Error(`Unknown method ${method}`)
+    }
+  }
+}
+
+function checkKey(k: string): string {
+  if (!KEY_RE.test(k)) throw new Error('Secret names are lowercase letters, digits, "_" or "-"')
+  return k
+}
+
+function toBlock(e: Entry): ExtensionBlock {
+  return {
+    id: e.id,
+    createdAt: e.createdAt,
+    ...(e.updatedAt ? { updatedAt: e.updatedAt } : {}),
+    markdown: e.markdown,
+    ...(e.parentId ? { parentId: e.parentId } : {}),
+    ...(e.kind ? { kind: e.kind } : {}),
+    ...(e.hidden ? { hidden: true } : {}),
+    ...(e.meta ? { meta: { ...e.meta } } : {})
+  }
+}

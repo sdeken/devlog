@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerMonitor, screen, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, net, powerMonitor, safeStorage, screen, shell } from 'electron'
 import path from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync, promises as fs } from 'node:fs'
 import os from 'node:os'
@@ -19,6 +19,9 @@ import { SettingsStore } from './settings'
 import { installAssetHandler, registerAssetScheme } from './protocol'
 import { buildMenu } from './menu'
 import { registerIpc } from './ipc'
+import { ExtensionManager } from './extensions/manager'
+import { ExtensionInstaller, sha256 } from './extensions/install'
+import { ConsentStore, SecretStore } from './extensions/localState'
 
 // Packaged macOS apps inherit a minimal PATH; make sure git from Homebrew etc. is found.
 if (process.platform === 'darwin') {
@@ -54,6 +57,54 @@ let updater: Updater | null = null
 let screenLocked = false
 /** Editors with unsaved text, as reported by the renderer. */
 let editorBusyCount = 0
+let extensions: ExtensionManager | null = null
+
+/** Machine-local extension services (created on first use, once the app is ready). */
+let extServices: { installer: ExtensionInstaller; consent: ConsentStore; secrets: SecretStore } | null = null
+const GITHUB_SECRET = { id: 'devlog.github', key: 'token' }
+function extensionServices(): NonNullable<typeof extServices> {
+  if (extServices) return extServices
+  const userData = app.getPath('userData')
+  const secrets = new SecretStore(path.join(userData, 'extension-secrets'), {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain),
+    decrypt: (data) => safeStorage.decryptString(data)
+  })
+  extServices = {
+    secrets,
+    consent: new ConsentStore(path.join(userData, 'extension-consent.json')),
+    installer: new ExtensionInstaller({
+      cacheDir: path.join(userData, 'extensions'),
+      builtinDir: app.isPackaged ? path.join(process.resourcesPath, 'extensions') : path.join(app.getAppPath(), 'builtin-extensions'),
+      devOverrides: async () => JSON.parse(await fs.readFile(path.join(userData, 'extension-dev.json'), 'utf8')) as Record<string, string>,
+      githubToken: () => secrets.get(GITHUB_SECRET.id, GITHUB_SECRET.key).catch(() => undefined),
+      fetch: (input, init) => net.fetch(input as string, init)
+    })
+  }
+  return extServices
+}
+
+/**
+ * The extension process may read exactly one file: its host script. The
+ * packaged copy sits inside app.asar, so it is copied out to user data
+ * (named by its hash, so an update brings its own).
+ */
+let hostScriptPath: Promise<string> | null = null
+function extensionHostScript(): Promise<string> {
+  hostScriptPath ??= (async () => {
+    const code = await fs.readFile(path.join(__dirname, 'extensionHost.js'), 'utf8')
+    const dir = path.join(app.getPath('userData'), 'extension-host')
+    const file = path.join(dir, `host-${sha256(code).slice(0, 16)}.js`)
+    await fs.mkdir(dir, { recursive: true })
+    const current = await fs.readFile(file, 'utf8').catch(() => null)
+    if (current !== code) await fs.writeFile(file, code)
+    return file
+  })()
+  hostScriptPath.catch(() => {
+    hostScriptPath = null
+  })
+  return hostScriptPath
+}
 
 /** This installation's activity-log folder name, created once and kept in user data. */
 function machineId(): string {
@@ -105,6 +156,11 @@ function syncOptionsFrom(s: Settings): SyncOptions {
 }
 
 export async function closeRepo(): Promise<void> {
+  if (extensions) {
+    await extensions.stopAll()
+    extensions = null
+    send(IPC.evExtensionsChanged)
+  }
   if (tracker) {
     await tracker.stop()
     tracker.removeAllListeners()
@@ -178,6 +234,8 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   nextSync.on('remote-changes', () => {
     send(IPC.evEntriesChanged)
     void refreshIndex()
+    // Another machine may have added, removed or updated an extension.
+    void extensions?.load().catch((err) => console.error('extensions reload failed', err))
   })
   nextStore.on('change', () => nextSync.noteChange())
 
@@ -198,7 +256,29 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     updateTray(st)
   })
   tracker = nextTracker
+  nextTracker.on('event', (ev) => extensions?.activity(ev))
   await nextTracker.start((id) => nextStore.resolveCanvasId(id))
+
+  // Extensions named in devlog.json: installed, then run once allowed.
+  const svc = extensionServices()
+  extensions = new ExtensionManager({
+    root,
+    store: nextStore,
+    userData: app.getPath('userData'),
+    installer: svc.installer,
+    consent: svc.consent,
+    secrets: svc.secrets,
+    hostScript: extensionHostScript,
+    notify: (text) => send(IPC.evNotify, text),
+    confirm: async (title, message) => {
+      const opts: Electron.MessageBoxOptions = { type: 'question', buttons: ['OK', 'Cancel'], defaultId: 0, cancelId: 1, title, message: title, detail: message }
+      const res = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts)
+      return res.response === 0
+    },
+    onChange: () => send(IPC.evExtensionsChanged),
+    onBlockAdded: () => send(IPC.evEntriesChanged)
+  })
+  void extensions.load().catch((err) => console.error('extensions failed to load', err))
 
   const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
   nextCommits.on('commit', (canvasId: string, info: CommitInfo) => void onCommit(canvasId, info))
@@ -526,6 +606,11 @@ if (!gotLock) {
 
     registerIpc({
       settings,
+      getExtensions: () => extensions,
+      githubToken: {
+        has: () => extensionServices().secrets.has(GITHUB_SECRET.id, GITHUB_SECRET.key),
+        set: (token) => extensionServices().secrets.set(GITHUB_SECRET.id, GITHUB_SECRET.key, token)
+      },
       getStore: () => store,
       getSync: () => sync,
       openRepo,

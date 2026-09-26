@@ -20,6 +20,8 @@ import type {
   TrackerStatus,
   UpdateStatus
 } from '../shared/types'
+import type { ExtensionInfo, ExtensionUpdateReport } from '../shared/extensions'
+import type { Grant } from '@devlog/core'
 
 type Unsubscribe = () => void
 
@@ -84,6 +86,24 @@ const api = {
     promote: (canvasId: string, date: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.entryPromote, canvasId, date, id),
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
+  },
+  extensions: {
+    /** Extensions of the open devlog, with their state. */
+    list: (): Promise<ExtensionInfo[]> => ipcRenderer.invoke(IPC.extList),
+    /** Add to devlog.json: `owner/repo` + version range, a name + https URL, or a name + "builtin". */
+    add: (key: string, spec: string): Promise<void> => ipcRenderer.invoke(IPC.extAdd, key, spec),
+    remove: (key: string): Promise<void> => ipcRenderer.invoke(IPC.extRemove, key),
+    allow: (key: string, grant: Grant): Promise<void> => ipcRenderer.invoke(IPC.extAllow, key, grant),
+    revoke: (key: string): Promise<void> => ipcRenderer.invoke(IPC.extRevoke, key),
+    restart: (key: string): Promise<void> => ipcRenderer.invoke(IPC.extRestart, key),
+    update: (): Promise<ExtensionUpdateReport> => ipcRenderer.invoke(IPC.extUpdate),
+    setSettings: (key: string, values: Record<string, string>): Promise<void> => ipcRenderer.invoke(IPC.extSetSettings, key, values),
+    setSecret: (key: string, secretKey: string, value: string | null): Promise<void> => ipcRenderer.invoke(IPC.extSetSecret, key, secretKey, value),
+    run: (key: string, commandId: string): Promise<void> => ipcRenderer.invoke(IPC.extRun, key, commandId),
+    /** Whether a GitHub token is stored; pass a token (or null) to set (or clear) it. */
+    githubToken: (token?: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.extGithubToken, token),
+    onChanged: (cb: () => void): Unsubscribe => on(IPC.evExtensionsChanged, cb),
+    onNotify: (cb: (text: string) => void): Unsubscribe => on(IPC.evNotify, cb)
   },
   todos: {
     /** Todo lists (todos and their comment threads) for each canvas, in file order. */

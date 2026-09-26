@@ -1,8 +1,12 @@
 # Extensions: design (draft)
 
-Status: **draft**, nothing built yet. Tracks issue #1 (with #2 time export,
-#3 custom block types and #16 window tracking). Decisions so far are folded
-in; what is still open is collected at the end.
+Status: **milestone 1 built** (0.7.0): manifests and sources, the lockfile,
+installing from GitHub releases / URLs / built-ins, consent with read and
+write scopes, the sandboxed extension process, the file broker, secrets,
+settings, canvas fields, commands and notifications. Cards, destinations and
+devlog-focus are later milestones. Tracks issue #1 (with #2 time export, #3
+custom block types and #16 window tracking). How to write one:
+`packages/extension-api/README.md`.
 
 ## Goals
 
@@ -208,10 +212,15 @@ traffic to go through the app). The consequence to keep in mind: an
 extension can send out whatever it can read, which is one reason read
 access is scoped.
 
-*To verify first (milestone 1):* that Electron's `utilityProcess` accepts
-`--permission` through `execArgv`. If it doesn't, the extension process is a
-plain Node child of the app binary (`ELECTRON_RUN_AS_NODE`), which does;
-the builds must then keep Electron's `RunAsNode` fuse on.
+**How it is run.** Electron's `utilityProcess` silently ignores
+`--permission` (checked: file reads, child processes and workers all
+succeed in it), so each extension runs as a Node child of the app binary
+(`ELECTRON_RUN_AS_NODE`) with `--permission`, read access to exactly one
+file (the host script, copied out of `app.asar` into user data), a heap cap,
+and an environment stripped to a few locale and Windows variables. The
+builds must keep Electron's `RunAsNode` fuse on. Tests run a probe
+extension in that process and check that file access, child processes and
+workers are refused with `ERR_ACCESS_DENIED`.
 
 ## Cards: rich blocks and link previews
 
@@ -288,7 +297,9 @@ convention. The app makes that trust explicit and hard to grant by accident:
 ## Runtime and API
 
 One process per extension (the main half), talking to the app over a
-message channel that carries the API below.
+message channel that carries the API below. What is built (milestone 1) is
+defined in `packages/extension-api/src/index.ts`; the sketch also shows what
+later milestones add (`timesheet`, `destinations`, `cards`, `unfurl`).
 
 ```ts
 export function activate(ctx: DevlogContext): void | Promise<void>
@@ -354,13 +365,9 @@ button, after a preview; there are no scheduled or automatic exports.
 5. Cards: Adaptive Card blocks, actions and link unfurling; then Outlook as
    the first real card-based extension.
 
-## Open questions
+## Decided
 
-1. **Scopes for write grants.** Proposed: the same choice as reading (whole
-   devlog or chosen canvases), set separately. Is a write grant ever needed
-   without a read grant on the same canvases?
-2. **Card data in the block body.** A trailing ```` ```card ```` fence keeps
-   everything in the day file and readable in git; the alternative, card
-   data in the extension's own files keyed by block id, keeps day files
-   cleaner but makes the block depend on the extension's data being there.
-   Proposed: in the block.
+- **Write grants** are scoped like read grants (the whole devlog or chosen
+  canvases), chosen separately in the consent dialog.
+- **Card data** lives in the block (a trailing ```` ```card ```` fence), so a
+  day file is complete and readable in git on its own.

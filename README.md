@@ -443,6 +443,38 @@ write, and it re-reads files that changed on disk when a devlog is opened,
 after a pull, and when the window regains focus (so edits made outside the
 app show up too). Delete it any time; it is rebuilt from the files.
 
+## Extensions
+
+Integrations (time export, calendars, …) come as extensions that a devlog
+opts into. Open **Extensions** from the quick switcher or Settings:
+
+- **Add** one from a GitHub repository's releases (`owner/repo` and a version
+  range such as `^1.0.0`), from a single `https://…/x.devlog-ext.zip`, or one
+  built into Devlog (`builtin`). It is recorded in `devlog.json`, and the
+  exact file it resolved to is pinned by hash in `devlog.lock.json`, so every
+  machine runs the same code.
+- **Allow** it before it runs, on each machine: the dialog shows what it
+  says it talks to and lets you choose what it may **read** and **add
+  blocks to**: the whole devlog, or chosen canvases (with everything inside
+  them). A new version asks again.
+- It runs in its own process with **no access to your files or other
+  programs**, and cannot see other extensions. Its own data lives in
+  `extensions/<id>/` in the devlog (synced) and in user data on this
+  machine. Network access is not restricted, so only grant read access you
+  are comfortable sending to what it talks to.
+- **Settings** it declares go into `devlog.json`; **secrets** (tokens,
+  passwords) are encrypted with the OS keychain on each machine and never
+  written to the devlog. Per-canvas values (a Jira issue, a client id) appear
+  as fields in the canvas dialog, are stored in `canvas.md`, and are
+  inherited by canvases inside.
+- Its **commands** appear in the quick switcher; blocks it writes are marked
+  as its own and are read-only.
+- **Check for updates** re-resolves the version ranges and pins what
+  changed. **Remove** takes it out of the devlog (its data stays).
+
+Writing one: `packages/extension-api/README.md`; the design:
+`docs/EXTENSIONS.md`.
+
 ## Sync behaviour
 
 | Trigger                       | What happens                                                  |
@@ -512,7 +544,11 @@ Code map:
 | `packages/core/src/format/`       | Block and canvas file formats, ids, hierarchy helpers          |
 | `packages/core/src/node/store.ts` | `DevlogStore`: canvases, blocks, todos, assets                 |
 | `packages/core/src/node/repoIndex.ts` | `RepoIndex`: SQLite cache for listings and full-text search |
-| `packages/core/src/node/manifest.ts` | `devlog.json`: the storage format check                    |
+| `packages/core/src/node/manifest.ts` | `devlog.json` (format check, extensions, settings) and `devlog.lock.json` |
+| `packages/core/src/extensions.ts` | Extension manifests, sources and ids, version ranges, grants |
+| `packages/core/src/node/extensionFiles.ts` | The file broker behind an extension's private folders |
+| `packages/extension-api/`         | Types, wire protocol and test harness for extension authors   |
+| `src/main/extensions/`            | Installer, sandboxed extension process, manager (consent, API) |
 | `packages/core/src/node/sync.ts`  | `SyncManager`: commit / pull / push scheduler on `simple-git`  |
 | `packages/core/src/node/activityLog.ts` | Per-machine append-only activity log                   |
 | `src/shared/theme.ts`             | Colour presets and derived theme variables                     |
