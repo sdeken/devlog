@@ -1,7 +1,9 @@
 # Timesheets: design (draft)
 
-Status: **draft for discussion**, nothing built yet. Replaces the simple
-"export the review's rows" idea in `EXTENSIONS.md` (issue #2).
+Status: **draft**. The arithmetic is built and tested in `@devlog/core`
+(`timesheet.ts`: rounding, sessions, draft entries, suggested trims); the
+grid, the managed canvas and the destinations are not. Replaces the simple
+"export the review's rows" idea (issue #2).
 
 ## The problem
 
@@ -35,6 +37,9 @@ activity log + blocks ──► draft timesheet ──(you adjust)──► fina
                                                                  │
                                                        preview ──► submit ──► recorded
 ```
+
+Sending is always something you do: pick a week and a destination, look at
+the preview, press **Send**. There are no scheduled or automatic exports.
 
 - **The timesheet is core, destinations are extensions.** The synopsis comes
   from Devlog's own tracking data, and several destinations share one
