@@ -311,7 +311,9 @@ machines both tracked time at once, the task picked or machine woken most
 recently wins, so no minute is counted twice. Removing time in the review
 applies whichever machine tracked it. Recorded events:
 task switches, lock/unlock, idle/active, sleep/wake, app start/stop, a
-heartbeat, foreground-window changes (process name and window title, which
+heartbeat every five minutes (only while the clock can run: nothing is
+written, and so nothing committed, while the machine is locked, idle or
+asleep), foreground-window changes (process name and window title, which
 for browsers is the active tab), and git events from watched repositories. Focus tracking uses a small PowerShell helper
 on Windows, `osascript` on macOS (window titles need the Accessibility
 permission) and `xdotool` on Linux if present.

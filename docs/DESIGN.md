@@ -292,7 +292,9 @@ not count as unsaved work in the status (`quietPaths`); the interval sync
 commits them. A `heartbeat` every
 five minutes is the liveness signal: segment building treats a gap of more
 than two heartbeats as "the app was not running", so a crash cannot inflate a
-task by a weekend.
+task by a weekend. Heartbeats (and focus changes) are skipped while paused:
+the lock/idle/suspend event already closed the segment, and a locked machine
+that kept writing would also commit and push every five minutes.
 
 Pauses are tracked per reason (locked, idle, suspended) both in the tracker
 and in the replay. The clock runs only when none applies: waking from sleep
