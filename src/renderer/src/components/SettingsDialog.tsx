@@ -185,10 +185,9 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             <input type="checkbox" checked={form.trackingEnabled} onChange={(ev) => set('trackingEnabled', ev.target.checked)} /> Track the active task
             and machine activity (lock, idle, sleep)
           </label>
-          <label className="check">
-            <input type="checkbox" checked={form.trackFocus} disabled={!form.trackingEnabled} onChange={(ev) => set('trackFocus', ev.target.checked)} /> Record the
-            focused window (app and title)
-          </label>
+          <p className="hint">
+            Recording the focused window (app and title) is the <strong>devlog-focus</strong> extension: add it under Extensions to turn it on for this devlog.
+          </p>
           <div className="field-grid">
             <label htmlFor="idle">Pause the task after idle (minutes, 0 = never)</label>
             <input id="idle" type="number" min={0} max={240} value={form.idleMinutes} onChange={(ev) => set('idleMinutes', Number(ev.target.value))} />
@@ -203,13 +202,13 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
               min={0}
               max={120}
               value={form.focusMinSeconds}
-              disabled={!form.trackingEnabled || !form.trackFocus}
+              disabled={!form.trackingEnabled}
               onChange={(ev) => set('focusMinSeconds', Number(ev.target.value))}
             />
           </div>
           <label className="check">
             <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Keep the activity log in the devlog
-            repository, one folder per machine, so time tracked on every machine adds up (synced; window titles included). Off: this machine only
+            repository, one folder per machine, so time tracked on every machine adds up (synced). Off: this machine only
           </label>
           <label className="check">
             <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from canvas

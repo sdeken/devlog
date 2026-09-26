@@ -1,6 +1,7 @@
 /**
  * Tracker: keeps the "one active task at a time" state and records what the
- * machine is doing around it (lock/unlock, idle, sleep, foreground window),
+ * machine is doing around it (lock/unlock, idle, sleep). Foreground-window
+ * tracking is the devlog-focus extension's (see extensions/manager.ts),
  * so the review can turn notes into time.
  */
 import { EventEmitter } from 'node:events'
@@ -10,7 +11,6 @@ import { powerMonitor } from 'electron'
 import { HEARTBEAT_MS } from '@shared/activity'
 import type { ActivityEvent, Settings, TrackerStatus } from '@shared/types'
 import { ActivityLog } from '@devlog/core/node'
-import { ForegroundWatcher } from './foreground'
 
 interface PersistedState {
   activeCanvasId: string | null
@@ -22,11 +22,8 @@ export class Tracker extends EventEmitter {
     activeCanvasId: null,
     since: null,
     paused: false,
-    pausedReason: null,
-    focusAvailable: false,
-    lastFocus: null
+    pausedReason: null
   }
-  private foreground = new ForegroundWatcher()
   private heartbeat: NodeJS.Timeout | null = null
   private idlePoll: NodeJS.Timeout | null = null
   private idle = false
@@ -92,7 +89,6 @@ export class Tracker extends EventEmitter {
     this.idlePoll = setInterval(() => this.pollIdle(), 15_000)
     this.idlePoll.unref?.()
 
-    if (this.settings.trackFocus) this.startFocus()
     this.emitStatus()
   }
 
@@ -108,8 +104,6 @@ export class Tracker extends EventEmitter {
     if (this.idlePoll) clearInterval(this.idlePoll)
     this.heartbeat = null
     this.idlePoll = null
-    this.foreground.stop()
-    this.foreground.removeAllListeners()
     if (this.status.tracking) await this.record({ type: 'stop' })
     this.status.tracking = false
     this.status.since = null
@@ -124,15 +118,6 @@ export class Tracker extends EventEmitter {
       await this.stop()
       await this.start()
       return
-    }
-    if (prev.trackFocus !== next.trackFocus) {
-      if (next.trackFocus) this.startFocus()
-      else {
-        this.foreground.stop()
-        this.foreground.removeAllListeners()
-        this.status.focusAvailable = false
-        this.emitStatus()
-      }
     }
   }
 
@@ -153,19 +138,6 @@ export class Tracker extends EventEmitter {
   }
 
   // -------------------------------------------------------------------------
-
-  private startFocus(): void {
-    this.foreground.removeAllListeners()
-    this.foreground.on('change', (info: { app: string; title: string }) => {
-      this.status.lastFocus = info
-      this.status.focusAvailable = true
-      // The lock screen and waking up shuffle windows around; that's not work.
-      if (!this.pauses.has('locked') && !this.pauses.has('suspended')) void this.record({ type: 'focus', app: info.app, title: info.title })
-      this.emitStatus()
-    })
-    this.foreground.start()
-    this.status.focusAvailable = this.foreground.available
-  }
 
   private pollIdle(): void {
     const threshold = Math.max(0, this.settings.idleMinutes) * 60

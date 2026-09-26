@@ -35,8 +35,19 @@ import { ExtensionHost } from './host'
 import { readMainCode, type ExtensionInstaller, type InstalledExtension } from './install'
 import { devlogKey, type ConsentStore, type SecretStore } from './localState'
 
+/** The platform helper that reports the foreground window (see activity/foreground.ts). */
+export interface ForegroundSource {
+  on(event: 'change', cb: (info: { app: string; title: string }) => void): unknown
+  start(): void
+  stop(): void
+}
+
 export interface ManagerDeps {
   root: string
+  /** This machine's activity folder name, given to extensions as `ctx.machine`. */
+  machine: string
+  /** Makes a foreground-window watcher; started only while an allowed extension listens. */
+  foreground?: () => ForegroundSource
   store: DevlogStore
   userData: string
   installer: ExtensionInstaller
@@ -63,6 +74,10 @@ interface Rec {
   grant: Grant | null
   changedSinceConsent: boolean
   activity: boolean
+  /** Listens for foreground-window changes. */
+  foreground: boolean
+  /** Provides focus events for the app's views. */
+  providesFocus: boolean
   files: { repo: ExtensionFileStore; local: ExtensionFileStore } | null
   secretSet: Set<string>
 }
@@ -123,7 +138,22 @@ export class ExtensionManager {
     } catch {
       /* reported below */
     }
-    const rec: Rec = { key, spec, id, installed: null, host: null, state: 'installing', error: null, grant: null, changedSinceConsent: false, activity: false, files: null, secretSet: new Set() }
+    const rec: Rec = {
+      key,
+      spec,
+      id,
+      installed: null,
+      host: null,
+      state: 'installing',
+      error: null,
+      grant: null,
+      changedSinceConsent: false,
+      activity: false,
+      foreground: false,
+      providesFocus: false,
+      files: null,
+      secretSet: new Set()
+    }
     this.recs.set(key, rec)
     this.deps.onChange()
     let changed = false
@@ -188,11 +218,14 @@ export class ExtensionManager {
       code,
       filename: `devlog-extension://${ext.id}/${ext.manifest.main}`,
       apiVersion: EXTENSION_API_VERSION,
+      machine: this.deps.machine,
       settings: await this.settingValues(ext.id),
       handle: (method, args) => this.handle(rec, method, args)
     })
     rec.host = host
     rec.activity = false
+    rec.foreground = false
+    rec.providesFocus = false
     rec.state = 'starting'
     rec.error = null
     this.deps.onChange()
@@ -203,6 +236,7 @@ export class ExtensionManager {
         rec.error = host.error ?? 'Stopped'
       }
       rec.host = null
+      this.syncForeground()
       this.deps.onChange()
     })
     try {
@@ -221,7 +255,80 @@ export class ExtensionManager {
   private async stopHost(rec: Rec): Promise<void> {
     const host = rec.host
     rec.host = null
+    rec.foreground = false
+    rec.providesFocus = false
+    this.syncForeground()
     if (host) await host.stop().catch(() => undefined)
+  }
+
+  // -------------------------------------------------------------------------
+  // The foreground-window feed and focus providers
+  // -------------------------------------------------------------------------
+
+  private watcher: ForegroundSource | null = null
+  /** Locked or asleep: nothing about windows is passed on. */
+  private readonly pausedBy = new Set<'locked' | 'asleep'>()
+  private get paused(): boolean {
+    return this.pausedBy.size > 0
+  }
+
+  /** The machine was locked/unlocked or went to sleep/woke (from the OS, tracked or not). */
+  setSystemState(state: 'locked' | 'asleep', on: boolean): void {
+    if (on) this.pausedBy.add(state)
+    else if (state === 'locked') this.pausedBy.clear() // unlocking means someone is back
+    else this.pausedBy.delete(state)
+  }
+
+  /** Run the platform helper only while an allowed extension is listening. */
+  private syncForeground(): void {
+    const wanted = !this.stopped && [...this.recs.values()].some((r) => r.host && r.foreground && r.grant?.foregroundWindow)
+    if (wanted && !this.watcher && this.deps.foreground) {
+      const w = this.deps.foreground()
+      w.on('change', (info) => this.foregroundChanged(info))
+      w.start()
+      this.watcher = w
+    } else if (!wanted && this.watcher) {
+      this.watcher.stop()
+      this.watcher = null
+    }
+  }
+
+  private foregroundChanged(info: { app: string; title: string }): void {
+    if (this.paused) return
+    const w = { t: new Date().toISOString(), app: String(info.app).slice(0, 200), title: String(info.title).slice(0, 1000) }
+    for (const rec of this.recs.values()) {
+      if (rec.host && rec.foreground && rec.grant?.foregroundWindow) void rec.host.call('system.foreground', [w], 10_000).catch(() => undefined)
+    }
+  }
+
+  /**
+   * Focus events from extensions that provide them, for the timeline,
+   * review and summary (merged with the core activity log by the caller).
+   */
+  async focusEvents(fromDate: string, toDate: string): Promise<ActivityEvent[]> {
+    const out: ActivityEvent[] = []
+    for (const rec of this.recs.values()) {
+      if (!rec.host || !rec.providesFocus) continue
+      let list: unknown
+      try {
+        list = await rec.host.call('provide.focus', [fromDate, toDate], 20_000)
+      } catch (err) {
+        console.error(`${rec.id}: focus provider failed`, err)
+        continue
+      }
+      if (!Array.isArray(list)) continue
+      for (const raw of list.slice(0, 500_000) as Array<Record<string, unknown>>) {
+        if (!raw || typeof raw.t !== 'string' || Number.isNaN(Date.parse(raw.t))) continue
+        out.push({
+          t: raw.t,
+          type: 'focus',
+          app: typeof raw.app === 'string' ? raw.app.slice(0, 200) : '',
+          title: typeof raw.title === 'string' ? raw.title.slice(0, 1000) : '',
+          machine: typeof raw.machine === 'string' ? raw.machine : this.deps.machine
+        })
+      }
+    }
+    return out
   }
 
   private async drop(key: string): Promise<void> {
@@ -236,6 +343,7 @@ export class ExtensionManager {
     await this.serial(async () => {
       for (const key of [...this.recs.keys()]) await this.drop(key)
     })
+    this.syncForeground()
   }
 
   // -------------------------------------------------------------------------
@@ -386,6 +494,8 @@ export class ExtensionManager {
 
   /** Pass pause/resume/task changes to extensions that listen for them. */
   activity(ev: ActivityEvent): void {
+    if (ev.type === 'lock' || ev.type === 'suspend') this.setSystemState(ev.type === 'lock' ? 'locked' : 'asleep', true)
+    else if (ev.type === 'unlock' || ev.type === 'resume') this.setSystemState(ev.type === 'unlock' ? 'locked' : 'asleep', false)
     const kind = { lock: 'locked', idle: 'idle', suspend: 'suspended' } as const
     let notice: ActivityNotice | null = null
     if (ev.type === 'lock' || ev.type === 'idle' || ev.type === 'suspend') notice = { t: ev.t, type: 'pause', reason: kind[ev.type] }
@@ -549,6 +659,15 @@ export class ExtensionManager {
         return null
       case 'ui.confirm':
         return this.deps.confirm(ext.manifest.displayName, str(0, 'message').slice(0, 1000))
+      case 'system.foreground.subscribe':
+        if (!grant.foregroundWindow) throw new Error('Not allowed to see window titles')
+        rec.foreground = true
+        this.syncForeground()
+        return null
+      case 'provide.register':
+        if (args[0] === 'focus') rec.providesFocus = true
+        else throw new Error(`Cannot provide ${String(args[0])}`)
+        return null
       default:
         throw new Error(`Unknown method ${method}`)
     }

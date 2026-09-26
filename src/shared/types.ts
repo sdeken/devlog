@@ -19,7 +19,7 @@ export interface Settings {
   authorEmail: string
   /** Record task, lock/idle and focus events while the app runs. */
   trackingEnabled: boolean
-  /** Record the foreground window (app + title). */
+  /** Window tracking was on before 0.8 (it is now the devlog-focus extension); only used to say so once. */
   trackFocus: boolean
   /** Minutes without input before the active task is paused. 0 disables. */
   idleMinutes: number
@@ -56,7 +56,7 @@ export const DEFAULT_SETTINGS: Settings = {
   authorName: '',
   authorEmail: '',
   trackingEnabled: true,
-  trackFocus: true,
+  trackFocus: false,
   idleMinutes: 10,
   activityInRepo: true,
   captureCommits: true,
@@ -87,8 +87,6 @@ export interface TrackerStatus {
   since: string | null
   paused: boolean
   pausedReason: 'locked' | 'idle' | 'suspended' | null
-  focusAvailable: boolean
-  lastFocus: { app: string; title: string } | null
 }
 
 // ---------------------------------------------------------------------------

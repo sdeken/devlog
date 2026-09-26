@@ -164,7 +164,7 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
   return (
     <footer className="statusbar">
       {tracker?.tracking && (
-        <span className="task-status" title={tracker.lastFocus ? `Focused: ${tracker.lastFocus.app} — ${tracker.lastFocus.title}` : 'Activity tracking on'}>
+        <span className="task-status" title="Activity tracking on">
           <span className={`status-dot status-${tracker.activeCanvasId ? (tracker.paused ? 'dirty' : 'busy') : 'idle'}`} />
           <button type="button" className="task-label link" onClick={onOpenTimeline} title="Open today's timeline">
             {tracker.activeCanvasId ? (

@@ -19,7 +19,7 @@ my-extension/
   "name": "devlog-jira",                 // lowercase, digits, . _ -
   "displayName": "Jira time export",
   "version": "1.2.0",
-  "api": "^1.0.0",                       // the extension API it was built for
+  "api": "^1.1.0",                       // the extension API it was built for
   "main": "main.js",
   "contributes": {
     "canvasFields": [{ "key": "issue", "label": "Jira issue", "placeholder": "ACME-123" }],
@@ -68,6 +68,13 @@ The full API, with comments, is `src/index.ts`. In short:
 | `ctx.activity.on(cb)` | pause (locked, idle, asleep), resume, task changes |
 | `ctx.ui` | `notify(message)`, `confirm(message)` |
 | `ctx.commands.register(id, run)` | for commands declared in the manifest |
+| `ctx.machine` | this machine's folder name, for per-machine files (1.1) |
+| `ctx.system.onForegroundWindow(cb)` | the window in front, while unlocked and awake; needs `"permissions": { "foregroundWindow": true }` (1.1) |
+| `ctx.provide.focus(fn)` | focus events for the app's timeline, review and summary (1.1) |
+
+`builtin-extensions/devlog-focus` is a complete, small example (window
+tracking): per-machine JSON-lines files, a system feed, data given back to
+the app.
 
 What does **not** work, by design: `fs`, `child_process`, `worker_threads`,
 native addons (all refused by the runtime), and `require` of anything but

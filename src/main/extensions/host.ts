@@ -8,7 +8,7 @@
  */
 import { fork, type ChildProcess } from 'node:child_process'
 import { EventEmitter } from 'node:events'
-import type { CallMessage, FromExtension, ToExtension } from '@devlog/extension-api/protocol'
+import type { CallMessage, ExtensionSideMethod, FromExtension, ToExtension } from '@devlog/extension-api/protocol'
 
 export interface HostOptions {
   id: string
@@ -17,6 +17,7 @@ export interface HostOptions {
   code: string
   filename: string
   apiVersion: string
+  machine: string
   settings: Record<string, string>
   /** Handles the extension's API calls. */
   handle: (method: string, args: unknown[]) => Promise<unknown>
@@ -112,7 +113,7 @@ export class ExtensionHost extends EventEmitter {
         this.fail(err.message)
         reject(err)
       })
-      this.post({ t: 'init', id: this.opts.id, apiVersion: this.opts.apiVersion, code: this.opts.code, filename: this.opts.filename, settings: this.opts.settings })
+      this.post({ t: 'init', id: this.opts.id, apiVersion: this.opts.apiVersion, machine: this.opts.machine, code: this.opts.code, filename: this.opts.filename, settings: this.opts.settings })
     })
   }
 
@@ -137,7 +138,7 @@ export class ExtensionHost extends EventEmitter {
   }
 
   /** Call into the extension (run a command, deliver a notice). */
-  call(method: 'command.run' | 'activity.notice', args: unknown[], timeoutMs = 5 * 60_000): Promise<unknown> {
+  call(method: ExtensionSideMethod, args: unknown[], timeoutMs = 5 * 60_000): Promise<unknown> {
     if (this.state !== 'running' || !this.child) return Promise.reject(new Error('The extension is not running'))
     const id = this.nextId++
     return new Promise((resolve, reject) => {

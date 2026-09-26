@@ -313,10 +313,16 @@ applies whichever machine tracked it. Recorded events:
 task switches, lock/unlock, idle/active, sleep/wake, app start/stop, a
 heartbeat every five minutes (only while the clock can run: nothing is
 written, and so nothing committed, while the machine is locked, idle or
-asleep), foreground-window changes (process name and window title, which
-for browsers is the active tab), and git events from watched repositories. Focus tracking uses a small PowerShell helper
-on Windows, `osascript` on macOS (window titles need the Accessibility
-permission) and `xdotool` on Linux if present.
+asleep), and git events from watched repositories.
+
+**Window tracking** (which app and window title is in front, for screen
+time in the timeline, review and summary) is the built-in **Window
+tracking** extension (devlog-focus): add it under Extensions and allow it
+window titles. It records only while the machine is unlocked and awake,
+into `extensions/builtin.devlog-focus/<machine>/` in the devlog. The window
+is read by a small PowerShell helper on Windows, `osascript` on macOS
+(window titles need the Accessibility permission) and `xdotool` on Linux if
+present; the helper runs only while the extension is allowed and running.
 
 ## Working copies: commits as blocks, branches as events
 

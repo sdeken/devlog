@@ -15,6 +15,8 @@ export interface IpcDeps {
   getExtensions: () => ExtensionManager | null
   /** A GitHub token for installing extensions from private repositories (kept in the OS keychain). */
   githubToken: { has: () => Promise<boolean>; set: (token: string | null) => Promise<void> }
+  /** Extensions shipped with the app. */
+  builtinExtensions: () => Promise<Array<{ name: string; displayName: string; description?: string }>>
   getStore: () => DevlogStore | null
   getSync: () => SyncManager | null
   openRepo: (root: string, opts?: { create?: boolean }) => Promise<RepoInfo>
@@ -65,6 +67,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.extSetSettings, (_e, key: string, values: Record<string, string>) => touched(ext().setSettings(String(key), values && typeof values === 'object' ? values : {})))
   ipcMain.handle(IPC.extSetSecret, (_e, key: string, secretKey: string, value: string | null) => ext().setSecret(String(key), String(secretKey), typeof value === 'string' ? value : null))
   ipcMain.handle(IPC.extRun, (_e, key: string, commandId: string) => ext().runCommand(String(key), String(commandId)))
+  ipcMain.handle(IPC.extBuiltins, () => deps.builtinExtensions())
   ipcMain.handle(IPC.extGithubToken, async (_e, token?: string | null) => {
     if (token !== undefined) await deps.githubToken.set(typeof token === 'string' && token.trim() ? token.trim() : null)
     return deps.githubToken.has()

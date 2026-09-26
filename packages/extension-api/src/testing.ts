@@ -15,7 +15,7 @@
  * reached by relative paths only, reads and writes respect the grant you
  * give it, and blocks it adds are marked as its own.
  */
-import { API_VERSION, type ActivityNotice, type DevlogContext, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles } from './index'
+import { API_VERSION, type ActivityNotice, type DevlogContext, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type FocusEvent, type ForegroundWindow } from './index'
 
 export interface TestCanvas extends ExtensionCanvas {
   /** Blocks by date. */
@@ -24,6 +24,8 @@ export interface TestCanvas extends ExtensionCanvas {
 
 export interface TestOptions {
   id?: string
+  /** `ctx.machine`. Default `test-machine-0000`. */
+  machine?: string
   canvases?: TestCanvas[]
   settings?: Record<string, string>
   secrets?: Record<string, string>
@@ -53,6 +55,10 @@ export interface TestHarness {
   notice(n: ActivityNotice): void
   /** Change devlog-wide settings (listeners are told). */
   setSettings(s: Record<string, string>): void
+  /** Deliver a foreground-window change (as the app would, when allowed and not locked). */
+  foreground(w: ForegroundWindow): void
+  /** Ask the registered focus provider, as the app's views would. */
+  focus(fromDate: string, toDate: string): Promise<FocusEvent[]>
   commands(): string[]
 }
 
@@ -113,6 +119,8 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
   const settingsListeners: Array<(s: Record<string, string>) => void> = []
   const activityListeners: Array<(n: ActivityNotice) => void> = []
   const commandMap = new Map<string, () => void | Promise<void>>()
+  const foregroundListeners: Array<(w: ForegroundWindow) => void> = []
+  let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
   const h: Omit<TestHarness, 'ctx'> & { ctx?: DevlogContext } = {
     notifications: [],
     confirmations: [],
@@ -131,7 +139,14 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       settings = { ...s }
       for (const cb of settingsListeners) cb(settings)
     },
-    commands: () => [...commandMap.keys()]
+    commands: () => [...commandMap.keys()],
+    foreground: (w) => {
+      for (const cb of foregroundListeners) cb(w)
+    },
+    focus: async (from, to) => {
+      if (!focusProvider) throw new Error('No focus provider registered')
+      return focusProvider(from, to)
+    }
   }
 
   const within = (scope: string[] | 'all' | null | undefined, canvasId: string): boolean => {
@@ -157,6 +172,7 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
   h.ctx = {
     id,
     apiVersion: API_VERSION,
+    machine: opts.machine ?? 'test-machine-0000',
     devlog: {
       canvases: async () => canvases.filter((c) => within(opts.read, c.id) || within(opts.write, c.id)).map(({ days: _d, ...c }) => ({ ...c, fields: { ...c.fields } })),
       field: async (canvasId, key) => {
@@ -230,6 +246,16 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     commands: {
       register: (cmdId, run) => {
         commandMap.set(cmdId, run)
+      }
+    },
+    system: {
+      onForegroundWindow: (cb) => {
+        foregroundListeners.push(cb)
+      }
+    },
+    provide: {
+      focus: (fn) => {
+        focusProvider = fn
       }
     }
   }

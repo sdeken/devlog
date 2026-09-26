@@ -846,6 +846,33 @@ try {
   check(probe['add:Website']?.ok === true && probe['add:Acme Corp']?.ok === false, 'it writes only where allowed')
   check((await fs.readFile(path.join(repo, '.gitattributes'), 'utf8')).includes('extensions/builtin.probe/log/*.jsonl merge=union'), 'its append-only files union-merge in git')
 
+  // Window tracking is a built-in extension: listed under Extensions, it asks for window titles.
+  await page.keyboard.press('Control+k')
+  await page.waitForSelector('.switcher input', { timeout: 5_000 })
+  await page.keyboard.type('extensions')
+  await page.keyboard.press('Enter')
+  await page.waitForSelector('.modal-extensions', { timeout: 5_000 })
+  const focusBuiltin = page.locator('.ext-builtins .ext-item[data-builtin="devlog-focus"]')
+  check((await focusBuiltin.count()) === 1, 'window tracking is offered as a built-in extension')
+  await focusBuiltin.locator('button', { hasText: 'Add' }).click()
+  const focusItem = page.locator('.ext-item[data-ext="devlog-focus"]')
+  await focusItem.locator('button', { hasText: 'Review and allow' }).waitFor({ timeout: 15_000 })
+  await focusItem.locator('button', { hasText: 'Review and allow' }).click()
+  await page.waitForSelector('.modal-consent .scope-picker[data-scope="windows"]', { timeout: 5_000 })
+  check(await page.locator('.scope-picker[data-scope="windows"] input').isChecked(), 'its consent asks about focused windows')
+  await page.locator('.modal-consent button', { hasText: 'Allow' }).click()
+  await focusItem.locator('.ext-state', { hasText: 'Running' }).waitFor({ timeout: 20_000 })
+  check((await focusItem.locator('.ext-perms').textContent()).includes('Window titles: allowed'), 'window tracking runs once allowed')
+  await page.locator('.modal-extensions button', { hasText: 'Done' }).click()
+  // Focus changes it keeps in its own files reach the app's views through activity.range.
+  const machineFolder = JSON.parse(await fs.readFile(path.join(userData, 'machine.json'), 'utf8')).folder
+  const focusDir = path.join(repo, 'extensions', 'builtin.devlog-focus', machineFolder, ymd.slice(0, 4), ymd.slice(5, 7))
+  await fs.mkdir(focusDir, { recursive: true })
+  const focusAt = new Date(Date.now() - 60_000).toISOString()
+  await fs.appendFile(path.join(focusDir, `${ymd}.jsonl`), JSON.stringify({ t: focusAt, app: 'SmokeEditor', title: 'smoke.mjs' }) + '\n')
+  const ranged = await page.evaluate((d) => window.devlog.activity.range(d, d), ymd)
+  check(ranged.some((e) => e.type === 'focus' && e.app === 'SmokeEditor' && e.machine === machineFolder), 'the timeline, review and summary get focus events from the extension')
+
   // Canvas fields: the canvas dialog shows the extension's fields; they land in canvas.md.
   await page.locator('.canvas-tree .canvas-link', { hasText: 'Website' }).first().click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")', { timeout: 10_000 })

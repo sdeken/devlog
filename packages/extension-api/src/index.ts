@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.0.0'
+export const API_VERSION = '1.1.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -55,6 +55,25 @@ export interface ActivityNotice {
   canvasId?: string | null
 }
 
+/** The window in front, as the app's platform helper reports it. */
+export interface ForegroundWindow {
+  /** When it came to the front (ISO). */
+  t: string
+  /** Process / application name. */
+  app: string
+  /** Window title (for browsers, the active tab). */
+  title: string
+}
+
+/** A focus change for the app's timeline, review and summary. */
+export interface FocusEvent {
+  t: string
+  app: string
+  title: string
+  /** The machine folder it was recorded on (`ctx.machine` there). */
+  machine: string
+}
+
 export interface ExtensionFileInfo {
   path: string
   size: number
@@ -78,6 +97,8 @@ export interface DevlogContext {
   readonly id: string
   /** The Devlog app's extension API version. */
   readonly apiVersion: string
+  /** This machine's folder name in the devlog (host name plus a short id), for per-machine files. (1.1) */
+  readonly machine: string
 
   /** The devlog, filtered by what you granted this extension. */
   devlog: {
@@ -115,6 +136,20 @@ export interface DevlogContext {
   }
   /** Commands appear in the quick switcher (declared in `contributes.commands`). */
   commands: { register(id: string, run: () => void | Promise<void>): void }
+  /** What the app can observe for you, with your permission. (1.1) */
+  system: {
+    /**
+     * Foreground-window changes (needs `permissions.foregroundWindow`, and
+     * the user's consent). Nothing is delivered while the machine is locked
+     * or asleep.
+     */
+    onForegroundWindow(cb: (w: ForegroundWindow) => void): void
+  }
+  /** Data the app draws in its own views. (1.1) */
+  provide: {
+    /** Focus changes between two local dates (inclusive), for the timeline, review and summary. */
+    focus(fn: (fromDate: string, toDate: string) => Promise<FocusEvent[]>): void
+  }
 }
 
 export interface ExtensionModule {

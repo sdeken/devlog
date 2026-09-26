@@ -44,6 +44,7 @@ export const IPC = {
   extSetSecret: 'ext:setSecret',
   extRun: 'ext:run',
   extGithubToken: 'ext:githubToken',
+  extBuiltins: 'ext:builtins',
   todosList: 'todos:list',
   todosAdd: 'todos:add',
   todoReply: 'todo:reply',

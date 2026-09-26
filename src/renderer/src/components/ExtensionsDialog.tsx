@@ -52,10 +52,13 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
   const [error, setError] = useState<string | null>(null)
   const [hasToken, setHasToken] = useState(false)
   const [token, setToken] = useState('')
+  const [builtins, setBuiltins] = useState<Array<{ name: string; displayName: string; description?: string }>>([])
 
   useEffect(() => {
     void api.extensions.githubToken().then(setHasToken)
+    void api.extensions.builtins().then(setBuiltins)
   }, [])
+  const addable = builtins.filter((b) => !list.some((e) => e.key === b.name))
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
@@ -130,6 +133,7 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
               <p className="ext-perms">
                 {e.permissions.read ? <>Reads: {e.grant ? describeScope(canvases, e.grant.read) : 'asks for access'}. </> : 'Reads nothing. '}
                 {e.permissions.write ? <>Writes: {e.grant ? describeScope(canvases, e.grant.write) : 'asks for access'}. </> : null}
+                {e.permissions.foregroundWindow ? <>Window titles: {e.grant ? (e.grant.foregroundWindow ? 'allowed' : 'not allowed') : 'asks for access'}. </> : null}
                 {e.permissions.network?.length ? <>Network: {e.permissions.network.join(', ')}. </> : null}
               </p>
               <div className="ext-actions">
@@ -167,6 +171,26 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
             </li>
           ))}
         </ul>
+
+        {addable.length > 0 && (
+          <section className="ext-builtins">
+            <h3>Built into Devlog</h3>
+            <ul className="ext-list">
+              {addable.map((b) => (
+                <li key={b.name} className="ext-item" data-builtin={b.name}>
+                  <div className="ext-head">
+                    <span className="ext-name">{b.displayName}</span>
+                    <span className="spacer" />
+                    <button type="button" className="btn btn-xs" disabled={busy} onClick={() => void run(() => api.extensions.add(b.name, 'builtin'))}>
+                      Add
+                    </button>
+                  </div>
+                  {b.description && <p className="ext-desc">{b.description}</p>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
         <section className="ext-add">
           <h3>Add an extension</h3>
@@ -302,6 +326,7 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
   const [write, setWrite] = useState<ScopeChoice>(choiceOf(ext.grant?.write, 'some'))
   const [readIds, setReadIds] = useState<string[]>(ext.grant?.read && 'canvases' in ext.grant.read ? ext.grant.read.canvases : [])
   const [writeIds, setWriteIds] = useState<string[]>(ext.grant?.write && 'canvases' in ext.grant.write ? ext.grant.write.canvases : [])
+  const [windows, setWindows] = useState(ext.grant ? Boolean(ext.grant.foregroundWindow) : true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -311,7 +336,11 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
     setBusy(true)
     setError(null)
     try {
-      const grant: Grant = { read: ext.permissions.read ? scope(read, readIds) : null, write: ext.permissions.write ? scope(write, writeIds) : null }
+      const grant: Grant = {
+        read: ext.permissions.read ? scope(read, readIds) : null,
+        write: ext.permissions.write ? scope(write, writeIds) : null,
+        ...(ext.permissions.foregroundWindow && windows ? { foregroundWindow: true } : {})
+      }
       await api.extensions.allow(ext.key, grant)
       onClose()
     } catch (err) {
@@ -355,6 +384,15 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
         )}
         {ext.permissions.write && (
           <ScopePicker label="It may add blocks to" choice={write} ids={writeIds} canvases={canvases} onChoice={setWrite} onIds={setWriteIds} name="write" />
+        )}
+        {ext.permissions.foregroundWindow && (
+          <fieldset className="scope-picker" data-scope="windows">
+            <legend>Focused windows</legend>
+            <label className="check">
+              <input type="checkbox" checked={windows} onChange={(ev) => setWindows(ev.target.checked)} /> Tell it which window is in front (the app and its title,
+              which for browsers is the page) while this computer is unlocked
+            </label>
+          </fieldset>
         )}
         {!ext.permissions.read && !ext.permissions.write && <p className="hint">It does not ask to read or write your notes.</p>}
 

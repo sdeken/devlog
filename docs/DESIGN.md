@@ -275,8 +275,10 @@ Signals come from Electron's `powerMonitor`: `lock-screen`/`unlock-screen`,
 Each is written as an event. Foreground windows come from a long-running
 helper process per platform (`src/main/activity/foreground.ts`): PowerShell
 with `GetForegroundWindow` on Windows, an `osascript` loop on macOS, `xdotool`
-on Linux. They emit only on change; the tracker writes a `focus` event with
-process name and title. There are no native modules.
+on Linux. They emit only on change. There are no native modules. Since 0.8
+the tracker does not record them: the helper runs for the devlog-focus
+extension (see `docs/EXTENSIONS.md`), which keeps `focus` events in its own
+folder, and the app merges them back into the activity the views read.
 
 Events go to `ActivityLog`: JSON lines, one file per local day, one folder
 per machine (`activity/<host>-<id>/…`, the folder name kept in
@@ -292,7 +294,7 @@ not count as unsaved work in the status (`quietPaths`); the interval sync
 commits them. A `heartbeat` every
 five minutes is the liveness signal: segment building treats a gap of more
 than two heartbeats as "the app was not running", so a crash cannot inflate a
-task by a weekend. Heartbeats (and focus changes) are skipped while paused:
+task by a weekend. Heartbeats are skipped while paused:
 the lock/idle/suspend event already closed the segment, and a locked machine
 that kept writing would also commit and push every five minutes.
 

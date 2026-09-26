@@ -8,9 +8,10 @@ import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, 
 import { EXTENSIONS_DIR, JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
 import { localDate, parseDurationMarker } from '@devlog/core'
-import { DevlogStore, RepoIndex, assertSupportedFormat } from '@devlog/core/node'
+import { DevlogStore, RepoIndex, assertSupportedFormat, readManifest } from '@devlog/core/node'
 import { ACTIVITY_DIR, ActivityLog, machineFolder } from '@devlog/core/node'
 import { Tracker } from './activity/tracker'
+import { ForegroundWatcher } from './activity/foreground'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { Updater } from './updates'
@@ -263,6 +264,8 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   const svc = extensionServices()
   extensions = new ExtensionManager({
     root,
+    machine: machineId(),
+    foreground: () => new ForegroundWatcher(),
     store: nextStore,
     userData: app.getPath('userData'),
     installer: svc.installer,
@@ -279,6 +282,7 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     onBlockAdded: () => send(IPC.evEntriesChanged)
   })
   void extensions.load().catch((err) => console.error('extensions failed to load', err))
+  void noticeFocusMoved(root)
 
   const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
   nextCommits.on('commit', (canvasId: string, info: CommitInfo) => void onCommit(canvasId, info))
@@ -294,6 +298,19 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   const info = await repoInfo()
   send(IPC.evRepoChanged, info)
   return info!
+}
+
+/**
+ * 0.8 moved window tracking into the devlog-focus extension. Tell someone
+ * who had it on, once, where it went.
+ */
+async function noticeFocusMoved(root: string): Promise<void> {
+  if (!settings.get().trackFocus) return
+  const manifest = await readManifest(root).catch(() => null)
+  const enabled = Object.entries(manifest?.extensions ?? {}).some(([k, v]) => k === 'devlog-focus' && v === 'builtin')
+  await settings.set({ trackFocus: false })
+  if (enabled) return
+  setTimeout(() => send(IPC.evNotify, 'Window tracking is now the devlog-focus extension. Open Extensions (from the quick switcher or Settings) and add it to keep recording focused windows.'), 3_000)
 }
 
 /** Refreshes run one at a time so a repository linked during a refresh is backfilled exactly once. */
@@ -607,6 +624,7 @@ if (!gotLock) {
     registerIpc({
       settings,
       getExtensions: () => extensions,
+      builtinExtensions: () => extensionServices().installer.listBuiltins(),
       githubToken: {
         has: () => extensionServices().secrets.has(GITHUB_SECRET.id, GITHUB_SECRET.key),
         set: (token) => extensionServices().secrets.set(GITHUB_SECRET.id, GITHUB_SECRET.key, token)
@@ -633,7 +651,9 @@ if (!gotLock) {
       onEntryAdded,
       onCanvasesChanged: refreshCommitWatchers,
       activityRange: async (from, to) => {
-        const events = await activityLog.read(from, to)
+        // The core log, plus focus changes kept by extensions (devlog-focus).
+        const [core, focus] = await Promise.all([activityLog.read(from, to), extensions?.focusEvents(from, to).catch(() => []) ?? []])
+        const events = focus.length ? [...core, ...focus].sort((a, b) => a.t.localeCompare(b.t)) : core
         const aliases = store ? await store.aliasMap() : new Map<string, string>()
         if (aliases.size === 0) return events
         return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))
@@ -748,8 +768,17 @@ if (!gotLock) {
   }
 
   app.whenReady().then(() => {
-    powerMonitor.on('lock-screen', () => (screenLocked = true))
-    powerMonitor.on('unlock-screen', () => (screenLocked = false))
+    // The window feed to extensions stops while locked or asleep, whether or not time tracking is on.
+    powerMonitor.on('lock-screen', () => {
+      screenLocked = true
+      extensions?.setSystemState('locked', true)
+    })
+    powerMonitor.on('unlock-screen', () => {
+      screenLocked = false
+      extensions?.setSystemState('locked', false)
+    })
+    powerMonitor.on('suspend', () => extensions?.setSystemState('asleep', true))
+    powerMonitor.on('resume', () => extensions?.setSystemState('asleep', false))
     updater = new Updater({
       enabled: () => settings.get().autoUpdate,
       windowVisible: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized(),

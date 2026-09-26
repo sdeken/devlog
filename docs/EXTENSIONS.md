@@ -250,35 +250,40 @@ extension, Devlog uses Adaptive Cards:
 ## Window tracking as an extension
 
 Recording the foreground window is useful to some people and noise to
-others, and it is the most privacy-sensitive thing Devlog records. It moves
-out of the core into a first-party extension, **devlog-focus**, built into
-the app (nothing to download) but off until a devlog enables it (#16).
+others, and it is the most privacy-sensitive thing Devlog records. It is a
+first-party extension, **devlog-focus** ("Window tracking"), built into the
+app (nothing to download) and off until a devlog adds it (#16, built in
+0.8.0).
 
 - **What stays core:** the task clock. Task switches, start/stop,
   lock/unlock, idle/active, sleep/wake and heartbeats stay in the core
   activity log, because tracked time, the review and timesheets depend on
   them. The platform helper that reads the foreground window (PowerShell /
   `osascript` / `xdotool`) also stays in the app, since extensions cannot
-  start programs; it runs only while an extension holds the
-  `foregroundWindow` permission.
-- **What moves:** `focus` events, screen time in the review and the
-  Summary, the Timeline's focus lane, and the `trackFocus` /
-  `focusMinSeconds` settings.
-- **Its data** goes to `ctx.files.repo`: per-machine JSON-lines files
-  (`<machine>/YYYY/MM/<date>.jsonl`, append-only, union merge), in the shape
-  of today's `focus` events.
-- **What it gets:** the foreground-window feed and the core's pause/resume
-  events (`ctx.activity`), so nothing is recorded while the machine is
-  locked or asleep. No read access to blocks is needed.
-- **What it contributes:** a Timeline lane and a review/Summary section, as
-  new contribution points (`timelineLanes`, `reviewSections`) whose content
-  is data the app draws (segments, or cards), not extension UI code.
+  start programs; it runs only while an extension that was allowed window
+  titles is listening, and nothing is passed on while the machine is locked
+  or asleep (from the OS's own events, whether or not time tracking is on).
+- **What moved:** recording `focus` events. The core tracker no longer
+  records them, and the "record the focused window" setting is gone (people
+  who had it on are told once where it went).
+- **Its data** is in its own synced folder, one JSON-lines file per machine
+  and day: `extensions/builtin.devlog-focus/<machine>/YYYY/MM/<date>.jsonl`,
+  `{"t", "app", "title"}` per line, append-only and union-merged.
+- **What it gets:** `ctx.system.onForegroundWindow` (API 1.1, needs the
+  `foregroundWindow` permission and your consent) and `ctx.activity`, so it
+  can say again which window is in front when the machine comes back from
+  idle. No read access to notes.
+- **What it gives back:** `ctx.provide.focus(from, to)` returns its events,
+  which the app merges into the activity it hands the timeline, review and
+  summary. Those views draw focus exactly as before; the data just comes from
+  the extension. (Generic contribution points, such as extra timeline lanes,
+  can come later; screen time did not need them.)
 - **Existing data:** `focus` events already in the core activity logs stay
-  there, and the app hands them to the extension once, read-only.
+  there and still show. New ones come from the extension.
 
 This is also the proof that the model works: a real feature, with its own
-synced files, UI contributions and a permission prompt, built only on the
-public API.
+synced files, a system capability behind a permission prompt, and data the
+app draws, built only on the public API.
 
 ## Trust
 
@@ -357,8 +362,8 @@ button, after a preview; there are no scheduled or automatic exports.
    the file broker and per-extension folders, read/write grants and the
    consent prompt, the extension process (with the `--permission` check),
    built-in extensions, the API types and test harness.
-2. **devlog-focus**: window tracking moved out of the core, which proves the
-   loop end to end on a real feature.
+2. **devlog-focus** (done, 0.8.0): window tracking moved out of the core,
+   which proves the loop end to end on a real feature.
 3. Timesheets in core and the app: draft, grid, managed canvas, send
    record (`TIMESHEETS.md`); CSV destination.
 4. Jira and CMS destinations.

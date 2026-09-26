@@ -102,6 +102,8 @@ const api = {
     run: (key: string, commandId: string): Promise<void> => ipcRenderer.invoke(IPC.extRun, key, commandId),
     /** Whether a GitHub token is stored; pass a token (or null) to set (or clear) it. */
     githubToken: (token?: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.extGithubToken, token),
+    /** Extensions that ship with Devlog (add one with its name and "builtin"). */
+    builtins: (): Promise<Array<{ name: string; displayName: string; description?: string }>> => ipcRenderer.invoke(IPC.extBuiltins),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evExtensionsChanged, cb),
     onNotify: (cb: (text: string) => void): Unsubscribe => on(IPC.evNotify, cb)
   },

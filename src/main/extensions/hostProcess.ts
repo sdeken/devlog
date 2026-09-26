@@ -10,7 +10,7 @@
  */
 import { builtinModules } from 'node:module'
 import vm from 'node:vm'
-import type { ActivityNotice, DevlogContext, ExtensionFiles, ExtensionModule } from '@devlog/extension-api'
+import type { ActivityNotice, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent, ForegroundWindow } from '@devlog/extension-api'
 import type { CallMessage, FromExtension, InitMessage, ToExtension } from '@devlog/extension-api/protocol'
 
 const send = (msg: FromExtension): void => {
@@ -31,6 +31,8 @@ function call(method: string, ...args: unknown[]): Promise<unknown> {
 const commands = new Map<string, () => void | Promise<void>>()
 const activityListeners: Array<(n: ActivityNotice) => void> = []
 const settingsListeners: Array<(s: Record<string, string>) => void> = []
+const foregroundListeners: Array<(w: ForegroundWindow) => void> = []
+let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
 let settings: Record<string, string> = {}
 let mod: Partial<ExtensionModule> = {}
 
@@ -51,9 +53,11 @@ function files(store: 'repo' | 'local'): ExtensionFiles {
 
 function makeContext(init: InitMessage): DevlogContext {
   let subscribed = false
+  let foregroundSubscribed: Promise<unknown> | null = null
   return {
     id: init.id,
     apiVersion: init.apiVersion,
+    machine: init.machine,
     devlog: {
       canvases: () => call('devlog.canvases') as ReturnType<DevlogContext['devlog']['canvases']>,
       field: (canvasId, key) => call('devlog.field', canvasId, key) as Promise<string | null>,
@@ -95,6 +99,21 @@ function makeContext(init: InitMessage): DevlogContext {
         commands.set(String(id), run)
         send({ t: 'registered', command: String(id) })
       }
+    },
+    system: {
+      onForegroundWindow: (cb) => {
+        foregroundListeners.push(cb)
+        foregroundSubscribed ??= call('system.foreground.subscribe').catch((err: unknown) => {
+          console.error(err instanceof Error ? err.message : err)
+        })
+      }
+    },
+    provide: {
+      focus: (fn) => {
+        if (typeof fn !== 'function') throw new Error('provide.focus(fn): fn must be a function')
+        focusProvider = fn
+        void call('provide.register', 'focus')
+      }
     }
   }
 }
@@ -127,6 +146,11 @@ async function handleCall(msg: CallMessage): Promise<void> {
       value = await run()
     } else if (msg.method === 'activity.notice') {
       for (const cb of activityListeners) cb(msg.args[0] as ActivityNotice)
+    } else if (msg.method === 'system.foreground') {
+      for (const cb of foregroundListeners) cb(msg.args[0] as ForegroundWindow)
+    } else if (msg.method === 'provide.focus') {
+      if (!focusProvider) throw new Error('No focus provider')
+      value = await focusProvider(String(msg.args[0]), String(msg.args[1]))
     } else throw new Error(`Unknown method ${msg.method}`)
     send({ t: 'res', id: msg.id, ok: true, value: value ?? null })
   } catch (err) {

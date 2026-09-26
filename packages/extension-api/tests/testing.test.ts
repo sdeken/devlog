@@ -46,4 +46,20 @@ describe('the test harness', () => {
     expect(seen).toEqual(['pause', 'settings:1'])
     expect(t.ctx.settings.get('a')).toBe('1')
   })
+
+  it('runs devlog-focus: window changes in, focus events out', async () => {
+    const focus = createRequire(import.meta.url)(path.resolve(__dirname, '../../../builtin-extensions/devlog-focus/main.js')) as ExtensionModule
+    const t = createTestContext({ id: 'builtin.devlog-focus', machine: 'desk-1a2b' })
+    await focus.activate(t.ctx)
+    const at = new Date(2026, 8, 26, 9, 15)
+    t.foreground({ t: at.toISOString(), app: 'Code', title: 'store.ts' })
+    t.notice({ t: new Date(2026, 8, 26, 9, 45).toISOString(), type: 'resume' })
+    const events = await t.focus('2026-09-26', '2026-09-26')
+    expect(events).toEqual([
+      { t: at.toISOString(), app: 'Code', title: 'store.ts', machine: 'desk-1a2b' },
+      { t: new Date(2026, 8, 26, 9, 45).toISOString(), app: 'Code', title: 'store.ts', machine: 'desk-1a2b' }
+    ])
+    expect([...t.files.repo.keys()]).toEqual(['desk-1a2b/2026/09/2026-09-26.jsonl'])
+    expect(await t.focus('2026-09-27', '2026-09-30')).toEqual([])
+  })
 })

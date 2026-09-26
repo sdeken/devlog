@@ -1,0 +1,10 @@
+{
+  "name": "devlog-focus",
+  "displayName": "Window tracking",
+  "version": "1.0.0",
+  "description": "Records which window is in front (app and title) while this computer is unlocked, for screen time in the timeline, review and summary. Kept per machine in the devlog.",
+  "api": "^1.1.0",
+  "main": "main.js",
+  "permissions": { "foregroundWindow": true },
+  "appendOnly": ["**/*.jsonl"]
+}

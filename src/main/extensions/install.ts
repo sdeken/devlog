@@ -88,6 +88,21 @@ export class ExtensionInstaller {
     return this.finish(key, spec, id, source, dir, sha, url, false)
   }
 
+  /** Extensions that ship with the app, for the "add" list. */
+  async listBuiltins(): Promise<Array<{ name: string; displayName: string; description?: string }>> {
+    const out: Array<{ name: string; displayName: string; description?: string }> = []
+    for (const d of await fs.readdir(this.opts.builtinDir, { withFileTypes: true }).catch(() => [])) {
+      if (!d.isDirectory()) continue
+      try {
+        const m = parseExtensionManifest(JSON.parse(await fs.readFile(path.join(this.opts.builtinDir, d.name, EXTENSION_MANIFEST_FILE), 'utf8')))
+        out.push({ name: d.name, displayName: m.displayName, ...(m.description ? { description: m.description } : {}) })
+      } catch {
+        /* not an extension */
+      }
+    }
+    return out.sort((a, b) => a.displayName.localeCompare(b.displayName))
+  }
+
   /** Where the newest matching release is (GitHub), or the URL itself. */
   async resolve(source: ExtensionSource): Promise<{ url: string; version: string | null }> {
     if (source.kind === 'url') return { url: source.url, version: null }
