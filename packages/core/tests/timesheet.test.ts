@@ -6,6 +6,10 @@ import {
   roundToQuarterHour,
   roundWorkMinutes,
   topLevelCanvasId,
+  parseTimesheet,
+  sanitizeTimesheet,
+  serializeTimesheet,
+  type Timesheet,
   type TimesheetEntry,
   type WorkSegment
 } from '../src/index'
@@ -164,5 +168,33 @@ describe('balancing rounding inflation', () => {
     // Acme's short tasks are paid for out of Acme's long entry, never Globex's.
     expect(days[0].suggestions).toEqual([{ entryId: 'a3', from: 120, to: 90 }])
     expect(days[1].suggestions).toEqual([])
+  })
+})
+
+describe('stored timesheets', () => {
+  const sheet = (entries: Array<Partial<TimesheetEntry>> = []): Timesheet => ({
+    week: '2026-09-21',
+    status: 'draft',
+    updatedAt: '',
+    entries: entries.map((e, i) => ({ id: `e${i + 1}`, date: '2026-09-22', start: at(9), minutes: 60, canvasId: 'acme', worked: 58, source: 'tracked', ...e }) as TimesheetEntry)
+  })
+
+  it('keeps timesheets well-formed', () => {
+    expect(sanitizeTimesheet(sheet([{ note: 'line one\nline two' }])).entries[0].note).toBe('line one line two')
+    expect(() => sanitizeTimesheet({ ...sheet(), week: '2026-09-22' })).toThrow(/Monday/)
+    expect(() => sanitizeTimesheet(sheet([{ minutes: 20 }]))).toThrow(/multiple of 15/)
+    expect(() => sanitizeTimesheet(sheet([{ date: '2026-09-28' }]))).toThrow(/not in the week/)
+    expect(() => sanitizeTimesheet(sheet([{ id: 'x' }, { id: 'x' }]))).toThrow(/repeated/)
+    expect(sanitizeTimesheet({ ...sheet(), status: 'weird' }).status).toBe('draft')
+  })
+
+  it('writes a readable table and reads the exact data back', () => {
+    const s = sheet([{ note: 'a | b' }, { id: 'm1', canvasId: 'fix', start: at(11), minutes: 15, worked: 4, source: 'manual' }])
+    const md = serializeTimesheet(s, (id) => ({ acme: 'Acme', fix: 'Acme / Fix login' })[id] ?? id, () => 'acme')
+    expect(md).toContain('| 2026-09-22 | 09:00 | 1:00 | Acme | Acme | a \\| b |')
+    expect(md).toContain('| 2026-09-22 | 11:00 | 0:15 | Acme / Fix login | Acme |  |')
+    expect(md).toContain('1:15 reported, 1:02 worked')
+    expect(parseTimesheet(md)).toEqual(sanitizeTimesheet(s))
+    expect(parseTimesheet('no data here')).toBeNull()
   })
 })

@@ -33,6 +33,8 @@ export const IPC = {
   entryMove: 'entry:move',
   entryPromote: 'entry:promote',
   entryHide: 'entry:hide',
+  timesheetGet: 'timesheet:get',
+  timesheetSave: 'timesheet:save',
   extList: 'ext:list',
   extAdd: 'ext:add',
   extRemove: 'ext:remove',

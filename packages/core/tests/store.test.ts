@@ -448,3 +448,29 @@ describe('canvases in the store', () => {
     expect(await store.listDays('journal')).toEqual([])
   })
 })
+
+describe('timesheets in the store', () => {
+  it('keeps one block per week in a managed canvas; later saves are edits', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    expect(await store.readTimesheet('2026-09-21')).toBeNull()
+    const entry = { id: 'e1', date: '2026-09-22', start: new Date(2026, 8, 22, 9).toISOString(), minutes: 60, canvasId: acme.id, worked: 55, source: 'tracked' as const }
+    const saved = await store.saveTimesheet({ week: '2026-09-21', status: 'draft', entries: [entry] }, new Date(2026, 8, 26, 10))
+    expect(saved.updatedAt).toBe(new Date(2026, 8, 26, 10).toISOString())
+    const canvas = (await store.timesheetsCanvas())!
+    expect(canvas).toMatchObject({ title: 'Timesheets', fields: { 'devlog.managed': 'timesheets' } })
+    expect(await store.readTimesheet('2026-09-21')).toEqual(saved)
+
+    await store.saveTimesheet({ ...saved, status: 'final', entries: [{ ...entry, minutes: 45 }] }, new Date(2026, 8, 26, 11))
+    const again = (await store.readTimesheet('2026-09-21'))!
+    expect(again).toMatchObject({ status: 'final', entries: [{ minutes: 45 }] })
+    expect((await store.timesheetsCanvas(true))!.id).toBe(canvas.id)
+    const day = await store.readDay(canvas.id, '2026-09-21')
+    expect(day.entries).toHaveLength(1)
+    expect(day.entries[0]).toMatchObject({ kind: 'timesheet', meta: { week: '2026-09-21' } })
+    const file = await fs.readFile(path.join(root, `canvases/${canvas.id.slice(0, 2)}/${canvas.id}/entries/2026/09/2026-09-21.md`), 'utf8')
+    expect(file).toContain('<!-- devlog:edit ')
+    expect(file).toContain('| 2026-09-22 | 09:00 | 1:00 | Acme | Acme |')
+    await expect(store.updateEntry(canvas.id, '2026-09-21', day.entries[0].id, 'x')).rejects.toThrow(/read-only/)
+    await expect(store.saveTimesheet({ week: '2026-09-22', entries: [] })).rejects.toThrow(/Monday/)
+  })
+})

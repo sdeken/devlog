@@ -14,6 +14,7 @@ import { Review } from './components/Review'
 import { Summary } from './components/Summary'
 import { QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
 import { Timeline } from './components/Timeline'
+import { Timesheet } from './components/Timesheet'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
@@ -27,7 +28,7 @@ import { kbd } from './keys'
 
 const TIMELINE_DAYS = 10
 
-type View = 'canvas' | 'review' | 'summary' | 'timeline'
+type View = 'canvas' | 'review' | 'summary' | 'timeline' | 'timesheet'
 
 /** A place in the app, for back / forward. */
 interface Place {
@@ -279,7 +280,7 @@ export function App(): React.JSX.Element {
 
   // Window title follows the view.
   useEffect(() => {
-    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : canvasLabel(canvases, canvasId)
+    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : view === 'timesheet' ? 'Timesheet' : canvasLabel(canvases, canvasId)
     document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
   }, [view, canvases, canvasId, search])
 
@@ -484,6 +485,7 @@ export function App(): React.JSX.Element {
             }}
           />
         )}
+        {view === 'timesheet' && !search && <Timesheet canvases={canvases} today={today} />}
         {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
         {view === 'timeline' && !search && (
           <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={openCanvas} />

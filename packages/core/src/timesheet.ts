@@ -125,7 +125,8 @@ export function buildSessions(segments: WorkSegment[], opts: SessionOptions = {}
 // Draft entries
 // ---------------------------------------------------------------------------
 
-export type EntrySource = 'tracked' | 'manual'
+/** Where an entry came from: tracked time, a note's estimate (untracked day), or typed in. */
+export type EntrySource = 'tracked' | 'estimated' | 'manual'
 
 export interface TimesheetEntry {
   id: string
@@ -228,4 +229,96 @@ export function balanceDays(entries: TimesheetEntry[], groupOf: (canvasId: strin
     out.push({ date, group, worked, target, reported, suggestions, residual: diff })
   }
   return out
+}
+
+// ---------------------------------------------------------------------------
+// The stored timesheet
+// ---------------------------------------------------------------------------
+
+export interface Timesheet {
+  /** Monday of the week (local date). */
+  week: string
+  /** `final` once you have approved it (what destinations send). */
+  status: 'draft' | 'final'
+  entries: TimesheetEntry[]
+  updatedAt: string
+}
+
+/** The fenced block that holds a timesheet's exact data under its readable table. */
+export const TIMESHEET_FENCE = 'devlog-timesheet'
+/** Canvas field that marks the canvas Devlog keeps timesheets in. */
+export const MANAGED_FIELD = 'devlog.managed'
+export const TIMESHEETS_MANAGED = 'timesheets'
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+const SOURCES: EntrySource[] = ['tracked', 'estimated', 'manual']
+
+/** Keep a timesheet well-formed (it comes from a file, or from the UI). Throws on what cannot be repaired. */
+export function sanitizeTimesheet(raw: unknown): Timesheet {
+  const o = (raw ?? {}) as Record<string, unknown>
+  const week = String(o.week ?? '')
+  if (!DATE_RE.test(week)) throw new Error('A timesheet needs its week (YYYY-MM-DD)')
+  const [y, m, d] = week.split('-').map(Number)
+  const monday = new Date(y, m - 1, d)
+  if (monday.getDay() !== 1) throw new Error('A timesheet week starts on a Monday')
+  const dates = new Set(Array.from({ length: 7 }, (_, i) => localDate(new Date(y, m - 1, d + i))))
+  const seen = new Set<string>()
+  const entries: TimesheetEntry[] = []
+  for (const e of (Array.isArray(o.entries) ? o.entries : []) as Array<Record<string, unknown>>) {
+    const id = String(e?.id ?? '')
+    const date = String(e?.date ?? '')
+    const start = String(e?.start ?? '')
+    const minutes = Number(e?.minutes)
+    const canvasId = String(e?.canvasId ?? '')
+    if (!/^[A-Za-z0-9_-]{1,40}$/.test(id) || seen.has(id)) throw new Error(`Bad or repeated entry id: ${id}`)
+    if (!dates.has(date)) throw new Error(`Entry ${id}: ${date} is not in the week of ${week}`)
+    if (Number.isNaN(Date.parse(start))) throw new Error(`Entry ${id}: bad start time`)
+    if (!Number.isInteger(minutes) || minutes < QUARTER_MINUTES || minutes > 24 * 60 || minutes % QUARTER_MINUTES !== 0) throw new Error(`Entry ${id}: minutes must be a multiple of 15, at least 15`)
+    if (!canvasId || !/^[a-z0-9-]{1,64}$/.test(canvasId)) throw new Error(`Entry ${id}: bad canvas`)
+    seen.add(id)
+    const worked = Number(e?.worked)
+    const source = SOURCES.includes(e?.source as EntrySource) ? (e.source as EntrySource) : 'manual'
+    const note = typeof e?.note === 'string' ? e.note.replace(/[\r\n]+/g, ' ').trim().slice(0, 500) : ''
+    entries.push({ id, date, start: new Date(start).toISOString(), minutes, canvasId, worked: Number.isFinite(worked) && worked >= 0 ? Math.round(worked * 100) / 100 : 0, source, ...(note ? { note } : {}) })
+  }
+  entries.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start) || a.id.localeCompare(b.id))
+  return { week, status: o.status === 'final' ? 'final' : 'draft', entries, updatedAt: typeof o.updatedAt === 'string' ? o.updatedAt : '' }
+}
+
+const hm = (minutes: number): string => `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`
+const cell = (s: string): string => s.replace(/\|/g, '\\|').replace(/[\r\n]+/g, ' ')
+
+/**
+ * The block body for a timesheet: a readable table (so git and any editor
+ * show what was worked and reported) followed by the exact data, which is
+ * what the app reads back.
+ */
+export function serializeTimesheet(sheet: Timesheet, labelOf: (canvasId: string) => string, clientOf: (canvasId: string) => string): string {
+  const total = sheet.entries.reduce((n, e) => n + e.minutes, 0)
+  const worked = sheet.entries.reduce((n, e) => n + e.worked, 0)
+  const lines = [
+    `**Timesheet, week of ${sheet.week}** (${sheet.status}): ${hm(total)} reported, ${hm(Math.round(worked))} worked`,
+    '',
+    '| Date | Start | Hours | Task | Client | Note |',
+    '|---|---|---|---|---|---|'
+  ]
+  for (const e of sheet.entries) {
+    const d = new Date(e.start)
+    const start = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+    lines.push(`| ${e.date} | ${start} | ${hm(e.minutes)} | ${cell(labelOf(e.canvasId))} | ${cell(labelOf(clientOf(e.canvasId)))} | ${cell(e.note ?? '')} |`)
+  }
+  if (sheet.entries.length === 0) lines.push('| | | | (no entries) | | |')
+  lines.push('', '```' + TIMESHEET_FENCE, JSON.stringify({ week: sheet.week, status: sheet.status, updatedAt: sheet.updatedAt, entries: sheet.entries }), '```')
+  return lines.join('\n')
+}
+
+/** Read a timesheet back from its block body (the fenced data), or null. */
+export function parseTimesheet(markdown: string): Timesheet | null {
+  const m = new RegExp('```' + TIMESHEET_FENCE + '\\n([\\s\\S]*?)\\n```').exec(markdown)
+  if (!m) return null
+  try {
+    return sanitizeTimesheet(JSON.parse(m[1]))
+  } catch {
+    return null
+  }
 }

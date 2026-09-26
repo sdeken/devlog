@@ -5,7 +5,7 @@ import type { ExtensionInfo } from '@shared/extensions'
 
 export type SwitchTarget =
   | { kind: 'canvas'; canvasId: string }
-  | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }
+  | { kind: 'view'; view: 'review' | 'timeline' | 'summary' | 'timesheet' }
   | { kind: 'extensions' }
   | { kind: 'command'; extension: string; command: string }
 
@@ -47,6 +47,7 @@ export function QuickSwitcher({ canvases, extensions = [], onPick, onClose }: Pr
       { key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } },
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
       { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } },
+      { key: 'view:timesheet', label: 'Timesheet', hint: 'view', target: { kind: 'view', view: 'timesheet' } },
       { key: 'extensions', label: 'Extensions', hint: 'manage', target: { kind: 'extensions' } }
     ]
     for (const e of extensions) {

@@ -375,6 +375,22 @@ see its projects and tasks rounded the same way; click a name to open the
 canvas. Rounding happens per row, so the rounded rows may not add up to the
 rounded total.
 
+## Timesheet
+
+**Timesheet** (sidebar) turns a week of tracked time into what you report:
+sessions on the same task (gaps up to 30 minutes count as work), each
+rounded once to quarter hours (anything above zero is at least 15 minutes),
+starting on quarter hours. Days with no tracking use the review's estimate.
+Adjust start times, durations (15-minute steps), tasks, days and notes, add
+or remove entries; per client and day it shows reported against worked
+time and suggests which long entries to trim so short tasks don't inflate
+the day (Apply to take the suggestion). **Mark final** approves the week.
+
+Timesheets are saved in a **Timesheets** canvas Devlog creates on first use:
+one block per week on its Monday, a readable table with the exact data
+underneath, read-only in the stream; every change is an edit record, so the
+history of the adjustments is kept. See `docs/TIMESHEETS.md`.
+
 ## Timeline
 
 **Timeline** (⌘⇧T) shows one day sliced into fixed intervals (5, 15, 30 or 60

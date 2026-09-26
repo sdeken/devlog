@@ -12,7 +12,7 @@
  * read-only), `task` (a note that was turned into a task; `meta.canvas` is
  * the task canvas it opened).
  */
-export const ENTRY_KINDS = ['note', 'commit', 'task', 'todo', 'done'] as const
+export const ENTRY_KINDS = ['note', 'commit', 'task', 'todo', 'done', 'timesheet'] as const
 /**
  * `todo` blocks live in a canvas's todo list (`todos.md`), not in the dated
  * stream; `meta.done` is the ISO time they were ticked off, `meta.task` the

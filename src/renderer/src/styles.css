@@ -4040,3 +4040,187 @@ body.is-resizing {
 .consent-trust p {
   margin: 0 0 6px;
 }
+
+/* ---- Timesheet ---- */
+.ts-state {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.ts-state.state-pending,
+.ts-state.state-saving {
+  color: var(--warn);
+}
+
+.ts-state.state-error {
+  color: var(--danger);
+}
+
+.ts-state.is-final {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.ts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ts-clients {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  margin: 4px 0 12px;
+  font-size: 13px;
+}
+
+.ts-client-name {
+  color: var(--fg-muted);
+}
+
+.ts-day {
+  margin: 0 0 14px;
+}
+
+.ts-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ts-day-name {
+  font-weight: 600;
+}
+
+.ts-day.is-today .ts-day-name {
+  color: var(--accent);
+}
+
+.ts-day-sum {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ts-table td {
+  padding: 3px 6px 3px 0;
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.ts-table select,
+.ts-table input {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.ts-table select:hover,
+.ts-table input:hover,
+.ts-table select:focus,
+.ts-table input:focus {
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+.ts-when {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.ts-minutes {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.ts-hours {
+  display: inline-block;
+  min-width: 3.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.ts-step {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ts-step:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--fg);
+}
+
+.ts-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ts-task select {
+  max-width: 190px;
+}
+
+.ts-when select {
+  width: 4.2em;
+}
+
+.ts-when input[type='time'] {
+  width: 7.4em;
+}
+
+.ts-client-of {
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.ts-note input {
+  width: 100%;
+  min-width: 60px;
+}
+
+.ts-worked {
+  white-space: nowrap;
+  width: 1%;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.ts-row.source-estimated .ts-worked {
+  color: var(--warn);
+}
+
+.ts-remove {
+  width: 1%;
+}
+
+.ts-balance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+  font-size: 12px;
+}

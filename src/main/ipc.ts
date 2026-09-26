@@ -183,6 +183,9 @@ export function registerIpc(deps: IpcDeps): void {
     await deps.trackerSetTask(result.canvas.id)
     return result
   })
+  // Timesheets
+  ipcMain.handle(IPC.timesheetGet, (_e, week: string) => requireStore(deps).readTimesheet(String(week)))
+  ipcMain.handle(IPC.timesheetSave, (_e, sheet: unknown) => requireStore(deps).saveTimesheet(sheet))
   // Todos
   ipcMain.handle(IPC.todosList, async (_e, canvasIds: string[]) => {
     const store = requireStore(deps)

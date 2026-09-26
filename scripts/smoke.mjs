@@ -887,6 +887,53 @@ try {
   await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
 
+  // 6c. Timesheet: a draft from tracked time, adjusted in 15-minute steps, saved in the Timesheets canvas, marked final.
+  const nowMs = Date.now()
+  const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
+  if (nowMs - todayStart > 3.5 * 3600_000) {
+    // An hour on Website from another machine, before this run started (so nothing overlaps it).
+    const sheetDir = path.join(repo, 'activity', 'sheet-machine-0000', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'))
+    await fs.mkdir(sheetDir, { recursive: true })
+    const s0 = nowMs - 3 * 3600_000
+    const lines = [JSON.stringify({ t: new Date(s0).toISOString(), type: 'start', canvasId: websiteId })]
+    for (let m = 5; m < 60; m += 5) lines.push(JSON.stringify({ t: new Date(s0 + m * 60_000).toISOString(), type: 'heartbeat' }))
+    lines.push(JSON.stringify({ t: new Date(s0 + 60 * 60_000).toISOString(), type: 'stop' }))
+    await fs.writeFile(path.join(sheetDir, `${ymd}.jsonl`), `${lines.join('\n')}\n`)
+    const dow = (today.getDay() + 6) % 7
+    const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow)
+    const week = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
+
+    await page.locator('.sidebar-views .view-link', { hasText: 'Timesheet' }).click()
+    await page.waitForSelector('.timesheet .ts-day', { timeout: 20_000 })
+    check((await page.locator('.ts-state').textContent()).includes('not saved yet'), 'the timesheet opens as a draft from tracked time, not saved yet')
+    const rowId = await page.evaluate(
+      ({ date, id }) =>
+        [...document.querySelectorAll(`.ts-day[data-date="${date}"] .ts-row`)].find((r) => r.querySelector('select[aria-label="Task"]').value === id && r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null,
+      { date: ymd, id: websiteId }
+    )
+    check(rowId !== null, 'an hour tracked on Website becomes a 1:00 entry')
+    if (rowId) {
+      const row = page.locator(`.ts-row[data-entry="${rowId}"]`)
+      check((await row.locator('.ts-hours').textContent()) === '1:00', 'the entry reports 1:00')
+      await row.locator('button[aria-label="15 minutes more"]').click()
+      check((await row.locator('.ts-hours').textContent()) === '1:15', 'durations change in 15-minute steps')
+      await page.waitForSelector('.ts-state.state-saved', { timeout: 10_000 })
+      const stored = await page.evaluate((w) => window.devlog.timesheets.get(w), week)
+      check(stored?.entries.some((e) => e.canvasId === websiteId && e.minutes === 75), 'the change is saved')
+      const tsCanvas = (await page.evaluate(() => window.devlog.canvases.list())).find((c) => c.title === 'Timesheets')
+      const tsFile = path.join(canvasFolder(tsCanvas.id), 'entries', week.slice(0, 4), week.slice(5, 7), `${week}.md`)
+      const tsText = await fs.readFile(tsFile, 'utf8')
+      check(tsText.includes('kind=timesheet') && tsText.includes('| 1:15 |') && tsText.includes('```devlog-timesheet'), 'it is a readable table in the Timesheets canvas, with its data')
+      await page.locator('.ts-actions button', { hasText: 'Mark final' }).click()
+      await page.waitForSelector('.ts-state.is-final', { timeout: 10_000 })
+      check((await page.locator('.ts-add').count()) === 0 && (await row.locator('button[aria-label="15 minutes more"]').isDisabled()), 'a final timesheet is read-only until reopened')
+      await page.screenshot({ path: path.join(shots, '04c-timesheet.png') })
+    }
+    await fs.rm(path.join(repo, 'activity', 'sheet-machine-0000'), { recursive: true, force: true })
+    await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
+    await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
+  } else console.log('skip timesheet check: too early in the day for an hour of tracked time today')
+
   // 6b. A long run of completed todos folds into one line and expands to every item.
   const bigList = await page.evaluate(async () => {
     const c = await window.devlog.canvases.create({ title: 'Big list' })

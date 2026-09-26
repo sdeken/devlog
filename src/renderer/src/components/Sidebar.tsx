@@ -3,7 +3,7 @@ import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@devl
 import type { CanvasMeta } from '@shared/types'
 import { kbd } from '@renderer/keys'
 
-export type SidebarSelection = { kind: 'canvas'; canvasId: string } | { kind: 'review' } | { kind: 'summary' } | { kind: 'timeline' }
+export type SidebarSelection = { kind: 'canvas'; canvasId: string } | { kind: 'review' } | { kind: 'summary' } | { kind: 'timeline' } | { kind: 'timesheet' }
 
 interface Props {
   canvases: CanvasMeta[]
@@ -109,6 +109,12 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
             <button type="button" className={`view-link${isView('timeline') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'timeline' })} title={`Day timeline (${kbd('mod', 'shift', 'T')})`}>
               <span className="view-icon">◷</span>
               <span className="view-name">Timeline</span>
+            </button>
+          </li>
+          <li>
+            <button type="button" className={`view-link${isView('timesheet') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'timesheet' })} title="Weekly timesheet: review and adjust reported hours">
+              <span className="view-icon">▤</span>
+              <span className="view-name">Timesheet</span>
             </button>
           </li>
         </ul>

@@ -21,7 +21,7 @@ import type {
   UpdateStatus
 } from '../shared/types'
 import type { ExtensionInfo, ExtensionUpdateReport } from '../shared/extensions'
-import type { Grant } from '@devlog/core'
+import type { Grant, Timesheet } from '@devlog/core'
 
 type Unsubscribe = () => void
 
@@ -86,6 +86,12 @@ const api = {
     promote: (canvasId: string, date: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.entryPromote, canvasId, date, id),
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
+  },
+  timesheets: {
+    /** The saved timesheet for the week starting on `week` (a Monday), or null. */
+    get: (week: string): Promise<Timesheet | null> => ipcRenderer.invoke(IPC.timesheetGet, week),
+    /** Save (the first save creates the week's block in the Timesheets canvas). */
+    save: (sheet: Timesheet): Promise<Timesheet> => ipcRenderer.invoke(IPC.timesheetSave, sheet)
   },
   extensions: {
     /** Extensions of the open devlog, with their state. */

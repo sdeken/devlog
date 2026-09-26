@@ -1,9 +1,12 @@
 # Timesheets: design (draft)
 
-Status: **draft**. The arithmetic is built and tested in `@devlog/core`
-(`timesheet.ts`: rounding, sessions, draft entries, suggested trims); the
-grid, the managed canvas and the destinations are not. Replaces the simple
-"export the review's rows" idea (issue #2).
+Status: **the timesheet is built** (0.9.0): the arithmetic in
+`@devlog/core` (`timesheet.ts`: rounding, sessions, draft entries, suggested
+trims, the stored model), the draft (`src/shared/timesheet.ts`), the weekly
+**Timesheet** view, and storage in the managed Timesheets canvas.
+Destinations (Jira, CMS) and the record of what was sent are next; split and
+merge of entries are not built. Replaces the simple "export the review's
+rows" idea (issue #2).
 
 ## The problem
 
@@ -47,7 +50,16 @@ the preview, press **Send**. There are no scheduled or automatic exports.
   contribute destinations: which canvases they take, their ids, how lines
   are grouped, and how to send them. Destinations contain **no business
   rules** (caps, minimums): those are yours to apply while adjusting.
-- **One timesheet per week**, Monday to Sunday like the review. CMS's own
+- **One timesheet per week**, Monday to Sunday like the review.
+- **Using it (as built):** open **Timesheet** in the sidebar. A week with no
+  saved timesheet shows a draft from tracked time (not saved until you
+  change something, or press Save draft). Change a start time, a duration
+  (− / + in 15-minute steps), the task or the day, add a note, remove an
+  entry, or add one by hand (+ Add on a day). Under each day, a line per
+  client shows what is reported against what was worked, with the suggested
+  trims and an Apply button. **Rebuild from tracked time** replaces the
+  entries with a fresh draft; **Mark final** approves the week and makes it
+  read-only until you Reopen it. Every change is saved within a second. CMS's own
   weeks run Sunday to Saturday, but it takes hours per day, so where a week
   is cut doesn't change what it receives.
 
