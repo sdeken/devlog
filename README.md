@@ -404,6 +404,22 @@ sends it: one worklog per entry, with its start time, duration and note.
 Sending again only sends what changed since the last time, from any
 machine. **Check the Jira connection** (quick switcher) tests the settings.
 
+**Sending to CMS.** The built-in **CMS timesheets** extension fills in the
+Technology Partners consultant timesheet the way the browser does (CMS has
+no API): it logs in with your username and password, reads the week, and
+sets each day's hours (decimal, `7.5`). Add it under Extensions, allow it,
+and in **Set up…** enter your CMS username (saved in the devlog) and
+password (kept on this computer only, never in the repository). **List my
+CMS assignments** (quick switcher) shows your assignments as
+`number: Client / Project`; put the number (or the project name) on each
+client canvas (Edit → CMS assignment). On a final week, **Send to CMS…**
+shows the hours per assignment per day against what CMS has now, and only
+changes the days that differ; a day this sent before that no longer has
+time goes back to 0, and days you typed into CMS yourself are left alone.
+The note is sent as the day's description when there is one; otherwise the
+description CMS has is kept. CMS only opens a day on that day, so time on
+days still ahead (typically the week's Sunday) waits: send again then.
+
 Timesheets are saved in a **Timesheets** canvas Devlog creates on first use:
 one block per week on its Monday, a readable table with the exact data
 underneath, read-only in the stream; every change is an edit record, so the

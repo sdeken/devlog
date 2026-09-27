@@ -532,3 +532,217 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
     expect(String(r)).toMatch(/Set the Jira URL/)
   })
 })
+
+describe('devlog-cms: sending a timesheet as CMS hours', () => {
+  let root: string
+  let userData: string
+  let store: DevlogStore
+  let manager: ExtensionManager
+  let server: import('node:http').Server
+  let updates: Array<Record<string, string>>
+  let logins: number
+  let ids: Record<string, string>
+  const week = '2026-09-21'
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+  const addDays = (s: string, n: number) => {
+    const [y, m, d] = s.split('-').map(Number)
+    return ymd(new Date(y, m - 1, d + n))
+  }
+
+  // A made-up CMS with the same page structure as the real one.
+  const assignments = [
+    { id: '90001', client: 'Initech', project: 'Platform', until: '2099-12-31' },
+    { id: '90002', client: 'Umbrella', project: 'Support', until: '2026-09-23' }
+  ]
+  let hours: Map<string, { hours: number; desc: string }>
+  const tsId = (a: number, date: string) => String(1000 + a * 1000 + Number(date.replace(/-/g, '')) % 1000)
+
+  function weekPage(sunday: string) {
+    const [y, m, d] = addDays(sunday, 6).split('-')
+    const today = ymd(new Date())
+    const rows = assignments.map((a, i) => {
+      const days = [0, 1, 2, 3, 4, 5, 6].map((n) => {
+        const date = addDays(sunday, n)
+        const h = hours.get(tsId(i, date))?.hours ?? 0
+        const text = `${pad(Math.floor(h))}.${pad(Math.round((h % 1) * 100))}`
+        return date > today || date > a.until ? `<TD align="right">&nbsp;</TD>` : `<TD align="right"><A href="TPIServlet?screen=TimesheetScreen&action=retrieve&timesheet_id=${tsId(i, date)}">${text}</A></TD>`
+      })
+      return `<TR class="textdefault" bgcolor="#EEEEEE"><TD>${a.client}</TD><TD>${a.project} </TD>${days.join('')}<TD align="right">0.00</TD><TD><A href="TPIServlet?screen=AssignmentScreen&assignment_id=${a.id}&span=week">Week</A></TD></TR>`
+    })
+    return `<html><body><B>Week Ending: ${m}/${d}/${y.slice(2)}</B><TABLE><TR class="header"><TD>Client</TD><TD>Project</TD></TR>${rows.join('\n')}</TABLE></body></html>`
+  }
+  const loginPage = '<html><form method="POST" action="j_security_check"><input type="hidden" name="from" value=""><input name="j_username"><input type="password" name="j_password" maxlength="14"></form></html>'
+
+  beforeEach(async () => {
+    const http = await import('node:http')
+    updates = []
+    logins = 0
+    hours = new Map([[tsId(0, '2026-09-24'), { hours: 2, desc: 'typed into CMS by hand' }], [tsId(1, '2026-09-22'), { hours: 0, desc: 'earlier words' }]])
+    server = http.createServer((req, res) => {
+      let data = ''
+      req.on('data', (c) => (data += c))
+      req.on('end', () => {
+        const url = new URL(req.url!, 'http://cms')
+        const authed = /JSESSIONID=auth/.test(String(req.headers.cookie ?? ''))
+        res.setHeader('Content-Type', 'text/html')
+        if (req.method === 'POST' && url.pathname === '/consultant/j_security_check') {
+          const form = new URLSearchParams(data)
+          if (form.get('j_username') === 'jdoe' && form.get('j_password') === 'hunter2') {
+            logins++
+            res.setHeader('Set-Cookie', 'JSESSIONID=auth42; Path=/consultant; HttpOnly')
+          }
+          res.statusCode = 302
+          res.setHeader('Location', '/consultant/')
+          return res.end()
+        }
+        if (url.pathname === '/consultant/') return res.end(authed ? '<html>Welcome</html>' : loginPage)
+        if (url.pathname !== '/consultant/servlet/TPIServlet') {
+          res.statusCode = 404
+          return res.end()
+        }
+        if (!authed) {
+          res.setHeader('Set-Cookie', 'JSESSIONID=anon7; Path=/consultant')
+          return res.end(loginPage)
+        }
+        const p = url.searchParams
+        const sundayOf = (id: string) => {
+          const date = [...Array(4000)].map((_, n) => addDays('2025-01-01', n)).find((d) => [0, 1].some((a) => tsId(a, d) === id))!
+          return addDays(date, -new Date(date + 'T00:00').getDay())
+        }
+        if (p.get('action') === 'Update') {
+          const id = p.get('timesheet_id')!
+          updates.push(Object.fromEntries(p))
+          hours.set(id, { hours: Number(p.get('hrs_worked')), desc: p.get('work_desc') ?? '' })
+          return res.end(weekPage(sundayOf(id)))
+        }
+        if (p.get('timesheet_id')) {
+          const id = p.get('timesheet_id')!
+          const h = hours.get(id) ?? { hours: 0, desc: '' }
+          return res.end(`${weekPage(sundayOf(id))}<form action="TPIServlet"><input type="hidden" name="revision_ts" value="rev-${id}"><input name="hrs_worked" value="${h.hours.toFixed(2)}"><textarea name="work_desc">${h.desc}</textarea></form>`)
+        }
+        const [mm, dd, yy] = p.get('ref')!.split('/')
+        return res.end(weekPage(`20${yy}-${mm}-${dd}`))
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as import('node:net').AddressInfo).port
+
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-cmsrepo-'))
+    userData = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-cmsud-'))
+    store = new DevlogStore(root)
+    await store.initLayout()
+    const initech = await store.createCanvas({ title: 'Initech' })
+    const api = await store.createCanvas({ title: 'API work', parentId: initech.id, task: true })
+    const umbrella = await store.createCanvas({ title: 'Umbrella' })
+    const globex = await store.createCanvas({ title: 'Globex' })
+    await store.updateCanvas(initech.id, { fields: { 'ext.builtin.devlog-cms.assignment': '90001' } })
+    await store.updateCanvas(umbrella.id, { fields: { 'ext.builtin.devlog-cms.assignment': 'support' } })
+    ids = { api: api.id, umbrella: umbrella.id, globex: globex.id }
+    await updateManifest(root, (m) => {
+      m.extensions = { 'devlog-cms': 'builtin' }
+    })
+    manager = new ExtensionManager({
+      root,
+      machine: 'desk-1a2b',
+      store,
+      userData,
+      installer: new ExtensionInstaller({ cacheDir: path.join(userData, 'extensions'), builtinDir: path.resolve(__dirname, '../builtin-extensions'), devOverrides: async () => ({}) }),
+      consent: new ConsentStore(path.join(userData, 'consent.json')),
+      secrets: new SecretStore(path.join(userData, 'secrets'), fakeCipher),
+      hostScript: async () => hostScript,
+      notify: () => undefined,
+      confirm: async () => true,
+      onChange: () => undefined,
+      onBlockAdded: () => undefined
+    })
+    await manager.load()
+    await manager.allow('devlog-cms', { read: null, write: null })
+    await manager.setSettings('devlog-cms', { username: 'jdoe', baseurl: `http://127.0.0.1:${port}/consultant` })
+    await manager.setSecret('devlog-cms', 'password', 'hunter2')
+    for (let i = 0; i < 50 && !(await manager.list())[0].destinations[0]?.ready; i++) await new Promise((r) => setTimeout(r, 20))
+  })
+
+  afterEach(async () => {
+    await manager.stopAll()
+    await new Promise((r) => server.close(r))
+    await fs.rm(root, { recursive: true, force: true })
+    await fs.rm(userData, { recursive: true, force: true })
+  })
+
+  const entry = (id: string, canvasId: string, date: string, h: number, minutes: number, note?: string) => {
+    const [y, m, d] = date.split('-').map(Number)
+    return { id, date, start: new Date(y, m - 1, d, h).toISOString(), minutes, canvasId, worked: minutes, source: 'tracked' as const, ...(note ? { note } : {}) }
+  }
+
+  it('logs in, lists assignments, and sends only the days that differ', async () => {
+    expect(await manager.runCommand('devlog-cms', 'check')).toBe('Logged in to CMS as jdoe: 2 assignments this week')
+    expect(await manager.runCommand('devlog-cms', 'assignments')).toBe('90001: Initech / Platform · 90002: Umbrella / Support')
+
+    const entries = [
+      entry('e1', ids.api, '2026-09-22', 9, 60, 'api'),
+      entry('e2', ids.api, '2026-09-22', 10, 30),
+      entry('e3', ids.umbrella, '2026-09-22', 11, 45),
+      entry('e4', ids.umbrella, '2026-09-25', 9, 30),
+      entry('e5', ids.globex, '2026-09-22', 13, 15),
+      entry('e6', ids.api, '2026-09-27', 9, 450)
+    ]
+    await store.saveTimesheet({ week, status: 'final', entries })
+    const preview = await manager.destinationPreview('devlog-cms', 'hours', week)
+    expect(preview.map((l) => [l.id, l.action, l.target])).toEqual([
+      ['skip:e5', 'skip', ''],
+      ['90001|2026-09-22', 'create', 'Initech / Platform'],
+      ['90001|2026-09-27', 'create', 'Initech / Platform'],
+      ['90002|2026-09-22', 'create', 'Umbrella / Support'],
+      ['90002|2026-09-25', 'skip', 'Umbrella / Support']
+    ])
+    expect(preview[0].reason).toMatch(/No CMS assignment/)
+    expect(preview[4].reason).toMatch(/outside its dates/)
+    expect(preview[1]).toMatchObject({ entryIds: ['e1', 'e2'], minutes: 90, description: '0 → 1.5 h · api' })
+
+    logins = 0
+    const first = await manager.destinationSend('devlog-cms', 'hours', week)
+    expect(first).toMatchObject({ failed: [], summary: '3 days filled in (9:45 in CMS this week)' })
+    expect(logins).toBe(1) // once for the whole send, across both CMS weeks
+    expect(updates.map((u) => [u.timesheet_id, u.hrs_worked, u.work_desc, u.revision_ts])).toEqual([
+      [tsId(0, '2026-09-22'), '1.5', 'api', `rev-${tsId(0, '2026-09-22')}`],
+      [tsId(0, '2026-09-27'), '7.5', '', `rev-${tsId(0, '2026-09-27')}`],
+      [tsId(1, '2026-09-22'), '0.75', 'earlier words', `rev-${tsId(1, '2026-09-22')}`]
+    ])
+    // The day typed into CMS by hand is left alone.
+    expect(hours.get(tsId(0, '2026-09-24'))!.hours).toBe(2)
+
+    // Nothing changed: nothing sent.
+    updates = []
+    expect((await manager.destinationPreview('devlog-cms', 'hours', week)).map((l) => l.action)).toEqual(['skip', 'unchanged', 'unchanged', 'unchanged', 'skip'])
+    expect((await manager.destinationSend('devlog-cms', 'hours', week)).summary).toBe('nothing to change (9:45 in CMS this week)')
+    expect(updates).toEqual([])
+
+    // More on Tuesday, nothing on Sunday any more: one changed, one cleared.
+    await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.api, '2026-09-22', 9, 60, 'api'), entry('e2', ids.api, '2026-09-22', 10, 60), entries[2]] })
+    const third = await manager.destinationSend('devlog-cms', 'hours', week)
+    expect(third.summary).toBe('1 changed, 1 cleared (2:45 in CMS this week)')
+    expect(updates.map((u) => [u.timesheet_id, u.hrs_worked])).toEqual([
+      [tsId(0, '2026-09-22'), '2'],
+      [tsId(0, '2026-09-27'), '0']
+    ])
+    const ledger = JSON.parse(await fs.readFile(path.join(root, 'extensions/builtin.devlog-cms/sent', `${week}.json`), 'utf8'))
+    expect(Object.keys(ledger).sort()).toEqual(['90001|2026-09-22', '90002|2026-09-22'])
+  })
+
+  it('waits for days CMS has not opened yet', async () => {
+    const today = ymd(new Date())
+    const monday = addDays(today, 7 - ((new Date().getDay() + 6) % 7))
+    await store.saveTimesheet({ week: monday, status: 'final', entries: [entry('e1', ids.api, addDays(monday, 1), 9, 60)] })
+    const [line] = await manager.destinationPreview('devlog-cms', 'hours', monday)
+    expect(line).toMatchObject({ action: 'skip', target: 'Initech / Platform' })
+    expect(line.reason).toMatch(/on the day/)
+  })
+
+  it('says when CMS turns the login down', async () => {
+    await manager.setSecret('devlog-cms', 'password', 'wrong')
+    await expect(manager.runCommand('devlog-cms', 'check')).rejects.toThrow(/did not accept the username and password/)
+    await manager.setSecret('devlog-cms', 'password', null)
+    expect((await manager.list())[0].missing).toEqual(['CMS password'])
+  })
+})

@@ -404,7 +404,10 @@ export function App(): React.JSX.Element {
         return
       }
       if (target.kind === 'command') {
-        void reported(api.extensions.run(target.extension, target.command))
+        // A command's answer (e.g. "List my CMS assignments") shows as a toast.
+        void reported(api.extensions.run(target.extension, target.command)).then((text) => {
+          if (text) showToast(text, 'info', 15000)
+        })
         return
       }
       setSearch('')

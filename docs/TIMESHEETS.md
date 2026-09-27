@@ -5,8 +5,9 @@ Status: **the timesheet is built** (0.9.0): the arithmetic in
 trims, the stored model), the draft (`src/shared/timesheet.ts`), the weekly
 **Timesheet** view, and storage in the managed Timesheets canvas.
 Sending is built too (0.10.0): destinations in the extension API and the
-built-in **Jira worklogs** extension (devlog-jira). CMS is not built (it has
-no documented API); split and merge of entries are not built. Replaces the simple "export the review's
+built-in **Jira worklogs** extension (devlog-jira); **CMS timesheets**
+(devlog-cms, 0.12.0) fills in the CMS web form (it has no API). Split and
+merge of entries are not built. Replaces the simple "export the review's
 rows" idea (issue #2).
 
 ## The problem
@@ -15,9 +16,9 @@ Tracked time has to reach more than one outside system, and they disagree:
 
 | | Jira | CMS |
 |---|---|---|
-| Unit | a task (Jira issue) | a client |
-| Needs | when the work happened (start + duration) | hours per client per day |
-| Ids | Jira issue keys | CMS client ids, unrelated to Jira's |
+| Unit | a task (Jira issue) | an assignment (client / project) |
+| Needs | when the work happened (start + duration) | decimal hours per assignment per day |
+| Ids | Jira issue keys | CMS assignment numbers, unrelated to Jira's |
 | Which clients | only some (the as-needed client) | all of them |
 
 Every reported duration follows one firm rounding rule (below). Anything
@@ -154,23 +155,28 @@ Each destination (from an extension) declares:
   - Jira: `jira.issue: ACME-123`, normally on each task canvas. A fallback
     issue is just the key set on those tasks (or on a parent canvas, which
     all tasks beneath it then inherit).
-  - CMS: `cms.client: 7731`, normally on the client canvas. Odd cases where
-    one real client has several CMS clients are sub-canvases (projects)
-    with their own `cms.client`, which wins for everything beneath them.
+  - CMS: `ext.builtin.devlog-cms.assignment: 12345` (or the project name),
+    normally on the client canvas. Where one real client has several CMS
+    assignments, sub-canvases (projects) set their own, which wins for
+    everything beneath them.
 
   A canvas with no mapping for a destination (nothing up the tree) is not
   sent there, so the full-time client never reaches Jira. An entry under a
   destination's canvases that can't be mapped (a task with no issue key) is
   flagged in the grid before sending.
 - **Grouping:** how entries become lines. Jira: one worklog per entry
-  (issue, start, duration, note). CMS: one line per CMS client per day
-  (the sum of that day's entries).
+  (issue, start, duration, note). CMS: one line per assignment per day
+  (the sum of that day's entries). CMS weeks run Sunday to Saturday, so a
+  Devlog week touches two; a day only opens in CMS on the day itself (and
+  not outside the assignment's dates), so time on a later day is held back
+  until then.
 - **Send:** submit the lines; return an external id per line.
 
 ### Comments
 
-- **CMS** takes an optional comment per client per day. It is sent empty
-  by default. Later, an LLM could draft it from that day's notes.
+- **CMS** takes a description per assignment per day. devlog-cms sends the
+  day's entry notes joined with `; ` when there are any, and otherwise keeps
+  what CMS has. Later, an LLM could draft it from that day's notes.
 - **Jira** worklog comments are optional too, and meetings often have none.
   Empty by default, with a per-entry "fill from notes" that takes the
   top-level blocks written on the task during that session. Revisit once
@@ -192,7 +198,8 @@ first use, not a task, shown in the sidebar like any canvas):
   history of the shuffling is kept too).
 - **What was sent** is kept by each destination extension in its own synced
   folder (devlog-jira: `extensions/builtin.devlog-jira/sent/<week>.json`,
-  entry id → issue, worklog id and what was sent). Sending again compares
+  entry id → issue, worklog id and what was sent; devlog-cms: assignment
+  and day → hours). Sending again compares
   against it, so a second press, or a second machine, sends only what
   changed, and corrections after the fact send differences. Each send also
   leaves a read-only reply under the week's timesheet block ("Sent to Jira: 3

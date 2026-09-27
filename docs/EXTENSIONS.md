@@ -362,13 +362,23 @@ on the entry's Jira issue (canvas field `issue`), REST v2, Basic auth with an
 account email and API token (Cloud) or a personal access token (Data
 Center), ledger in `sent/<week>.json`.
 
+**devlog-cms** (built in, sandboxed) drives the CMS web pages: form login
+(`j_security_check`, cookies kept in memory for the send), the week page
+parsed for assignment rows and each day's `timesheet_id` link, and the
+day's form submitted with `hrs_worked` in decimal hours. Hours per
+assignment (canvas field `assignment`) per day; the preview compares with
+what CMS shows, so only differing days are sent. Ledger in
+`sent/<week>.json` (assignment|day → hours) so days it filled and that no
+longer have time are set back to 0. The password is a secret, kept on the
+computer.
+
 ## Time export (#2)
 
 See `TIMESHEETS.md`. Time goes through a weekly **timesheet** (core): a
 synopsis you review and shuffle, rounded once to quarter hours, stored in a
 managed *Timesheets* canvas together with a record of every submission.
 Extensions contribute **destinations** (Jira by task with start times,
-built; CMS by client per day, not yet): mapping fields, grouping and
+built; CMS by assignment per day, built): mapping fields, grouping and
 sending. No business
 rules: you finalise the hours. **Sending is always something you do**, by
 button, after a preview; there are no scheduled or automatic exports.

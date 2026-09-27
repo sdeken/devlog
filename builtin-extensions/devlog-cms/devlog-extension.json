@@ -1,0 +1,36 @@
+{
+  "name": "devlog-cms",
+  "displayName": "CMS timesheets",
+  "version": "1.0.0",
+  "description": "Sends a finished timesheet to the Technology Partners consultant timesheet system (CMS): hours per assignment per day, on the assignment set on the task (or a canvas above it). Sending again only changes the days that differ from what CMS shows.",
+  "api": "^1.3.0",
+  "main": "main.js",
+  "contributes": {
+    "canvasFields": [
+      {
+        "key": "assignment",
+        "label": "CMS assignment",
+        "placeholder": "12345, or the project name",
+        "description": "The CMS assignment time on this canvas (and canvases inside it) goes to: its number, or its project name as CMS shows it. \"List my CMS assignments\" in the quick switcher shows them."
+      }
+    ],
+    "settings": [
+      { "key": "username", "label": "CMS username", "required": true, "placeholder": "jdoe" },
+      {
+        "key": "baseurl",
+        "label": "CMS address",
+        "type": "url",
+        "placeholder": "https://consultant.technologypartners.net/consultant",
+        "description": "Leave empty for the usual address."
+      }
+    ],
+    "secrets": [{ "key": "password", "label": "CMS password", "required": true, "description": "Used to log in each time Devlog sends hours; CMS has no tokens." }],
+    "commands": [
+      { "id": "check", "label": "Check the CMS login" },
+      { "id": "assignments", "label": "List my CMS assignments" }
+    ],
+    "check": "check",
+    "destinations": [{ "id": "hours", "label": "CMS" }]
+  },
+  "permissions": { "network": ["consultant.technologypartners.net"] }
+}
