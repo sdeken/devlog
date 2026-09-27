@@ -912,19 +912,28 @@ try {
     const week = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
 
     await page.locator('.sidebar-views .view-link', { hasText: 'Timesheet' }).click()
-    await page.waitForSelector('.timesheet .ts-day', { timeout: 20_000 })
+    await page.waitForSelector('.timesheet .ts-grid', { timeout: 20_000 })
     check((await page.locator('.ts-state').textContent()).includes('not saved yet'), 'the timesheet opens as a draft from tracked time, not saved yet')
-    const rowId = await page.evaluate(
-      ({ date, id }) =>
-        [...document.querySelectorAll(`.ts-day[data-date="${date}"] .ts-row`)].find((r) => r.querySelector('select[aria-label="Task"]').value === id && r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null,
-      { date: seedYmd, id: websiteId }
-    )
+    const minutesOf = (t) => {
+      const m = /(\d+):(\d{2})/.exec(t ?? '')
+      return m ? Number(m[1]) * 60 + Number(m[2]) : 0
+    }
+    const cell = page.locator(`.ts-cell-btn[data-canvas="${websiteId}"][data-date="${seedYmd}"]`)
+    const dayTotal = page.locator(`.ts-total-row .ts-day-total[data-date="${seedYmd}"]`)
+    const cellBefore = minutesOf(await cell.textContent())
+    const totalBefore = minutesOf(await dayTotal.textContent())
+    check(cellBefore >= 60 && totalBefore >= cellBefore, `the grid shows Website's time that day in its cell, and the day's total (${cellBefore} of ${totalBefore} min)`)
+    check((await page.locator(`.ts-client-row .ts-client-label`, { hasText: 'Acme Corp' }).count()) === 1, 'tasks roll up under their client')
+    await cell.click()
+    await page.waitForSelector('.ts-detail .ts-row', { timeout: 5_000 })
+    const rowId = await page.evaluate(() => [...document.querySelectorAll('.ts-detail .ts-row')].find((r) => r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null)
     check(rowId !== null, 'an hour tracked on Website becomes a 1:00 entry')
     if (rowId) {
       const row = page.locator(`.ts-row[data-entry="${rowId}"]`)
       check((await row.locator('.ts-hours').textContent()) === '1:00', 'the entry reports 1:00')
       await row.locator('button[aria-label="15 minutes more"]').click()
       check((await row.locator('.ts-hours').textContent()) === '1:15', 'durations change in 15-minute steps')
+      check(minutesOf(await cell.textContent()) === cellBefore + 15 && minutesOf(await dayTotal.textContent()) === totalBefore + 15, 'the cell and the day total follow')
       await page.waitForSelector('.ts-state.state-saved', { timeout: 10_000 })
       const stored = await page.evaluate((w) => window.devlog.timesheets.get(w), week)
       check(stored?.entries.some((e) => e.canvasId === websiteId && e.minutes === 75), 'the change is saved')

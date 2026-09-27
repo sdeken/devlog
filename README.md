@@ -381,10 +381,15 @@ rounded total.
 sessions on the same task (gaps up to 30 minutes count as work), each
 rounded once to quarter hours (anything above zero is at least 15 minutes),
 starting on quarter hours. Days with no tracking use the review's estimate.
-Adjust start times, durations (15-minute steps), tasks, days and notes, add
-or remove entries; per client and day it shows reported against worked
-time and suggests which long entries to trim so short tasks don't inflate
-the day (Apply to take the suggestion). **Mark final** approves the week.
+
+It is a grid: a column per day, a row per task, tasks grouped under their
+client with a total row for each client, and at the bottom the day's total
+reported (and, muted, what was actually worked). Click a cell to open its
+entries below the grid and change start times, durations (15-minute steps),
+the task, the day or the note, remove one, or add one; click an empty cell to
+add time there, and **+ Add a task…** for a task with no time yet. When
+rounding inflates a client's day, its row shows the suggested trim (−0:45)
+on that day; click it to apply. **Mark final** approves the week.
 
 **Sending to Jira.** Add the built-in **Jira worklogs** extension under
 Extensions and allow it (it is sandboxed: it only talks to Jira). In its

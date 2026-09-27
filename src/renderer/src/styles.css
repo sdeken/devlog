@@ -4069,38 +4069,6 @@ body.is-resizing {
   margin-top: 6px;
 }
 
-.ts-clients {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px 14px;
-  margin: 4px 0 12px;
-  font-size: 13px;
-}
-
-.ts-client-name {
-  color: var(--fg-muted);
-}
-
-.ts-day {
-  margin: 0 0 14px;
-}
-
-.ts-day-head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  padding: 4px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.ts-day-name {
-  font-weight: 600;
-}
-
-.ts-day.is-today .ts-day-name {
-  color: var(--accent);
-}
-
 .ts-day-sum {
   font-size: 12px;
   color: var(--fg-muted);
@@ -4187,12 +4155,6 @@ body.is-resizing {
   width: 7.4em;
 }
 
-.ts-client-of {
-  margin-left: 4px;
-  font-size: 11px;
-  color: var(--fg-muted);
-}
-
 .ts-note input {
   width: 100%;
   min-width: 60px;
@@ -4211,18 +4173,6 @@ body.is-resizing {
 
 .ts-remove {
   width: 1%;
-}
-
-.ts-balance {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  padding: 4px 8px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
-  font-size: 12px;
 }
 
 /* ---- Sending a timesheet ---- */
@@ -4301,4 +4251,156 @@ body.is-resizing {
 .send-result.send-ok {
   color: var(--ok);
   font-size: 13px;
+}
+
+/* The week grid: a row per task under its client, a column per day. */
+.ts-grid {
+  table-layout: fixed;
+}
+
+.ts-col-day {
+  width: 54px;
+}
+
+.ts-col-week {
+  width: 62px;
+}
+
+.ts-grid th[scope='row'] {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-grid .ts-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+}
+
+.ts-client-row th,
+.ts-client-row td {
+  background: var(--bg-2);
+  font-weight: 600;
+}
+
+.ts-client-cell {
+  padding: 5px 8px !important;
+  position: relative;
+}
+
+.ts-task-label {
+  padding-left: 20px !important;
+  font-weight: 400;
+  color: var(--fg);
+}
+
+.ts-task-path {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.ts-cell-btn {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.ts-cell.is-empty .ts-cell-btn {
+  color: transparent;
+}
+
+.ts-cell.is-empty .ts-cell-btn:hover,
+.ts-cell.is-empty .ts-cell-btn:focus-visible {
+  color: var(--fg-muted);
+}
+
+.ts-cell-btn:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ts-cell.is-selected .ts-cell-btn {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--fg);
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.ts-grid .review-total {
+  font-weight: 600;
+  padding: 5px 8px;
+}
+
+.ts-total-row th,
+.ts-total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--border-strong);
+  padding: 6px 8px;
+}
+
+.ts-worked-row th,
+.ts-worked-row td {
+  color: var(--fg-muted);
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.ts-trim {
+  display: block;
+  margin: 2px 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+  cursor: pointer;
+}
+
+.ts-trim.is-add {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.ts-none {
+  color: var(--fg-muted);
+  text-align: center !important;
+  padding: 16px !important;
+}
+
+.ts-add-task {
+  margin: 4px 0 12px;
+}
+
+.ts-add-task select {
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.ts-detail {
+  margin: 8px 0 16px;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.ts-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
 }

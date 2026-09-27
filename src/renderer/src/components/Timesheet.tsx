@@ -66,6 +66,10 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [state, setState] = useState<SaveState>('saved')
   const [confirmRebuild, setConfirmRebuild] = useState(false)
+  /** The cell whose entries are open for editing. */
+  const [selected, setSelected] = useState<{ canvasId: string; date: string } | null>(null)
+  /** Tasks added to the grid that have no entries yet. */
+  const [extraRows, setExtraRows] = useState<string[]>([])
   const [sending, setSending] = useState<{ key: string; destination: string; label: string } | null>(null)
   const destinations = useExtensions().flatMap((e) => e.destinations.filter((d) => d.ready).map((d) => ({ key: e.key, destination: d.id, label: d.label })))
   const dates = useMemo(() => weekDates(start), [start])
@@ -92,6 +96,8 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
     let cancelled = false
     setSheet(null)
     setConfirmRebuild(false)
+    setSelected(null)
+    setExtraRows([])
     void (async () => {
       const saved = await api.timesheets.get(start)
       const next = saved ?? (await buildDraft(start))
@@ -160,33 +166,66 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
   }
 
   const tree = useMemo(() => flattenTree(buildCanvasTree(canvases.filter((c) => c.id !== JOURNAL_ID))), [canvases])
+  const order = useMemo(() => new Map([JOURNAL_ID, ...tree.map((t) => t.canvas.id)].map((id, i) => [id, i])), [tree])
   const clientOf = useCallback((id: string) => topLevelCanvasId(canvases, id), [canvases])
   const label = (id: string): string => (id === JOURNAL_ID ? 'Journal' : canvasLabel(canvases, id))
+  /** A task's name under its client: "Website / Fix login"; the client's own time is "General". */
+  const rowLabel = (id: string): string => {
+    const client = clientOf(id)
+    if (id === client) return 'General'
+    const full = label(id)
+    const prefix = `${label(client)} / `
+    return full.startsWith(prefix) ? full.slice(prefix.length) : full
+  }
   const balances = useMemo(() => (sheet ? balanceDays(sheet.entries, clientOf) : []), [sheet, clientOf])
   const final = sheet?.status === 'final'
 
-  // Week totals per client.
-  const clients = useMemo(() => {
-    const m = new Map<string, { reported: number; worked: number }>()
+  // The grid: minutes per task per day, tasks grouped under their client.
+  const grid = useMemo(() => {
+    const cell = new Map<string, number>() // `${canvasId}|${date}` → reported minutes
+    const workedCell = new Map<string, number>()
+    const taskIds = new Set<string>(extraRows)
     for (const e of sheet?.entries ?? []) {
-      const c = clientOf(e.canvasId)
-      const cur = m.get(c) ?? { reported: 0, worked: 0 }
-      m.set(c, { reported: cur.reported + e.minutes, worked: cur.worked + e.worked })
+      const k = `${e.canvasId}|${e.date}`
+      cell.set(k, (cell.get(k) ?? 0) + e.minutes)
+      workedCell.set(k, (workedCell.get(k) ?? 0) + e.worked)
+      taskIds.add(e.canvasId)
     }
-    return [...m].sort((a, b) => b[1].reported - a[1].reported)
-  }, [sheet, clientOf])
+    const groups = new Map<string, string[]>()
+    for (const id of taskIds) {
+      const c = clientOf(id)
+      groups.set(c, [...(groups.get(c) ?? []), id])
+    }
+    const sum = (ids: string[], date?: string, m: Map<string, number> = cell): number =>
+      ids.reduce((n, id) => n + (date ? (m.get(`${id}|${date}`) ?? 0) : dates.reduce((t, d) => t + (m.get(`${id}|${d}`) ?? 0), 0)), 0)
+    const clients = [...groups]
+      .map(([client, ids]) => ({ client, tasks: ids.sort((a, b) => (order.get(a) ?? 1e9) - (order.get(b) ?? 1e9) || a.localeCompare(b)) }))
+      .sort((a, b) => sum(b.tasks) - sum(a.tasks) || a.client.localeCompare(b.client))
+    return { cell, workedCell, clients, sum }
+  }, [sheet, extraRows, clientOf, order, dates])
+
+  const dayTotal = (date: string): number => sheet?.entries.filter((e) => e.date === date).reduce((n, e) => n + e.minutes, 0) ?? 0
+  const dayWorked = (date: string): number => sheet?.entries.filter((e) => e.date === date).reduce((n, e) => n + e.worked, 0) ?? 0
   const total = sheet?.entries.reduce((n, e) => n + e.minutes, 0) ?? 0
   const worked = sheet?.entries.reduce((n, e) => n + e.worked, 0) ?? 0
 
-  const addEntry = (date: string): void =>
+  const addEntry = (canvasId: string, date: string): void =>
     change((s) => {
       const dayEntries = s.entries.filter((e) => e.date === date)
       const lastEnd = dayEntries.reduce((t, e) => Math.max(t, Date.parse(e.start) + e.minutes * 60_000), 0)
       const startAt = lastEnd || parseLocal(date).setHours(9, 0, 0, 0)
-      const canvasId = dayEntries.at(-1)?.canvasId ?? tree[0]?.canvas.id ?? JOURNAL_ID
       const entry: TimesheetEntry = { id: newEntryId(s.entries), date, start: new Date(startAt).toISOString(), minutes: 60, canvasId, worked: 0, source: 'manual' }
       return { ...s, entries: [...s.entries, entry] }
     })
+
+  /** Edit an entry from the cell panel; moving it to another task or day moves the selection with it. */
+  const editEntry = (e: TimesheetEntry, patch: Partial<TimesheetEntry>): void => {
+    updateEntry(e.id, patch)
+    const inCell = (sheet?.entries ?? []).filter((x) => x.canvasId === e.canvasId && x.date === e.date).length
+    if ((patch.canvasId && patch.canvasId !== e.canvasId) || (patch.date && patch.date !== e.date)) {
+      if (inCell <= 1) setSelected({ canvasId: patch.canvasId ?? e.canvasId, date: patch.date ?? e.date })
+    }
+  }
 
   const applySuggestions = (b: DayBalance): void =>
     change((s) => ({ ...s, entries: s.entries.map((e) => ({ ...e, minutes: b.suggestions.find((x) => x.entryId === e.id)?.to ?? e.minutes })) }))
@@ -198,6 +237,10 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
     saving: 'Saving…',
     error: 'Could not save'
   }
+
+  const selectedEntries = selected && sheet ? sheet.entries.filter((e) => e.canvasId === selected.canvasId && e.date === selected.date).sort((a, b) => a.start.localeCompare(b.start)) : []
+  const inGrid = new Set(grid.clients.flatMap((c) => c.tasks))
+  const addableTasks = [{ id: JOURNAL_ID, depth: 0, title: 'Journal' }, ...tree.map(({ canvas: c, depth }) => ({ id: c.id, depth, title: c.title }))].filter((t) => !inGrid.has(t.id))
 
   return (
     <div className="feed timesheet">
@@ -268,122 +311,234 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
       </header>
 
       {!sheet && <p className="feed-empty">Loading…</p>}
-      {sheet && clients.length > 0 && (
-        <div className="ts-clients">
-          {clients.map(([c, t]) => (
-            <span key={c} className="ts-client" title={`${hm(t.worked)} worked`}>
-              <span className="ts-client-name">{label(c)}</span> {hm(t.reported)}
-            </span>
-          ))}
-        </div>
-      )}
-      {sheet &&
-        dates.map((date) => {
-          const entries = sheet.entries.filter((e) => e.date === date).sort((a, b) => a.start.localeCompare(b.start))
-          const dayBalances = balances.filter((b) => b.date === date && (b.suggestions.length > 0 || b.residual !== 0))
-          const reportedDay = entries.reduce((n, e) => n + e.minutes, 0)
-          const workedDay = entries.reduce((n, e) => n + e.worked, 0)
-          return (
-            <section key={date} className={`ts-day${date === today ? ' is-today' : ''}`} data-date={date}>
-              <div className="ts-day-head">
-                <span className="ts-day-name">{dayHead.format(parseLocal(date))}</span>
-                {entries.length > 0 && (
-                  <span className="ts-day-sum">
-                    {hm(reportedDay)} reported · {hm(workedDay)} worked
-                  </span>
-                )}
-                <span className="spacer" />
-                {!final && (
-                  <button type="button" className="btn btn-quiet btn-xs ts-add" onClick={() => addEntry(date)}>
-                    + Add
-                  </button>
-                )}
-              </div>
-              {entries.length > 0 && (
-                <table className="ts-table">
-                  <tbody>
-                    {entries.map((e) => (
-                      <tr key={e.id} className={`ts-row source-${e.source}`} data-entry={e.id}>
-                        <td className="ts-when">
-                          <select value={e.date} disabled={final} aria-label="Day" onChange={(ev) => updateEntry(e.id, { date: ev.target.value, start: atTime(ev.target.value, timeOf(e.start)) })}>
-                            {dates.map((d) => (
-                              <option key={d} value={d}>
-                                {weekdayFmt.format(parseLocal(d))}
-                              </option>
-                            ))}
-                          </select>
-                          <input type="time" step={900} value={timeOf(e.start)} disabled={final} aria-label="Start" onChange={(ev) => ev.target.value && updateEntry(e.id, { start: atTime(e.date, ev.target.value) })} />
-                        </td>
-                        <td className="ts-minutes">
-                          <button type="button" className="ts-step" disabled={final || e.minutes <= QUARTER_MINUTES} aria-label="15 minutes less" onClick={() => updateEntry(e.id, { minutes: e.minutes - QUARTER_MINUTES })}>
-                            −
-                          </button>
-                          <span className="ts-hours">{hm(e.minutes)}</span>
-                          <button type="button" className="ts-step" disabled={final || e.minutes >= 24 * 60} aria-label="15 minutes more" onClick={() => updateEntry(e.id, { minutes: e.minutes + QUARTER_MINUTES })}>
-                            +
-                          </button>
-                        </td>
-                        <td className="ts-task">
-                          <select value={e.canvasId} disabled={final} aria-label="Task" onChange={(ev) => updateEntry(e.id, { canvasId: ev.target.value })}>
-                            <option value={JOURNAL_ID}>Journal</option>
-                            {!canvases.some((c) => c.id === e.canvasId) && e.canvasId !== JOURNAL_ID && <option value={e.canvasId}>{e.canvasId} (gone)</option>}
-                            {tree.map(({ canvas: c, depth }) => (
-                              <option key={c.id} value={c.id}>
-                                {' '.repeat(depth * 2)}
-                                {c.title}
-                              </option>
-                            ))}
-                          </select>
-                          <span className="ts-client-of">{clientOf(e.canvasId) !== e.canvasId ? label(clientOf(e.canvasId)) : ''}</span>
-                        </td>
-                        <td className="ts-note">
-                          <input type="text" value={e.note ?? ''} placeholder="Note" disabled={final} aria-label="Note" onChange={(ev) => updateEntry(e.id, { note: ev.target.value })} />
-                        </td>
-                        <td className="ts-worked" title={e.source === 'manual' ? 'Added by hand' : `${Math.round(e.worked)} minutes ${e.source}`}>
-                          {e.source === 'manual' ? SOURCE_LABEL.manual : `${hm(e.worked)} ${SOURCE_LABEL[e.source]}`}
-                        </td>
-                        <td className="ts-remove">
-                          {!final && (
-                            <button type="button" className="ts-step" aria-label="Remove" title="Remove this entry" onClick={() => change((s) => ({ ...s, entries: s.entries.filter((x) => x.id !== e.id) }))}>
-                              ✕
+      {sheet && (
+        <div className="review-table-wrap">
+          <table className="review-table ts-grid">
+            <colgroup>
+              <col className="ts-col-label" />
+              {dates.map((d) => (
+                <col key={d} className="ts-col-day" />
+              ))}
+              <col className="ts-col-week" />
+            </colgroup>
+            <thead>
+              <tr>
+                <th scope="col" className="review-corner" />
+                {dates.map((d) => (
+                  <th key={d} scope="col" className={`review-day${d === today ? ' is-today' : ''}`}>
+                    <span className="review-day-name">{dayHead.format(parseLocal(d)).split(/[ ,]+/)[0]}</span>
+                    <span className="review-day-num">{parseLocal(d).getDate()}</span>
+                  </th>
+                ))}
+                <th scope="col" className="review-day review-total">
+                  Week
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {grid.clients.map(({ client, tasks }) => (
+                <FragmentRows key={client}>
+                  <tr className="ts-client-row" data-client={client}>
+                    <th scope="row" className="ts-client-label">
+                      {label(client)}
+                    </th>
+                    {dates.map((d) => {
+                      const b = balances.find((x) => x.date === d && x.group === client)
+                      const trim = b ? b.suggestions.reduce((n, sg) => n + sg.from - sg.to, 0) : 0
+                      const minutes = grid.sum(tasks, d)
+                      return (
+                        <td key={d} className="ts-cell ts-client-cell" title={minutes ? `${hm(minutes)} reported · ${hm(grid.sum(tasks, d, grid.workedCell))} worked` : undefined}>
+                          {minutes ? hm(minutes) : ''}
+                          {b && b.suggestions.length > 0 && !final && (
+                            <button
+                              type="button"
+                              className={`ts-trim${trim > 0 ? '' : ' is-add'}`}
+                              onClick={() => applySuggestions(b)}
+                              title={`Rounding reports ${hm(b.reported)} for ${hm(Math.round(b.worked))} worked. Apply: ${b.suggestions
+                                .map((sg) => {
+                                  const e = sheet.entries.find((x) => x.id === sg.entryId)
+                                  return `${e ? rowLabel(e.canvasId) : sg.entryId} ${hm(sg.from)} → ${hm(sg.to)}`
+                                })
+                                .join(', ')}`}
+                            >
+                              {trim > 0 ? `−${hm(trim)}` : `+${hm(-trim)}`}
                             </button>
                           )}
                         </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              {dayBalances.map((b) => (
-                <div key={b.group} className="ts-balance" data-group={b.group}>
-                  <span>
-                    <strong>{label(b.group)}</strong>: {hm(b.reported)} reported for {hm(b.worked)} worked
-                    {b.suggestions.length > 0 && (
-                      <>
-                        {' '}
-                        · suggest{' '}
-                        {b.suggestions
-                          .map((s) => {
-                            const e = entries.find((x) => x.id === s.entryId)
-                            return `${e ? `${label(e.canvasId).split(' / ').pop()} (${timeOf(e.start)})` : s.entryId} ${hm(s.from)} → ${hm(s.to)}`
-                          })
-                          .join(', ')}
-                      </>
-                    )}
-                    {b.residual > 0 && b.suggestions.length === 0 && <> · every entry is already 15 minutes; it cannot be evened out</>}
-                  </span>
-                  {b.suggestions.length > 0 && !final && (
-                    <button type="button" className="btn btn-quiet btn-xs" onClick={() => applySuggestions(b)}>
-                      Apply
-                    </button>
-                  )}
-                </div>
+                      )
+                    })}
+                    <td className="ts-cell ts-client-cell review-total">{hm(grid.sum(tasks))}</td>
+                  </tr>
+                  {tasks.map((id) => (
+                    <tr key={id} className="ts-task-row" data-canvas={id}>
+                      <th scope="row" className="ts-task-label" title={label(id)}>
+                        {(() => {
+                          // The task's own name first; the project path after it, muted (and first to be cut off).
+                          const parts = rowLabel(id).split(' / ')
+                          return (
+                            <>
+                              {parts.at(-1)}
+                              {parts.length > 1 && <span className="ts-task-path"> · {parts.slice(0, -1).join(' / ')}</span>}
+                            </>
+                          )
+                        })()}
+                      </th>
+                      {dates.map((d) => {
+                        const minutes = grid.cell.get(`${id}|${d}`) ?? 0
+                        const isSel = selected?.canvasId === id && selected.date === d
+                        return (
+                          <td key={d} className={`ts-cell${isSel ? ' is-selected' : ''}${minutes ? '' : ' is-empty'}`}>
+                            <button
+                              type="button"
+                              className="ts-cell-btn"
+                              data-canvas={id}
+                              data-date={d}
+                              onClick={() => setSelected(isSel ? null : { canvasId: id, date: d })}
+                              title={minutes ? `${hm(minutes)} reported · ${hm(grid.workedCell.get(`${id}|${d}`) ?? 0)} worked` : final ? '' : 'Add time here'}
+                            >
+                              {minutes ? hm(minutes) : final ? '' : '+'}
+                            </button>
+                          </td>
+                        )
+                      })}
+                      <td className="ts-cell review-total">{hm(grid.sum([id]))}</td>
+                    </tr>
+                  ))}
+                </FragmentRows>
               ))}
-            </section>
-          )
-        })}
-      {sheet && sheet.entries.length === 0 && <p className="feed-empty">No tracked time this week. Add entries by hand with + Add.</p>}
+              {grid.clients.length === 0 && (
+                <tr>
+                  <td colSpan={9} className="ts-none">
+                    No tracked time this week. Add a task below and click a day to add time.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+            <tfoot>
+              <tr className="ts-total-row">
+                <th scope="row">Reported</th>
+                {dates.map((d) => (
+                  <td key={d} className="ts-cell ts-day-total" data-date={d}>
+                    {dayTotal(d) ? hm(dayTotal(d)) : ''}
+                  </td>
+                ))}
+                <td className="ts-cell ts-day-total review-total">{hm(total)}</td>
+              </tr>
+              <tr className="ts-worked-row">
+                <th scope="row">Worked</th>
+                {dates.map((d) => (
+                  <td key={d} className="ts-cell">
+                    {dayWorked(d) ? hm(Math.round(dayWorked(d))) : ''}
+                  </td>
+                ))}
+                <td className="ts-cell review-total">{hm(Math.round(worked))}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {sheet && !final && addableTasks.length > 0 && (
+        <div className="ts-add-task">
+          <select
+            aria-label="Add a task to the grid"
+            value=""
+            onChange={(ev) => {
+              const id = ev.target.value
+              if (id) setExtraRows((rows) => [...rows, id])
+            }}
+          >
+            <option value="">+ Add a task…</option>
+            {addableTasks.map((t) => (
+              <option key={t.id} value={t.id}>
+                {' '.repeat(t.depth * 2)}
+                {t.title}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {sheet && selected && (
+        <section className="ts-detail" aria-label="Entries in this cell">
+          <div className="ts-detail-head">
+            <strong>{label(selected.canvasId)}</strong>
+            <span className="ts-day-sum">
+              {dayHead.format(parseLocal(selected.date))} · {hm(selectedEntries.reduce((n, e) => n + e.minutes, 0))}
+            </span>
+            <span className="spacer" />
+            {!final && (
+              <button type="button" className="btn btn-quiet btn-xs ts-add" onClick={() => addEntry(selected.canvasId, selected.date)}>
+                + Add entry
+              </button>
+            )}
+            <button type="button" className="btn btn-quiet btn-xs" onClick={() => setSelected(null)} aria-label="Close">
+              ✕
+            </button>
+          </div>
+          {selectedEntries.length === 0 && <p className="hint">No time here yet.{final ? '' : ' Add an entry.'}</p>}
+          {selectedEntries.length > 0 && (
+            <table className="ts-table">
+              <tbody>
+                {selectedEntries.map((e) => (
+                  <tr key={e.id} className={`ts-row source-${e.source}`} data-entry={e.id}>
+                    <td className="ts-when">
+                      <select value={e.date} disabled={final} aria-label="Day" onChange={(ev) => editEntry(e, { date: ev.target.value, start: atTime(ev.target.value, timeOf(e.start)) })}>
+                        {dates.map((d) => (
+                          <option key={d} value={d}>
+                            {weekdayFmt.format(parseLocal(d))}
+                          </option>
+                        ))}
+                      </select>
+                      <input type="time" step={900} value={timeOf(e.start)} disabled={final} aria-label="Start" onChange={(ev) => ev.target.value && updateEntry(e.id, { start: atTime(e.date, ev.target.value) })} />
+                    </td>
+                    <td className="ts-minutes">
+                      <button type="button" className="ts-step" disabled={final || e.minutes <= QUARTER_MINUTES} aria-label="15 minutes less" onClick={() => updateEntry(e.id, { minutes: e.minutes - QUARTER_MINUTES })}>
+                        −
+                      </button>
+                      <span className="ts-hours">{hm(e.minutes)}</span>
+                      <button type="button" className="ts-step" disabled={final || e.minutes >= 24 * 60} aria-label="15 minutes more" onClick={() => updateEntry(e.id, { minutes: e.minutes + QUARTER_MINUTES })}>
+                        +
+                      </button>
+                    </td>
+                    <td className="ts-task">
+                      <select value={e.canvasId} disabled={final} aria-label="Task" onChange={(ev) => editEntry(e, { canvasId: ev.target.value })}>
+                        <option value={JOURNAL_ID}>Journal</option>
+                        {!canvases.some((c) => c.id === e.canvasId) && e.canvasId !== JOURNAL_ID && <option value={e.canvasId}>{e.canvasId} (gone)</option>}
+                        {tree.map(({ canvas: c, depth }) => (
+                          <option key={c.id} value={c.id}>
+                            {' '.repeat(depth * 2)}
+                            {c.title}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="ts-note">
+                      <input type="text" value={e.note ?? ''} placeholder="Note" disabled={final} aria-label="Note" onChange={(ev) => updateEntry(e.id, { note: ev.target.value })} />
+                    </td>
+                    <td className="ts-worked" title={e.source === 'manual' ? 'Added by hand' : `${Math.round(e.worked)} minutes ${e.source}`}>
+                      {e.source === 'manual' ? SOURCE_LABEL.manual : `${hm(e.worked)} ${SOURCE_LABEL[e.source]}`}
+                    </td>
+                    <td className="ts-remove">
+                      {!final && (
+                        <button type="button" className="ts-step" aria-label="Remove" title="Remove this entry" onClick={() => change((s) => ({ ...s, entries: s.entries.filter((x) => x.id !== e.id) }))}>
+                          ✕
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </section>
+      )}
       {sending && <SendDialog extensionKey={sending.key} destination={sending.destination} label={sending.label} week={start} onClose={() => setSending(null)} />}
     </div>
   )
+}
+
+/** Rows without a wrapper element (a client row followed by its task rows). */
+function FragmentRows({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <>{children}</>
 }
