@@ -109,9 +109,10 @@ function plan(sheet, ledger) {
 const publicLine = ({ want: _w, prev: _p, ...line }) => line
 
 exports.activate = (ctx) => {
+  // Also the settings page's Test button: the returned text is shown there.
   ctx.commands.register('check', async () => {
     const me = await jira(await config(ctx), 'GET', '/rest/api/2/myself')
-    ctx.ui.notify(`Connected to Jira as ${(me && (me.displayName || me.name || me.emailAddress)) || 'you'}`)
+    return `Connected to Jira as ${(me && (me.displayName || me.name || me.emailAddress)) || 'you'}`
   })
 
   ctx.destinations.register('worklogs', {

@@ -37,6 +37,10 @@ export interface ExtensionInfo {
   commands: Array<ExtensionCommand & { ready: boolean }>
   /** Places finished timesheets can be sent; `ready` once it is running and has registered it. */
   destinations: Array<ExtensionDestination & { ready: boolean }>
+  /** The command that tests its settings, if it has one. */
+  check?: string
+  /** Required settings and secrets that are not set yet (their labels). */
+  missing: string[]
 }
 
 export interface ExtensionUpdateReport {

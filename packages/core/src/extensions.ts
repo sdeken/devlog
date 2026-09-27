@@ -19,10 +19,44 @@ export const LOCK_FILE = 'devlog.lock.json'
 // Manifest
 // ---------------------------------------------------------------------------
 
+export type ExtensionFieldType = 'text' | 'url' | 'email' | 'number' | 'select' | 'checkbox' | 'textarea'
+export const FIELD_TYPES: ExtensionFieldType[] = ['text', 'url', 'email', 'number', 'select', 'checkbox', 'textarea']
+
 export interface ExtensionField {
   key: string
   label: string
   placeholder?: string
+  /** A sentence or two under the field. */
+  description?: string
+  /** How to edit it (settings and canvas fields; secrets are always hidden text). Default text. */
+  type?: ExtensionFieldType
+  /** For `select`. */
+  options?: Array<{ value: string; label: string }>
+  /** The extension cannot work without it; the app says so until it is set. */
+  required?: boolean
+}
+
+/**
+ * Whether a value is acceptable for a field (empty is fine unless required).
+ * Returns the problem, or null.
+ */
+export function fieldProblem(field: ExtensionField, value: string | undefined): string | null {
+  const v = (value ?? '').trim()
+  if (!v) return field.required ? `${field.label} is required` : null
+  switch (field.type) {
+    case 'url':
+      return /^https?:\/\/[^\s/]+/i.test(v) ? null : `${field.label}: enter a web address starting with https://`
+    case 'email':
+      return /^[^\s@]+@[^\s@]+$/.test(v) ? null : `${field.label}: enter an email address`
+    case 'number':
+      return Number.isFinite(Number(v)) ? null : `${field.label}: enter a number`
+    case 'select':
+      return field.options?.some((o) => o.value === v) ? null : `${field.label}: pick one of the options`
+    case 'checkbox':
+      return v === 'true' || v === 'false' ? null : `${field.label}: true or false`
+    default:
+      return null
+  }
 }
 
 export interface ExtensionCommand {
@@ -65,6 +99,8 @@ export interface ExtensionManifest {
     secrets: ExtensionField[]
     commands: ExtensionCommand[]
     destinations: ExtensionDestination[]
+    /** A command that tests the settings (its return value is shown); offered on the settings page. */
+    check?: string
   }
   permissions: ExtensionPermissions
   /** Globs (within its repo folder) that git should union-merge. */
@@ -115,7 +151,27 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
         errors.push(`"contributes.${k}": duplicate key ${f.key}`)
         continue
       }
-      out.push({ key: f.key, label: typeof f.label === 'string' && f.label.trim() ? f.label.trim() : f.key, ...(typeof f.placeholder === 'string' ? { placeholder: f.placeholder } : {}) })
+      const type = f.type === undefined ? undefined : FIELD_TYPES.includes(f.type as ExtensionFieldType) ? (f.type as ExtensionFieldType) : null
+      if (type === null) {
+        errors.push(`"contributes.${k}": ${f.key} has an unknown type ${JSON.stringify(f.type)}`)
+        continue
+      }
+      const options = Array.isArray(f.options)
+        ? (f.options as Array<Record<string, unknown>>).filter((o) => typeof o?.value === 'string').map((o) => ({ value: String(o.value), label: typeof o.label === 'string' ? o.label : String(o.value) }))
+        : undefined
+      if (type === 'select' && !options?.length) {
+        errors.push(`"contributes.${k}": ${f.key} is a select with no options`)
+        continue
+      }
+      out.push({
+        key: f.key,
+        label: typeof f.label === 'string' && f.label.trim() ? f.label.trim() : f.key,
+        ...(typeof f.placeholder === 'string' ? { placeholder: f.placeholder } : {}),
+        ...(typeof f.description === 'string' && f.description.trim() ? { description: f.description.trim() } : {}),
+        ...(type && type !== 'text' ? { type } : {}),
+        ...(options?.length ? { options } : {}),
+        ...(f.required === true ? { required: true } : {})
+      })
     }
     return out
   }
@@ -146,7 +202,12 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
     if (typeof d?.id !== 'string' || !KEY_RE.test(d.id)) errors.push(`"contributes.destinations": id ${JSON.stringify(d?.id)} is not valid`)
     else destinations.push({ id: d.id, label: typeof d.label === 'string' && d.label.trim() ? d.label.trim() : d.id })
   }
-  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations }
+  let check: string | undefined
+  if (c.check !== undefined) {
+    if (typeof c.check !== 'string' || !commands.some((x) => x.id === c.check)) errors.push('"contributes.check" must name one of its commands')
+    else check = c.check
+  }
+  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations, ...(check ? { check } : {}) }
   if (errors.length) throw new Error(`Invalid extension manifest: ${errors.join('; ')}`)
   const displayName = typeof o.displayName === 'string' && o.displayName.trim() ? o.displayName.trim() : name
   return {

@@ -32,6 +32,15 @@ my-extension/
 }
 ```
 
+- **Fields** (`settings`, `secrets`, `canvasFields`) take `key`, `label`,
+  and optionally `description` (shown under the field), `placeholder`,
+  `required: true` (the extension's card says "Needs: …" until it is set),
+  and for settings and canvas fields a `type`: `text` (default), `url`,
+  `email`, `number`, `select` (with `options: [{ value, label }]`),
+  `checkbox` or `textarea`. Values are checked by type when saved.
+- **`check`** names one of your commands that tests the settings (a login,
+  say); the settings page offers **Test** / **Save and test** and shows the
+  text the command returns, or its error.
 - **`contributes`** is what the app shows without running your code: canvas
   fields (in the canvas dialog, stored in `canvas.md` as
   `ext.<id>.<key>`), devlog-wide settings (stored in `devlog.json`), secrets

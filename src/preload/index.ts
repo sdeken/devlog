@@ -106,7 +106,8 @@ const api = {
     update: (): Promise<ExtensionUpdateReport> => ipcRenderer.invoke(IPC.extUpdate),
     setSettings: (key: string, values: Record<string, string>): Promise<void> => ipcRenderer.invoke(IPC.extSetSettings, key, values),
     setSecret: (key: string, secretKey: string, value: string | null): Promise<void> => ipcRenderer.invoke(IPC.extSetSecret, key, secretKey, value),
-    run: (key: string, commandId: string): Promise<void> => ipcRenderer.invoke(IPC.extRun, key, commandId),
+    /** Run a command; resolves to the text it returns, if any (a check's result). */
+    run: (key: string, commandId: string): Promise<string | null> => ipcRenderer.invoke(IPC.extRun, key, commandId),
     /** Whether a GitHub token is stored; pass a token (or null) to set (or clear) it. */
     githubToken: (token?: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.extGithubToken, token),
     /** Extensions that ship with Devlog (add one with its name and "builtin"). */

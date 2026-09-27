@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, describeScope, flattenTree, type Grant, type GrantScope } from '@devlog/core'
+import { JOURNAL_ID, buildCanvasTree, describeScope, fieldProblem, flattenTree, type Grant, type GrantScope } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 import { api } from '@renderer/api'
 import { reported, showToast } from '@renderer/toasts'
+import { FieldRow } from './FieldInput'
 
 /** The extensions of the open devlog, kept current. */
 export function useExtensions(): ExtensionInfo[] {
@@ -62,11 +63,11 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape' && !consentFor) onClose()
+      if (ev.key === 'Escape' && !consentFor && !openSettings) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, consentFor])
+  }, [onClose, consentFor, openSettings])
 
   const run = async (fn: () => Promise<unknown>): Promise<void> => {
     setBusy(true)
@@ -100,9 +101,10 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
     })
 
   const consentTarget = list.find((e) => e.key === consentFor) ?? null
+  const settingsTarget = list.find((e) => e.key === openSettings) ?? null
 
   return (
-    <div className="modal-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && !consentFor && onClose()}>
+    <div className="modal-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && !consentFor && !openSettings && onClose()}>
       <div className="modal modal-extensions" role="dialog" aria-modal="true" aria-labelledby="ext-title">
         <h2 id="ext-title">Extensions</h2>
         <p className="hint">
@@ -153,8 +155,8 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
                   </button>
                 )}
                 {(e.settings.length > 0 || e.secrets.length > 0) && (
-                  <button type="button" className="btn btn-quiet btn-xs" onClick={() => setOpenSettings((k) => (k === e.key ? null : e.key))} aria-expanded={openSettings === e.key}>
-                    Settings
+                  <button type="button" className={`btn btn-xs ${e.missing.length ? 'btn-primary' : 'btn-quiet'}`} onClick={() => setOpenSettings(e.key)}>
+                    {e.missing.length ? 'Set up…' : 'Settings…'}
                   </button>
                 )}
                 {(e.state === 'running' || e.state === 'starting' || e.state === 'failed') && (
@@ -167,7 +169,7 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
                   Remove
                 </button>
               </div>
-              {openSettings === e.key && <ExtensionSettings ext={e} />}
+              {e.missing.length > 0 && e.state !== 'error' && <p className="ext-missing">Needs: {e.missing.join(', ')}</p>}
             </li>
           ))}
         </ul>
@@ -243,71 +245,161 @@ export function ExtensionsDialog({ canvases, onClose }: Props): React.JSX.Elemen
         </div>
       </div>
       {consentTarget && <ConsentDialog ext={consentTarget} canvases={canvases} onClose={() => setConsentFor(null)} />}
+      {settingsTarget && <ExtensionSettingsDialog ext={settingsTarget} onClose={() => setOpenSettings(null)} />}
     </div>
   )
 }
 
-/** Devlog-wide settings (stored in devlog.json) and secrets (this machine's keychain). */
-function ExtensionSettings({ ext }: { ext: ExtensionInfo }): React.JSX.Element {
-  const [values, setValues] = useState<Record<string, string>>(ext.settingValues)
+/**
+ * An extension's settings page: what applies to the whole devlog (saved in
+ * devlog.json, synced) and what stays on this computer (secrets, encrypted
+ * with the OS keychain), checked on save, with the extension's own test.
+ */
+export function ExtensionSettingsDialog({ ext, onClose }: { ext: ExtensionInfo; onClose: () => void }): React.JSX.Element {
+  const [values, setValues] = useState<Record<string, string>>(() => ({ ...ext.settingValues }))
   const [secrets, setSecrets] = useState<Record<string, string>>({})
+  const [replacing, setReplacing] = useState<Record<string, boolean>>({})
+  const [problems, setProblems] = useState<Record<string, string>>({})
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [check, setCheck] = useState<{ ok: boolean; text: string } | null>(null)
+  const dirty = ext.settings.some((f) => (values[f.key] ?? '') !== (ext.settingValues[f.key] ?? '')) || Object.values(secrets).some((v) => v.length > 0)
+
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      if (ev.key === 'Escape' && !busy) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, busy])
+
+  const save = async (): Promise<boolean> => {
+    const found: Record<string, string> = {}
+    for (const f of ext.settings) {
+      const p = fieldProblem({ ...f, required: false }, values[f.key])
+      if (p) found[f.key] = p
+    }
+    setProblems(found)
+    if (Object.keys(found).length) return false
+    setBusy(true)
+    setError(null)
+    try {
+      await api.extensions.setSettings(ext.key, values)
+      for (const f of ext.secrets) if (secrets[f.key]) await api.extensions.setSecret(ext.key, f.key, secrets[f.key])
+      setSecrets({})
+      setReplacing({})
+      setSaved(true)
+      return true
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const test = async (): Promise<void> => {
+    if (dirty && !(await save())) return
+    setCheck(null)
+    setBusy(true)
+    try {
+      const text = await api.extensions.run(ext.key, ext.check!)
+      setCheck({ ok: true, text: text ?? 'Works' })
+    } catch (err) {
+      setCheck({ ok: false, text: (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '') })
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const missing = ext.missing.filter((m) => !ext.secrets.some((f) => f.label === m && secrets[f.key]))
   return (
-    <div className="ext-settings">
-      {ext.settings.map((f) => (
-        <div className="field" key={f.key}>
-          <label htmlFor={`set-${ext.key}-${f.key}`}>{f.label}</label>
-          <input
-            id={`set-${ext.key}-${f.key}`}
-            type="text"
-            placeholder={f.placeholder}
-            value={values[f.key] ?? ''}
-            onChange={(ev) => {
-              setSaved(false)
-              setValues((v) => ({ ...v, [f.key]: ev.target.value }))
-            }}
-          />
-        </div>
-      ))}
-      {ext.settings.length > 0 && (
-        <div className="field-row">
-          <button type="button" className="btn btn-xs" onClick={() => void reported(api.extensions.setSettings(ext.key, values).then(() => setSaved(true)))}>
-            Save settings
-          </button>
-          {saved && <span className="hint">Saved to devlog.json</span>}
-        </div>
-      )}
-      {ext.secrets.map((f) => (
-        <div className="field" key={f.key}>
-          <label htmlFor={`sec-${ext.key}-${f.key}`}>
-            {f.label} <span className="hint">{f.set ? '(set on this machine)' : '(not set)'}</span>
-          </label>
-          <div className="field-row">
-            <input
-              id={`sec-${ext.key}-${f.key}`}
-              type="password"
-              autoComplete="off"
-              placeholder={f.set ? '••••••••' : f.placeholder}
-              value={secrets[f.key] ?? ''}
-              onChange={(ev) => setSecrets((s) => ({ ...s, [f.key]: ev.target.value }))}
-            />
-            <button
-              type="button"
-              className="btn btn-xs"
-              disabled={!secrets[f.key]}
-              onClick={() => void reported(api.extensions.setSecret(ext.key, f.key, secrets[f.key]).then(() => setSecrets((s) => ({ ...s, [f.key]: '' }))))}
-            >
-              Save
+    <div className="modal-backdrop consent-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && !busy && onClose()}>
+      <div className="modal modal-ext-settings" role="dialog" aria-modal="true" aria-labelledby="ext-settings-title">
+        <h2 id="ext-settings-title">{ext.displayName} settings</h2>
+        {ext.description && <p className="hint">{ext.description}</p>}
+
+        {ext.settings.length > 0 && (
+          <section className="ext-settings-section">
+            <h3>This devlog</h3>
+            <p className="hint">Saved in the devlog (devlog.json), so your other machines use them too.</p>
+            {ext.settings.map((f) => (
+              <FieldRow
+                key={f.key}
+                id={`set-${ext.key}-${f.key}`}
+                field={f}
+                value={values[f.key] ?? ''}
+                problem={problems[f.key]}
+                onChange={(v) => {
+                  setSaved(false)
+                  setCheck(null)
+                  setValues((cur) => ({ ...cur, [f.key]: v }))
+                }}
+              />
+            ))}
+          </section>
+        )}
+
+        {ext.secrets.length > 0 && (
+          <section className="ext-settings-section">
+            <h3>This computer</h3>
+            <p className="hint">Encrypted with this computer's keychain and never written to the devlog; each machine keeps its own.</p>
+            {ext.secrets.map((f) => (
+              <div className="field ext-field" key={f.key} data-secret={f.key}>
+                <label htmlFor={`sec-${ext.key}-${f.key}`}>
+                  {f.label}
+                  {f.required && <span className="ext-required" title="Required"> *</span>}
+                </label>
+                {f.set && !replacing[f.key] ? (
+                  <div className="field-row ext-secret-set">
+                    <span className="ext-secret-dots">•••••••• saved on this computer</span>
+                    <button type="button" className="btn btn-quiet btn-xs" onClick={() => setReplacing((r) => ({ ...r, [f.key]: true }))}>
+                      Replace
+                    </button>
+                    <button type="button" className="btn btn-quiet btn-xs" disabled={busy} onClick={() => void reported(api.extensions.setSecret(ext.key, f.key, null))}>
+                      Clear
+                    </button>
+                  </div>
+                ) : (
+                  <input
+                    id={`sec-${ext.key}-${f.key}`}
+                    type="password"
+                    autoComplete="off"
+                    placeholder={f.placeholder}
+                    value={secrets[f.key] ?? ''}
+                    onChange={(ev) => {
+                      setSaved(false)
+                      setCheck(null)
+                      setSecrets((sct) => ({ ...sct, [f.key]: ev.target.value }))
+                    }}
+                  />
+                )}
+                {f.description && <p className="hint">{f.description}</p>}
+              </div>
+            ))}
+          </section>
+        )}
+
+        {missing.length > 0 && <p className="ext-missing">Still needed: {missing.join(', ')}</p>}
+        {check && <p className={check.ok ? 'ext-check-ok' : 'form-error'}>{check.ok ? `✓ ${check.text}` : check.text}</p>}
+        {error && <p className="form-error">{error}</p>}
+        <div className="modal-actions">
+          {ext.check && (
+            <button type="button" className="btn btn-quiet" disabled={busy || ext.state !== 'running'} onClick={() => void test()} title={ext.state === 'running' ? 'Save, then check the settings work' : 'Allow the extension first'}>
+              {dirty ? 'Save and test' : 'Test'}
             </button>
-            {f.set && (
-              <button type="button" className="btn btn-quiet btn-xs" onClick={() => void reported(api.extensions.setSecret(ext.key, f.key, null))}>
-                Clear
-              </button>
-            )}
-          </div>
+          )}
+          {saved && !dirty && <span className="hint">Saved</span>}
+          <span className="spacer" />
+          <button type="button" className="btn btn-quiet" disabled={busy} onClick={onClose}>
+            {dirty ? 'Cancel' : 'Close'}
+          </button>
+          <button type="button" className="btn btn-primary" disabled={busy || !dirty} onClick={() => void save()}>
+            Save
+          </button>
         </div>
-      ))}
-      {ext.secrets.length > 0 && <p className="hint">Secrets are encrypted with this computer's keychain and never written to the devlog.</p>}
+      </div>
     </div>
   )
 }

@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   describeScope,
   extensionId,
+  fieldProblem,
   inheritedField,
   newestMatching,
   parseCanvasFile,
@@ -63,6 +64,43 @@ describe('extension manifests', () => {
     )
     expect(() => parseExtensionManifest([])).toThrow(/not a JSON object/)
     expect(() => parseExtensionManifest({ ...good, contributes: { canvasFields: [{ key: 'Issue Key' }] } })).toThrow(/key/)
+  })
+})
+
+describe('extension settings fields', () => {
+  it('reads types, options, descriptions, required marks and the check command', () => {
+    const m = parseExtensionManifest({
+      name: 'x',
+      version: '1.0.0',
+      api: '^1.0.0',
+      contributes: {
+        settings: [
+          { key: 'url', label: 'Address', type: 'url', required: true, description: 'Where it lives' },
+          { key: 'mode', label: 'Mode', type: 'select', options: [{ value: 'a', label: 'A' }, { value: 'b' }] }
+        ],
+        commands: [{ id: 'check', label: 'Check' }],
+        check: 'check'
+      }
+    })
+    expect(m.contributes.settings).toEqual([
+      { key: 'url', label: 'Address', type: 'url', required: true, description: 'Where it lives' },
+      { key: 'mode', label: 'Mode', type: 'select', options: [{ value: 'a', label: 'A' }, { value: 'b', label: 'b' }] }
+    ])
+    expect(m.contributes.check).toBe('check')
+    expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { settings: [{ key: 'a', type: 'colour' }] } })).toThrow(/unknown type/)
+    expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { settings: [{ key: 'a', type: 'select' }] } })).toThrow(/no options/)
+    expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { check: 'nope' } })).toThrow(/check/)
+  })
+
+  it('checks values by type', () => {
+    expect(fieldProblem({ key: 'u', label: 'Address', type: 'url' }, 'https://x.example')).toBeNull()
+    expect(fieldProblem({ key: 'u', label: 'Address', type: 'url' }, 'x.example')).toMatch(/https/)
+    expect(fieldProblem({ key: 'u', label: 'Address', type: 'url', required: true }, '')).toMatch(/required/)
+    expect(fieldProblem({ key: 'e', label: 'Email', type: 'email' }, 'me@x')).toBeNull()
+    expect(fieldProblem({ key: 'e', label: 'Email', type: 'email' }, 'me')).toMatch(/email/)
+    expect(fieldProblem({ key: 'n', label: 'N', type: 'number' }, '7.5')).toBeNull()
+    expect(fieldProblem({ key: 's', label: 'S', type: 'select', options: [{ value: 'a', label: 'A' }] }, 'b')).toMatch(/options/)
+    expect(fieldProblem({ key: 't', label: 'T' }, 'anything')).toBeNull()
   })
 })
 

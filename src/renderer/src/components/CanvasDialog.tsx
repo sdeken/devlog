@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, isWithin } from '@devlog/core'
+import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, inheritedField, isWithin } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 import { api } from '@renderer/api'
+import { FieldRow } from './FieldInput'
 
 interface Props {
   /** Existing canvas to edit, or null to create one. */
@@ -172,11 +173,15 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
             <legend>{e.displayName}</legend>
             {e.canvasFields.map((f) => {
               const k = `ext.${e.id}.${f.key}`
+              const inherited = canvas ? inheritedField(canvases, canvas.parentId ?? '', k) : parentId ? inheritedField(canvases, parentId, k) : null
               return (
-                <div className="field" key={k}>
-                  <label htmlFor={`f-${k}`}>{f.label}</label>
-                  <input id={`f-${k}`} type="text" placeholder={f.placeholder} value={fields[k] ?? ''} onChange={(ev) => setFields((cur) => ({ ...cur, [k]: ev.target.value }))} />
-                </div>
+                <FieldRow
+                  key={k}
+                  id={`f-${k}`}
+                  field={{ ...f, required: false, ...(inherited && !fields[k] ? { placeholder: `${inherited.value} (from ${canvases.find((c) => c.id === inherited.from)?.title ?? 'above'})` } : {}) }}
+                  value={fields[k] ?? ''}
+                  onChange={(v) => setFields((cur) => ({ ...cur, [k]: v }))}
+                />
               )
             })}
             <p className="hint">Canvases inside this one use these values unless they set their own.</p>

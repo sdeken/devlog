@@ -11,6 +11,7 @@ import {
   EXTENSIONS_DIR,
   extensionId,
   canvasLabel,
+  fieldProblem,
   inheritedField,
   parseExtensionEntry,
   topLevelCanvasId,
@@ -348,7 +349,9 @@ export class ExtensionManager {
         settingValues: ext ? await this.settingValues(ext.id) : {},
         secrets: (m?.contributes.secrets ?? []).map((s) => ({ ...s, set: rec.secretSet.has(s.key) })),
         commands: (m?.contributes.commands ?? []).map((c) => ({ ...c, ready: Boolean(rec.host?.commands.includes(c.id)) })),
-        destinations: (m?.contributes.destinations ?? []).map((d) => ({ ...d, ready: Boolean(rec.host && rec.destinations.has(d.id)) }))
+        destinations: (m?.contributes.destinations ?? []).map((d) => ({ ...d, ready: Boolean(rec.host && rec.destinations.has(d.id)) })),
+        ...(m?.contributes.check ? { check: m.contributes.check } : {}),
+        missing: m ? await this.missing(rec) : []
       })
     }
     return out.sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -441,9 +444,17 @@ export class ExtensionManager {
 
   async setSettings(key: string, values: Record<string, string>): Promise<void> {
     const rec = this.need(key)
-    const declared = new Set(rec.installed?.manifest.contributes.settings.map((s) => s.key) ?? [])
+    const declared = rec.installed?.manifest.contributes.settings ?? []
     const clean: Record<string, string> = {}
-    for (const [k, v] of Object.entries(values)) if (declared.has(k) && typeof v === 'string' && v.trim()) clean[k] = v.trim()
+    const problems: string[] = []
+    for (const field of declared) {
+      const v = typeof values[field.key] === 'string' ? values[field.key].trim() : ''
+      // Required fields may be left empty while setting up; the card says what is missing.
+      const problem = v ? fieldProblem(field, v) : null
+      if (problem) problems.push(problem)
+      else if (v) clean[field.key] = v
+    }
+    if (problems.length) throw new Error(problems.join('; '))
     await updateManifest(this.deps.root, (m) => {
       const all = { ...(m.settings ?? {}) }
       if (Object.keys(clean).length) all[rec.id] = clean
@@ -463,10 +474,12 @@ export class ExtensionManager {
     this.deps.onChange()
   }
 
-  async runCommand(key: string, commandId: string): Promise<void> {
+  /** Run a command; a string it returns (a check's result, say) is passed back. */
+  async runCommand(key: string, commandId: string): Promise<string | null> {
     const rec = this.need(key)
     if (!rec.host) throw new Error(`${rec.installed?.manifest.displayName ?? key} is not running`)
-    await rec.host.call('command.run', [commandId])
+    const value = await rec.host.call('command.run', [commandId])
+    return typeof value === 'string' ? value.slice(0, 500) : null
   }
 
   /** Pass pause/resume/task changes from the tracker to extensions that listen for them. */
@@ -574,6 +587,17 @@ export class ExtensionManager {
     await this.deps.store.addTimesheetRecord(week, rec.id, `Sent to ${label}: ${result.summary}.${failed}`, { destination: destId })
     this.deps.onBlockAdded('', week)
     return result
+  }
+
+  /** Labels of required settings and secrets that are not set yet. */
+  private async missing(rec: Rec): Promise<string[]> {
+    const m = rec.installed?.manifest
+    if (!m) return []
+    const values = await this.settingValues(rec.id)
+    return [
+      ...m.contributes.settings.filter((f) => f.required && !values[f.key]).map((f) => f.label),
+      ...m.contributes.secrets.filter((f) => f.required && !rec.secretSet.has(f.key)).map((f) => f.label)
+    ]
   }
 
   private need(key: string): Rec {

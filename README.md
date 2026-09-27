@@ -392,9 +392,11 @@ rounding inflates a client's day, its row shows the suggested trim (−0:45)
 on that day; click it to apply. **Mark final** approves the week.
 
 **Sending to Jira.** Add the built-in **Jira worklogs** extension under
-Extensions and allow it (it is sandboxed: it only talks to Jira). In its
-Settings, set the Jira URL, your account email and an API token (Jira Cloud;
-for Data Center leave the email empty and use a personal access token). Put
+Extensions and allow it (it is sandboxed: it only talks to Jira). Its card
+says what it still needs; **Set up…** opens its settings page: the Jira
+address and your account email (saved in the devlog), and an API token
+(kept on this computer only; for Data Center leave the email empty and use a
+personal access token). **Save and test** checks the connection. Put
 the Jira issue key on the task canvases (Edit → Jira issue), or on a
 client or project canvas for everything beneath it. On a final week,
 **Send to Jira…** shows what would be created, changed or removed, then

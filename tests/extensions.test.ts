@@ -467,8 +467,9 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
 
   it('previews, refuses a draft, sends only what changed, and keeps a record', async () => {
     expect((await manager.list())[0].destinations).toEqual([{ id: 'worklogs', label: 'Jira', ready: true }])
-    await manager.runCommand('devlog-jira', 'check')
-    expect(notices).toEqual(['Jira worklogs: Connected to Jira as Test User'])
+    expect(await manager.runCommand('devlog-jira', 'check')).toBe('Connected to Jira as Test User')
+    expect((await manager.list())[0]).toMatchObject({ check: 'check', missing: [] })
+    await expect(manager.setSettings('devlog-jira', { baseurl: 'not a url' })).rejects.toThrow(/Jira address/)
 
     const entries = [entry('e1', ids.fix, 9, 60, 'login redirect'), entry('e2', ids.acme, 10, 30), entry('e3', ids.globex, 11, 15)]
     await store.saveTimesheet({ week, status: 'draft', entries })
@@ -523,6 +524,9 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
 
   it('says what is missing before it can send', async () => {
     await manager.setSettings('devlog-jira', {})
+    expect((await manager.list())[0].missing).toEqual(['Jira address'])
+    await manager.setSecret('devlog-jira', 'token', null)
+    expect((await manager.list())[0].missing).toEqual(['Jira address', 'API token'])
     await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 60)] })
     const r = await manager.destinationSend('devlog-jira', 'worklogs', week).catch((e: Error) => e)
     expect(String(r)).toMatch(/Set the Jira URL/)
