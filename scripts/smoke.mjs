@@ -856,7 +856,8 @@ try {
   await page.keyboard.press('Enter')
   await page.waitForSelector('.modal-extensions', { timeout: 5_000 })
   const focusBuiltin = page.locator('.ext-builtins .ext-item[data-builtin="devlog-focus"]')
-  check((await focusBuiltin.count()) === 1, 'window tracking is offered as a built-in extension')
+  // The built-ins list loads after the dialog opens.
+  check(await focusBuiltin.waitFor({ timeout: 10_000 }).then(() => true, () => false), 'window tracking is offered as a built-in extension')
   await focusBuiltin.locator('button', { hasText: 'Add' }).click()
   const focusItem = page.locator('.ext-item[data-ext="devlog-focus"]')
   await focusItem.locator('button', { hasText: 'Review and allow' }).waitFor({ timeout: 15_000 })
