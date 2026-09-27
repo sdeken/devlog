@@ -18,6 +18,8 @@ import { addDays, weekDates, weekStart, type ReviewNote } from '@shared/review'
 import { draftTimesheet, newEntryId } from '@shared/timesheet'
 import { api } from '@renderer/api'
 import { reported } from '@renderer/toasts'
+import { useExtensions } from './ExtensionsDialog'
+import { SendDialog } from './SendDialog'
 
 interface Props {
   canvases: CanvasMeta[]
@@ -64,6 +66,8 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [state, setState] = useState<SaveState>('saved')
   const [confirmRebuild, setConfirmRebuild] = useState(false)
+  const [sending, setSending] = useState<{ key: string; destination: string; label: string } | null>(null)
+  const destinations = useExtensions().flatMap((e) => e.destinations.filter((d) => d.ready).map((d) => ({ key: e.key, destination: d.id, label: d.label })))
   const dates = useMemo(() => weekDates(start), [start])
   const end = dates[6]
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -221,9 +225,16 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
         {sheet && (
           <div className="ts-actions">
             {final ? (
-              <button type="button" className="btn btn-quiet btn-xs" onClick={() => setStatus('draft')} title="Make changes again">
-                Reopen
-              </button>
+              <>
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setStatus('draft')} title="Make changes again">
+                  Reopen
+                </button>
+                {destinations.map((d) => (
+                  <button key={`${d.key}/${d.destination}`} type="button" className="btn btn-primary btn-xs ts-send" onClick={() => setSending(d)}>
+                    Send to {d.label}…
+                  </button>
+                ))}
+              </>
             ) : (
               <>
                 {confirmRebuild ? (
@@ -249,6 +260,7 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
                 <button type="button" className="btn btn-primary btn-xs" onClick={() => setStatus('final')} title="Approve the week (what gets sent)">
                   Mark final
                 </button>
+                {destinations.length > 0 && <span className="hint">Mark the week final to send it to {destinations.map((d) => d.label).join(', ')}.</span>}
               </>
             )}
           </div>
@@ -371,6 +383,7 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
           )
         })}
       {sheet && sheet.entries.length === 0 && <p className="feed-empty">No tracked time this week. Add entries by hand with + Add.</p>}
+      {sending && <SendDialog extensionKey={sending.key} destination={sending.destination} label={sending.label} week={start} onClose={() => setSending(null)} />}
     </div>
   )
 }

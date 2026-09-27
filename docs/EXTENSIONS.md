@@ -345,13 +345,31 @@ interface Destination {
 }
 ```
 
+## Destinations (built, API 1.3)
+
+An extension declares `contributes.destinations` and registers each with
+`ctx.destinations.register(id, { preview(sheet), send(sheet) })`. When you
+press **Send to …** on a final week, the app builds the sheet: every entry
+with its task and client names and this extension's own canvas fields,
+inherited down the tree. Pressing Send is the consent for that week's
+entries, so a destination needs no read grant. The app shows the preview
+(new, changed, removed, already sent, not for this destination and why),
+calls `send`, and records the summary as a reply under the week's
+timesheet. The extension keeps its own ledger of what it sent.
+
+**devlog-jira** (built in, sandboxed) is the first: one worklog per entry
+on the entry's Jira issue (canvas field `issue`), REST v2, Basic auth with an
+account email and API token (Cloud) or a personal access token (Data
+Center), ledger in `sent/<week>.json`.
+
 ## Time export (#2)
 
 See `TIMESHEETS.md`. Time goes through a weekly **timesheet** (core): a
 synopsis you review and shuffle, rounded once to quarter hours, stored in a
 managed *Timesheets* canvas together with a record of every submission.
-Extensions contribute **destinations** (Jira by task with start times, CMS
-by client per day): mapping fields, grouping and sending. No business
+Extensions contribute **destinations** (Jira by task with start times,
+built; CMS by client per day, not yet): mapping fields, grouping and
+sending. No business
 rules: you finalise the hours. **Sending is always something you do**, by
 button, after a preview; there are no scheduled or automatic exports.
 

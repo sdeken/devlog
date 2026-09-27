@@ -15,7 +15,7 @@
  * reached by relative paths only, reads and writes respect the grant you
  * give it, and blocks it adds are marked as its own.
  */
-import { API_VERSION, type ActivityNotice, type DevlogContext, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type FocusEvent } from './index'
+import { API_VERSION, type ActivityNotice, type DevlogContext, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type Destination, type DestinationLine, type DestinationSheet, type FocusEvent, type SendResult } from './index'
 
 export interface TestCanvas extends ExtensionCanvas {
   /** Blocks by date. */
@@ -57,6 +57,10 @@ export interface TestHarness {
   notice(n: ActivityNotice): void
   /** Change devlog-wide settings (listeners are told). */
   setSettings(s: Record<string, string>): void
+  /** Ask a registered destination for its preview, as the Send dialog would. */
+  preview(destinationId: string, sheet: DestinationSheet): Promise<DestinationLine[]>
+  /** Send through a registered destination. */
+  send(destinationId: string, sheet: DestinationSheet): Promise<SendResult>
   /** Ask the registered focus provider, as the app's views would. */
   focus(fromDate: string, toDate: string): Promise<FocusEvent[]>
   commands(): string[]
@@ -120,6 +124,12 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
   const activityListeners: Array<(n: ActivityNotice) => void> = []
   const commandMap = new Map<string, () => void | Promise<void>>()
   let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
+  const destinationMap = new Map<string, Destination>()
+  const destination = (id: string): Destination => {
+    const d = destinationMap.get(id)
+    if (!d) throw new Error(`No destination "${id}"`)
+    return d
+  }
   const h: Omit<TestHarness, 'ctx'> & { ctx?: DevlogContext } = {
     notifications: [],
     confirmations: [],
@@ -139,6 +149,8 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       for (const cb of settingsListeners) cb(settings)
     },
     commands: () => [...commandMap.keys()],
+    preview: (id, sheet) => destination(id).preview(sheet),
+    send: (id, sheet) => destination(id).send(sheet),
     focus: async (from, to) => {
       if (!focusProvider) throw new Error('No focus provider registered')
       return focusProvider(from, to)
@@ -243,6 +255,11 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     commands: {
       register: (cmdId, run) => {
         commandMap.set(cmdId, run)
+      }
+    },
+    destinations: {
+      register: (id, d) => {
+        destinationMap.set(id, d)
       }
     },
     provide: {

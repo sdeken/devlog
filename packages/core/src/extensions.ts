@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID } from './format/canvases'
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.2.0'
+export const EXTENSION_API_VERSION = '1.3.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'
@@ -26,6 +26,12 @@ export interface ExtensionField {
 }
 
 export interface ExtensionCommand {
+  id: string
+  label: string
+}
+
+/** Somewhere a finished timesheet can be sent (Jira worklogs, a CSV file, …). */
+export interface ExtensionDestination {
   id: string
   label: string
 }
@@ -58,6 +64,7 @@ export interface ExtensionManifest {
     settings: ExtensionField[]
     secrets: ExtensionField[]
     commands: ExtensionCommand[]
+    destinations: ExtensionDestination[]
   }
   permissions: ExtensionPermissions
   /** Globs (within its repo folder) that git should union-merge. */
@@ -134,7 +141,12 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
     else appendOnly.push(g)
   }
 
-  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands }
+  const destinations: ExtensionDestination[] = []
+  for (const d of (Array.isArray(c.destinations) ? c.destinations : []) as Array<Record<string, unknown>>) {
+    if (typeof d?.id !== 'string' || !KEY_RE.test(d.id)) errors.push(`"contributes.destinations": id ${JSON.stringify(d?.id)} is not valid`)
+    else destinations.push({ id: d.id, label: typeof d.label === 'string' && d.label.trim() ? d.label.trim() : d.id })
+  }
+  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations }
   if (errors.length) throw new Error(`Invalid extension manifest: ${errors.join('; ')}`)
   const displayName = typeof o.displayName === 'string' && o.displayName.trim() ? o.displayName.trim() : name
   return {

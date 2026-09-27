@@ -46,7 +46,7 @@ export type FromExtension =
   | { t: 'registered'; command: string }
 
 /** Methods the app calls on the extension. */
-export type ExtensionSideMethod = 'command.run' | 'activity.notice' | 'provide.focus'
+export type ExtensionSideMethod = 'command.run' | 'activity.notice' | 'provide.focus' | 'destination.preview' | 'destination.send'
 
 export type { ActivityNotice }
 
@@ -70,7 +70,8 @@ export const APP_METHODS = [
   'activity.subscribe',
   'ui.notify',
   'ui.confirm',
-  'provide.register'
+  'provide.register',
+  'destination.register'
 ] as const
 
 export type AppMethod = (typeof APP_METHODS)[number]

@@ -4224,3 +4224,81 @@ body.is-resizing {
   background: color-mix(in srgb, var(--warn) 10%, transparent);
   font-size: 12px;
 }
+
+/* ---- Sending a timesheet ---- */
+.modal-send {
+  width: min(720px, 94vw);
+}
+
+.send-counts {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.send-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.send-table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  vertical-align: top;
+}
+
+.send-when,
+.send-hours,
+.send-target {
+  white-space: nowrap;
+}
+
+.send-hours {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.send-target {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.send-line.action-unchanged {
+  color: var(--fg-muted);
+}
+
+.send-action {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.send-action.action-create {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.send-action.action-update {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.send-action.action-delete {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.send-skipped ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.send-result.send-ok {
+  color: var(--ok);
+  font-size: 13px;
+}

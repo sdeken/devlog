@@ -372,3 +372,159 @@ describe('trusted (unrestricted) extensions', () => {
     expect(await manager.focusEvents('2000-01-01', '2000-01-02')).toEqual([])
   })
 })
+
+describe('devlog-jira: sending a timesheet as worklogs', () => {
+  let root: string
+  let userData: string
+  let store: DevlogStore
+  let manager: ExtensionManager
+  let server: import('node:http').Server
+  let requests: Array<{ method: string; url: string; auth: string; body: any }>
+  let notices: string[]
+  let ids: Record<string, string>
+  const week = '2026-09-21'
+
+  beforeEach(async () => {
+    const http = await import('node:http')
+    requests = []
+    let nextWorklog = 100
+    server = http.createServer((req, res) => {
+      let data = ''
+      req.on('data', (c) => (data += c))
+      req.on('end', () => {
+        requests.push({ method: req.method!, url: req.url!, auth: String(req.headers.authorization ?? ''), body: data ? JSON.parse(data) : null })
+        res.setHeader('Content-Type', 'application/json')
+        if (req.url === '/rest/api/2/myself') return res.end(JSON.stringify({ displayName: 'Test User' }))
+        if (req.method === 'POST' && /\/worklog$/.test(req.url!)) {
+          res.statusCode = 201
+          return res.end(JSON.stringify({ id: String(nextWorklog++) }))
+        }
+        if (req.method === 'PUT') return res.end(JSON.stringify({ id: req.url!.split('/').pop() }))
+        if (req.method === 'DELETE') {
+          res.statusCode = 204
+          return res.end()
+        }
+        res.statusCode = 404
+        res.end(JSON.stringify({ errorMessages: ['nope'] }))
+      })
+    })
+    await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+    const port = (server.address() as import('node:net').AddressInfo).port
+
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-jirarepo-'))
+    userData = await fs.mkdtemp(path.join(os.tmpdir(), 'devlog-jiraud-'))
+    store = new DevlogStore(root)
+    await store.initLayout()
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const fix = await store.createCanvas({ title: 'Fix login', parentId: acme.id, task: true })
+    const globex = await store.createCanvas({ title: 'Globex' })
+    await store.updateCanvas(acme.id, { fields: { 'ext.builtin.devlog-jira.issue': 'ACME-1' } })
+    await store.updateCanvas(fix.id, { fields: { 'ext.builtin.devlog-jira.issue': 'acme-7' } })
+    ids = { acme: acme.id, fix: fix.id, globex: globex.id }
+    await updateManifest(root, (m) => {
+      m.extensions = { 'devlog-jira': 'builtin' }
+    })
+    notices = []
+    manager = new ExtensionManager({
+      root,
+      machine: 'desk-1a2b',
+      store,
+      userData,
+      installer: new ExtensionInstaller({ cacheDir: path.join(userData, 'extensions'), builtinDir: path.resolve(__dirname, '../builtin-extensions'), devOverrides: async () => ({}) }),
+      consent: new ConsentStore(path.join(userData, 'consent.json')),
+      secrets: new SecretStore(path.join(userData, 'secrets'), fakeCipher),
+      hostScript: async () => hostScript,
+      notify: (t) => notices.push(t),
+      confirm: async () => true,
+      onChange: () => undefined,
+      onBlockAdded: () => undefined
+    })
+    await manager.load()
+    await manager.allow('devlog-jira', { read: null, write: null })
+    await manager.setSettings('devlog-jira', { baseurl: `http://127.0.0.1:${port}`, email: 'me@example.com' })
+    await manager.setSecret('devlog-jira', 'token', 't0ken')
+    // Registration is asynchronous; wait until the destination is ready.
+    for (let i = 0; i < 50 && !(await manager.list())[0].destinations[0]?.ready; i++) await new Promise((r) => setTimeout(r, 20))
+  })
+
+  afterEach(async () => {
+    await manager.stopAll()
+    await new Promise((r) => server.close(r))
+    await fs.rm(root, { recursive: true, force: true })
+    await fs.rm(userData, { recursive: true, force: true })
+  })
+
+  const entry = (id: string, canvasId: string, h: number, minutes: number, note?: string) => ({
+    id,
+    date: '2026-09-22',
+    start: new Date(2026, 8, 22, h).toISOString(),
+    minutes,
+    canvasId,
+    worked: minutes,
+    source: 'tracked' as const,
+    ...(note ? { note } : {})
+  })
+
+  it('previews, refuses a draft, sends only what changed, and keeps a record', async () => {
+    expect((await manager.list())[0].destinations).toEqual([{ id: 'worklogs', label: 'Jira', ready: true }])
+    await manager.runCommand('devlog-jira', 'check')
+    expect(notices).toEqual(['Jira worklogs: Connected to Jira as Test User'])
+
+    const entries = [entry('e1', ids.fix, 9, 60, 'login redirect'), entry('e2', ids.acme, 10, 30), entry('e3', ids.globex, 11, 15)]
+    await store.saveTimesheet({ week, status: 'draft', entries })
+    const preview = await manager.destinationPreview('devlog-jira', 'worklogs', week)
+    expect(preview.map((l) => [l.id, l.action, l.target])).toEqual([
+      ['e1', 'create', 'ACME-7'],
+      ['e2', 'create', 'ACME-1'],
+      ['e3', 'skip', '']
+    ])
+    expect(preview[2].reason).toMatch(/No Jira issue/)
+    await expect(manager.destinationSend('devlog-jira', 'worklogs', week)).rejects.toThrow(/final/)
+
+    await store.saveTimesheet({ week, status: 'final', entries })
+    const first = await manager.destinationSend('devlog-jira', 'worklogs', week)
+    expect(first).toMatchObject({ done: ['e1', 'e2'], failed: [], summary: '2 worklogs created (1:30 on 2 issues)' })
+    const posts = requests.filter((r) => r.method === 'POST')
+    expect(posts.map((r) => r.url)).toEqual(['/rest/api/2/issue/ACME-7/worklog', '/rest/api/2/issue/ACME-1/worklog'])
+    expect(posts[0].auth).toBe(`Basic ${Buffer.from('me@example.com:t0ken').toString('base64')}`)
+    expect(posts[0].body).toMatchObject({ timeSpentSeconds: 3600, comment: 'login redirect' })
+    expect(posts[0].body.started).toMatch(/^2026-09-22T09:00:00\.000[+-]\d{4}$/)
+
+    // The record, under the week's timesheet.
+    const canvas = (await store.timesheetsCanvas())!
+    const day = await store.readDay(canvas.id, week)
+    const sheetBlock = day.entries.find((e) => e.kind === 'timesheet')!
+    expect(day.entries.find((e) => e.parentId === sheetBlock.id)).toMatchObject({ markdown: 'Sent to Jira: 2 worklogs created (1:30 on 2 issues).', meta: { ext: 'builtin.devlog-jira', destination: 'worklogs' } })
+    const ledger = JSON.parse(await fs.readFile(path.join(root, 'extensions/builtin.devlog-jira/sent', `${week}.json`), 'utf8'))
+    expect(Object.keys(ledger)).toEqual(['e1', 'e2'])
+
+    // Nothing changed: nothing sent.
+    expect((await manager.destinationPreview('devlog-jira', 'worklogs', week)).map((l) => l.action)).toEqual(['unchanged', 'unchanged', 'skip'])
+    requests = []
+    expect((await manager.destinationSend('devlog-jira', 'worklogs', week)).summary).toBe('2 unchanged (1:30 on 2 issues)')
+    expect(requests).toEqual([])
+
+    // Shorter e1, e2 moved to a canvas with no issue: one update, one delete.
+    await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 45, 'login redirect'), entry('e2', ids.globex, 10, 30), entry('e3', ids.globex, 11, 15)] })
+    expect((await manager.destinationPreview('devlog-jira', 'worklogs', week)).map((l) => [l.id, l.action])).toEqual([
+      ['e1', 'update'],
+      ['e2:old', 'delete'],
+      ['e2', 'skip'],
+      ['e3', 'skip']
+    ])
+    const third = await manager.destinationSend('devlog-jira', 'worklogs', week)
+    expect(third.summary).toBe('1 updated, 1 deleted (0:45 on 1 issue)')
+    expect(requests.map((r) => [r.method, r.url])).toEqual([
+      ['PUT', '/rest/api/2/issue/ACME-7/worklog/100'],
+      ['DELETE', '/rest/api/2/issue/ACME-1/worklog/101']
+    ])
+    expect(requests[0].body.timeSpentSeconds).toBe(2700)
+  })
+
+  it('says what is missing before it can send', async () => {
+    await manager.setSettings('devlog-jira', {})
+    await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 60)] })
+    const r = await manager.destinationSend('devlog-jira', 'worklogs', week).catch((e: Error) => e)
+    expect(String(r)).toMatch(/Set the Jira URL/)
+  })
+})

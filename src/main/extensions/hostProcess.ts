@@ -11,7 +11,7 @@
  */
 import { builtinModules } from 'node:module'
 import vm from 'node:vm'
-import type { ActivityNotice, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent } from '@devlog/extension-api'
+import type { ActivityNotice, Destination, DestinationSheet, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent } from '@devlog/extension-api'
 import type { CallMessage, FromExtension, InitMessage, ToExtension } from '@devlog/extension-api/protocol'
 
 const send = (msg: FromExtension): void => {
@@ -32,6 +32,7 @@ function call(method: string, ...args: unknown[]): Promise<unknown> {
 const commands = new Map<string, () => void | Promise<void>>()
 const activityListeners: Array<(n: ActivityNotice) => void> = []
 const settingsListeners: Array<(s: Record<string, string>) => void> = []
+const destinations = new Map<string, Destination>()
 let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
 let settings: Record<string, string> = {}
 let mod: Partial<ExtensionModule> = {}
@@ -100,6 +101,13 @@ function makeContext(init: InitMessage): DevlogContext {
         send({ t: 'registered', command: String(id) })
       }
     },
+    destinations: {
+      register: (id, destination) => {
+        if (!destination || typeof destination.preview !== 'function' || typeof destination.send !== 'function') throw new Error('destinations.register(id, { preview, send })')
+        destinations.set(String(id), destination)
+        void call('destination.register', String(id))
+      }
+    },
     provide: {
       focus: (fn) => {
         if (typeof fn !== 'function') throw new Error('provide.focus(fn): fn must be a function')
@@ -138,6 +146,11 @@ async function handleCall(msg: CallMessage): Promise<void> {
       value = await run()
     } else if (msg.method === 'activity.notice') {
       for (const cb of activityListeners) cb(msg.args[0] as ActivityNotice)
+    } else if (msg.method === 'destination.preview' || msg.method === 'destination.send') {
+      const d = destinations.get(String(msg.args[0]))
+      if (!d) throw new Error(`No destination "${String(msg.args[0])}"`)
+      const sheet = msg.args[1] as DestinationSheet
+      value = msg.method === 'destination.preview' ? await d.preview(sheet) : await d.send(sheet)
     } else if (msg.method === 'provide.focus') {
       if (!focusProvider) throw new Error('No focus provider')
       value = await focusProvider(String(msg.args[0]), String(msg.args[1]))

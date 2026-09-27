@@ -10,8 +10,10 @@ import {
   EXTENSION_API_VERSION,
   EXTENSIONS_DIR,
   extensionId,
+  canvasLabel,
   inheritedField,
   parseExtensionEntry,
+  topLevelCanvasId,
   scopeCanvasIds,
   visibleCanvases,
   type CanvasMeta,
@@ -28,7 +30,7 @@ import {
   type DevlogStore,
   type LockFile
 } from '@devlog/core/node'
-import type { ActivityNotice, ExtensionBlock, ExtensionCanvas } from '@devlog/extension-api'
+import type { ActivityNotice, DestinationLine, DestinationSheet, ExtensionBlock, ExtensionCanvas, SendResult } from '@devlog/extension-api'
 import type { ActivityEvent } from '@shared/types'
 import type { ExtensionInfo, ExtensionState, ExtensionUpdateReport } from '@shared/extensions'
 import { ExtensionHost } from './host'
@@ -67,6 +69,8 @@ interface Rec {
   activity: boolean
   /** Provides focus events for the app's views. */
   providesFocus: boolean
+  /** Destinations it registered (of those it declared). */
+  destinations: Set<string>
   files: { repo: ExtensionFileStore; local: ExtensionFileStore } | null
   secretSet: Set<string>
 }
@@ -139,6 +143,7 @@ export class ExtensionManager {
       changedSinceConsent: false,
       activity: false,
       providesFocus: false,
+      destinations: new Set(),
       files: null,
       secretSet: new Set()
     }
@@ -214,6 +219,7 @@ export class ExtensionManager {
     rec.host = host
     rec.activity = false
     rec.providesFocus = false
+    rec.destinations = new Set()
     rec.state = 'starting'
     rec.error = null
     this.deps.onChange()
@@ -243,6 +249,7 @@ export class ExtensionManager {
     const host = rec.host
     rec.host = null
     rec.providesFocus = false
+    rec.destinations = new Set()
     if (host) await host.stop().catch(() => undefined)
   }
 
@@ -340,7 +347,8 @@ export class ExtensionManager {
         settings: m?.contributes.settings ?? [],
         settingValues: ext ? await this.settingValues(ext.id) : {},
         secrets: (m?.contributes.secrets ?? []).map((s) => ({ ...s, set: rec.secretSet.has(s.key) })),
-        commands: (m?.contributes.commands ?? []).map((c) => ({ ...c, ready: Boolean(rec.host?.commands.includes(c.id)) }))
+        commands: (m?.contributes.commands ?? []).map((c) => ({ ...c, ready: Boolean(rec.host?.commands.includes(c.id)) })),
+        destinations: (m?.contributes.destinations ?? []).map((d) => ({ ...d, ready: Boolean(rec.host && rec.destinations.has(d.id)) }))
       })
     }
     return out.sort((a, b) => a.displayName.localeCompare(b.displayName))
@@ -488,6 +496,86 @@ export class ExtensionManager {
     return this.visibleCache.get(rec.key)
   }
 
+  // -------------------------------------------------------------------------
+  // Destinations: sending a finished timesheet
+  // -------------------------------------------------------------------------
+
+  /** A week's saved timesheet as the extension sees it: labels, and its own canvas fields (inherited). */
+  private async destinationSheet(rec: Rec, week: string): Promise<DestinationSheet> {
+    const sheet = await this.deps.store.readTimesheet(week)
+    if (!sheet) throw new Error('Save the timesheet first')
+    const all = await this.deps.store.listCanvases()
+    const keys = rec.installed?.manifest.contributes.canvasFields.map((f) => f.key) ?? []
+    return {
+      week: sheet.week,
+      status: sheet.status,
+      entries: sheet.entries.map((e) => {
+        const fields: Record<string, string> = {}
+        for (const k of keys) {
+          const v = inheritedField(all, e.canvasId, `ext.${rec.id}.${k}`)
+          if (v) fields[k] = v.value
+        }
+        const client = topLevelCanvasId(all, e.canvasId)
+        return {
+          id: e.id,
+          date: e.date,
+          start: e.start,
+          minutes: e.minutes,
+          ...(e.note ? { note: e.note } : {}),
+          canvasId: e.canvasId,
+          task: canvasLabel(all, e.canvasId),
+          client: all.find((c) => c.id === client)?.title ?? client,
+          fields
+        }
+      })
+    }
+  }
+
+  private destinationHost(key: string, destId: string): { rec: Rec; host: ExtensionHost } {
+    const rec = this.need(key)
+    if (!rec.host || !rec.destinations.has(destId)) throw new Error(`${rec.installed?.manifest.displayName ?? key} is not ready to send`)
+    return { rec, host: rec.host }
+  }
+
+  /** What sending the week's timesheet to a destination would do. */
+  async destinationPreview(key: string, destId: string, week: string): Promise<DestinationLine[]> {
+    const { rec, host } = this.destinationHost(key, destId)
+    const lines = await host.call('destination.preview', [destId, await this.destinationSheet(rec, week)], 120_000)
+    if (!Array.isArray(lines)) throw new Error('The extension returned no preview')
+    const actions = new Set(['create', 'update', 'delete', 'unchanged', 'skip'])
+    return (lines as DestinationLine[])
+      .filter((l) => l && typeof l.id === 'string' && actions.has(l.action))
+      .map((l) => ({
+        id: l.id,
+        entryIds: Array.isArray(l.entryIds) ? l.entryIds.map(String) : [],
+        date: String(l.date ?? ''),
+        ...(l.start ? { start: String(l.start) } : {}),
+        minutes: Number(l.minutes) || 0,
+        target: String(l.target ?? ''),
+        ...(l.description ? { description: String(l.description).slice(0, 500) } : {}),
+        action: l.action,
+        ...(l.reason ? { reason: String(l.reason).slice(0, 300) } : {})
+      }))
+  }
+
+  /** Send a final timesheet, and record what happened under it in the Timesheets canvas. */
+  async destinationSend(key: string, destId: string, week: string): Promise<SendResult> {
+    const { rec, host } = this.destinationHost(key, destId)
+    const sheet = await this.destinationSheet(rec, week)
+    if (sheet.status !== 'final') throw new Error('Mark the timesheet final before sending it')
+    const raw = (await host.call('destination.send', [destId, sheet], 10 * 60_000)) as Partial<SendResult> | null
+    const result: SendResult = {
+      done: Array.isArray(raw?.done) ? raw.done.map(String) : [],
+      failed: Array.isArray(raw?.failed) ? raw.failed.map((f) => ({ lineId: String(f?.lineId ?? ''), error: String(f?.error ?? 'Failed').slice(0, 500) })) : [],
+      summary: typeof raw?.summary === 'string' && raw.summary.trim() ? raw.summary.trim().slice(0, 500) : 'Sent'
+    }
+    const label = rec.installed?.manifest.contributes.destinations.find((d) => d.id === destId)?.label ?? destId
+    const failed = result.failed.length ? ` ${result.failed.length} failed: ${result.failed.map((f) => f.error).join('; ')}` : ''
+    await this.deps.store.addTimesheetRecord(week, rec.id, `Sent to ${label}: ${result.summary}.${failed}`, { destination: destId })
+    this.deps.onBlockAdded('', week)
+    return result
+  }
+
   private need(key: string): Rec {
     const rec = this.recs.get(key)
     if (!rec) throw new Error(`No extension ${key}`)
@@ -628,6 +716,13 @@ export class ExtensionManager {
         return null
       case 'ui.confirm':
         return this.deps.confirm(ext.manifest.displayName, str(0, 'message').slice(0, 1000))
+      case 'destination.register': {
+        const destId = str(0, 'id')
+        if (!ext.manifest.contributes.destinations.some((d) => d.id === destId)) throw new Error(`Destination "${destId}" is not declared in contributes.destinations`)
+        rec.destinations.add(destId)
+        this.deps.onChange()
+        return null
+      }
       case 'provide.register':
         if (args[0] === 'focus') rec.providesFocus = true
         else throw new Error(`Cannot provide ${String(args[0])}`)

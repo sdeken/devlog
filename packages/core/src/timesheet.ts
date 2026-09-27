@@ -155,6 +155,8 @@ export function draftEntries(sessions: Session[]): TimesheetEntry[] {
     const minutes = roundWorkMinutes(s.workedMinutes)
     if (minutes === 0) return
     let start = roundToQuarterHour(new Date(s.start)).getTime()
+    // 23:53 rounds to midnight: keep the start on the session's own day.
+    if (localDate(new Date(start)) !== s.date) start = new Date(new Date(s.start).setHours(23, 45, 0, 0)).getTime()
     const busyUntil = dayEnd.get(s.date)
     if (busyUntil !== undefined && start < busyUntil) start = busyUntil
     dayEnd.set(s.date, start + minutes * MINUTE_MS)

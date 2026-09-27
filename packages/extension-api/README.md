@@ -19,7 +19,7 @@ my-extension/
   "name": "devlog-jira",                 // lowercase, digits, . _ -
   "displayName": "Jira time export",
   "version": "1.2.0",
-  "api": "^1.2.0",                       // the extension API it was built for
+  "api": "^1.3.0",                       // the extension API it was built for
   "main": "main.js",
   "contributes": {
     "canvasFields": [{ "key": "issue", "label": "Jira issue", "placeholder": "ACME-123" }],
@@ -71,7 +71,10 @@ The full API, with comments, is `src/index.ts`. In short:
 | `ctx.machine` | this machine's folder name, for per-machine files (1.1) |
 | `ctx.packageDir` | the extension's unpacked folder, for scripts it ships; only when it runs unrestricted, else null (1.2) |
 | `ctx.provide.focus(fn)` | focus events for the app's timeline, review and summary (1.1) |
+| `ctx.destinations.register(id, { preview, send })` | a place finished timesheets can be sent, declared in `contributes.destinations` (1.3) |
 
+`builtin-extensions/devlog-jira` is a complete destination (sandboxed:
+settings, a secret, a canvas field, a ledger in its own files, fetch).
 `builtin-extensions/devlog-focus` is a complete, small example (window
 tracking): an unrestricted extension with its own platform helper,
 per-machine JSON-lines files, and data given back to the app.

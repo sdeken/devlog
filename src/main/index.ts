@@ -65,6 +65,8 @@ const GITHUB_SECRET = { id: 'devlog.github', key: 'token' }
 function extensionServices(): NonNullable<typeof extServices> {
   if (extServices) return extServices
   const userData = app.getPath('userData')
+  // Tests on Linux boxes without a keyring opt into Electron's weak in-memory key; never a default.
+  if (process.platform === 'linux' && process.env.DEVLOG_PLAINTEXT_SECRETS === '1') safeStorage.setUsePlainTextEncryption(true)
   const secrets = new SecretStore(path.join(userData, 'extension-secrets'), {
     available: () => safeStorage.isEncryptionAvailable(),
     encrypt: (plain) => safeStorage.encryptString(plain),

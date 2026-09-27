@@ -730,6 +730,18 @@ export class DevlogStore extends EventEmitter {
     return sheet
   }
 
+  /** A read-only note under a week's timesheet (what was sent where), written for an extension. */
+  async addTimesheetRecord(week: string, extensionId: string, markdown: string, meta: Record<string, string> = {}, now: Date = new Date()): Promise<Entry> {
+    const canvas = await this.timesheetsCanvas(false)
+    if (!canvas) throw new Error('No timesheets yet')
+    return this.mutateDay(canvas.id, week, (log) => {
+      const sheet = log.entries.find((e) => e.kind === 'timesheet' && e.meta?.week === week)
+      if (!sheet) throw new Error(`No timesheet for the week of ${week}`)
+      const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim(), parentId: sheet.id, meta: { ...meta, ext: extensionId } }
+      return { ops: planAdd(log, entry, { parentId: sheet.id }, entry.createdAt), result: entry }
+    })
+  }
+
   /** Hide (or reveal) a block. Hidden blocks stay in the file and in search; the stream collapses them. */
   async setEntryHidden(canvasId: string, date: string, id: string, hidden: boolean, now: Date = new Date()): Promise<Entry> {
     return this.mutateDay(canvasId, date, (log) => {

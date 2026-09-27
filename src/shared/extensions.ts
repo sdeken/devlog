@@ -1,5 +1,5 @@
 /** What the renderer knows about the extensions of the open devlog. */
-import type { ExtensionCommand, ExtensionField, ExtensionPermissions, Grant } from '@devlog/core'
+import type { ExtensionCommand, ExtensionDestination, ExtensionField, ExtensionPermissions, Grant } from '@devlog/core'
 
 export type ExtensionState =
   /** Being downloaded or unpacked. */
@@ -35,6 +35,8 @@ export interface ExtensionInfo {
   settingValues: Record<string, string>
   secrets: Array<ExtensionField & { set: boolean }>
   commands: Array<ExtensionCommand & { ready: boolean }>
+  /** Places finished timesheets can be sent; `ready` once it is running and has registered it. */
+  destinations: Array<ExtensionDestination & { ready: boolean }>
 }
 
 export interface ExtensionUpdateReport {

@@ -4,8 +4,9 @@ Status: **the timesheet is built** (0.9.0): the arithmetic in
 `@devlog/core` (`timesheet.ts`: rounding, sessions, draft entries, suggested
 trims, the stored model), the draft (`src/shared/timesheet.ts`), the weekly
 **Timesheet** view, and storage in the managed Timesheets canvas.
-Destinations (Jira, CMS) and the record of what was sent are next; split and
-merge of entries are not built. Replaces the simple "export the review's
+Sending is built too (0.10.0): destinations in the extension API and the
+built-in **Jira worklogs** extension (devlog-jira). CMS is not built (it has
+no documented API); split and merge of entries are not built. Replaces the simple "export the review's
 rows" idea (issue #2).
 
 ## The problem
@@ -189,11 +190,14 @@ first use, not a task, shown in the sidebar like any canvas):
   client, note), so the record is human-readable in git with no app needed.
   Edits while drafting are ordinary `edit` records (append-only, so the
   history of the shuffling is kept too).
-- **One reply per submission** (`kind=timesheet-sent`,
-  `destination=jira`): the lines sent, their external ids, and the ids the
-  entries mapped to at the time. This thread is the ledger: sending again compares against it,
-  so a second press, or a second machine, sends only what changed, and
-  corrections after the fact send differences.
+- **What was sent** is kept by each destination extension in its own synced
+  folder (devlog-jira: `extensions/builtin.devlog-jira/sent/<week>.json`,
+  entry id → issue, worklog id and what was sent). Sending again compares
+  against it, so a second press, or a second machine, sends only what
+  changed, and corrections after the fact send differences. Each send also
+  leaves a read-only reply under the week's timesheet block ("Sent to Jira: 3
+  worklogs created, 1 updated (4:15 on 2 issues)"), so the history reads in
+  the notebook itself.
 - Timesheet blocks are automatic blocks (edited through the grid, not as
   text).
 

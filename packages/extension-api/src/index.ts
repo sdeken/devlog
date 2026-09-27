@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.2.0'
+export const API_VERSION = '1.3.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -62,6 +62,63 @@ export interface FocusEvent {
   title: string
   /** The machine folder it was recorded on (`ctx.machine` there). */
   machine: string
+}
+
+/** One timesheet entry as a destination sees it. (1.3) */
+export interface DestinationEntry {
+  /** Stable within the week's timesheet; use it to remember what you sent for this entry. */
+  id: string
+  date: string
+  /** Start (ISO), on a local quarter hour. */
+  start: string
+  /** A multiple of 15. */
+  minutes: number
+  note?: string
+  canvasId: string
+  /** "Client / Project / Task". */
+  task: string
+  /** The top-level canvas's title. */
+  client: string
+  /** This extension's canvas fields for the entry's canvas, inherited from the nearest ancestor that sets each. */
+  fields: Record<string, string>
+}
+
+/** A finished week, handed to a destination when you press Send (your consent for this week's entries). (1.3) */
+export interface DestinationSheet {
+  week: string
+  status: 'draft' | 'final'
+  entries: DestinationEntry[]
+}
+
+/** One line of what a destination would do, for the preview. (1.3) */
+export interface DestinationLine {
+  id: string
+  /** The timesheet entries it covers. */
+  entryIds: string[]
+  date: string
+  start?: string
+  minutes: number
+  /** Where it goes: an issue key, a client id… */
+  target: string
+  description?: string
+  /** What sending does with it. `skip`: not for this destination (say why in `reason`). */
+  action: 'create' | 'update' | 'delete' | 'unchanged' | 'skip'
+  reason?: string
+}
+
+export interface SendResult {
+  /** Lines that went through, by line id. */
+  done: string[]
+  failed: Array<{ lineId: string; error: string }>
+  /** A sentence for the record ("3 worklogs created, 1 updated"). */
+  summary: string
+}
+
+export interface Destination {
+  /** What sending `sheet` would do, without doing it. */
+  preview(sheet: DestinationSheet): Promise<DestinationLine[]>
+  /** Do it. Called only for final timesheets, after the user saw the preview. */
+  send(sheet: DestinationSheet): Promise<SendResult>
 }
 
 export interface ExtensionFileInfo {
@@ -132,6 +189,8 @@ export interface DevlogContext {
   }
   /** Commands appear in the quick switcher (declared in `contributes.commands`). */
   commands: { register(id: string, run: () => void | Promise<void>): void }
+  /** Places finished timesheets can be sent (declared in `contributes.destinations`). (1.3) */
+  destinations: { register(id: string, destination: Destination): void }
   /** Data the app draws in its own views. (1.1) */
   provide: {
     /** Focus changes between two local dates (inclusive), for the timeline, review and summary. */

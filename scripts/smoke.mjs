@@ -9,6 +9,7 @@ import { promises as fs } from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import os from 'node:os'
 import path from 'node:path'
+import http from 'node:http'
 
 const here = path.dirname(new URL(import.meta.url).pathname)
 const appRoot = path.resolve(here, '..')
@@ -35,7 +36,8 @@ await fs.writeFile(path.join(userData, 'extension-dev.json'), JSON.stringify({ p
 
 const app = await electron.launch({
   args: [appRoot, '--no-sandbox', '--disable-gpu'],
-  env: { ...process.env, DEVLOG_USER_DATA: userData, NODE_ENV: 'production' }
+  // This CI box has no keyring; extension secrets use Electron's in-memory key here (tests only).
+  env: { ...process.env, DEVLOG_USER_DATA: userData, NODE_ENV: 'production', DEVLOG_PLAINTEXT_SECRETS: '1' }
 })
 const failures = []
 const check = (cond, msg) => {
@@ -483,7 +485,8 @@ try {
   check(rowLabels.some((l) => l.includes('Fix the login redirect')), 'task canvases appear as rows')
   const acmeTotal = await page.locator('.review-category.depth-0 .review-total .cell-notes').first().textContent()
   check(Number(acmeTotal) >= 8, `client row sums its blocks for the week (${acmeTotal})`)
-  check((await page.locator('.review-day-section').count()) === 1, 'per-day detail lists today')
+  // (≥ 1: a run that straddles midnight writes blocks on two days.)
+  check((await page.locator('.review-day-section').count()) >= 1, 'per-day detail lists the days with blocks')
   check((await page.locator('.review-group-label').first().textContent()) === 'Acme Corp', 'day detail groups by top-level canvas')
   check((await page.locator('.review-segments li').count()) >= 1, 'review shows tracked task segments for today')
   // Correct tracked time: remove a stretch, see it listed as removed, restore it.
@@ -890,15 +893,19 @@ try {
   // 6c. Timesheet: a draft from tracked time, adjusted in 15-minute steps, saved in the Timesheets canvas, marked final.
   const nowMs = Date.now()
   const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime()
-  if (nowMs - todayStart > 3.5 * 3600_000) {
-    // An hour on Website from another machine, before this run started (so nothing overlaps it).
-    const sheetDir = path.join(repo, 'activity', 'sheet-machine-0000', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'))
+  // An hour of tracked time before this run started: today if the day is old enough, else yesterday (same week only).
+  const seedStart = nowMs - todayStart > 3.5 * 3600_000 ? nowMs - 3 * 3600_000 : today.getDay() !== 1 ? todayStart - 12 * 3600_000 : null
+  if (seedStart !== null) {
+    const seedDay = new Date(seedStart)
+    const seedYmd = `${seedDay.getFullYear()}-${String(seedDay.getMonth() + 1).padStart(2, '0')}-${String(seedDay.getDate()).padStart(2, '0')}`
+    // From another machine, so nothing this run tracks overlaps it.
+    const sheetDir = path.join(repo, 'activity', 'sheet-machine-0000', seedYmd.slice(0, 4), seedYmd.slice(5, 7))
     await fs.mkdir(sheetDir, { recursive: true })
-    const s0 = nowMs - 3 * 3600_000
+    const s0 = seedStart
     const lines = [JSON.stringify({ t: new Date(s0).toISOString(), type: 'start', canvasId: websiteId })]
     for (let m = 5; m < 60; m += 5) lines.push(JSON.stringify({ t: new Date(s0 + m * 60_000).toISOString(), type: 'heartbeat' }))
     lines.push(JSON.stringify({ t: new Date(s0 + 60 * 60_000).toISOString(), type: 'stop' }))
-    await fs.writeFile(path.join(sheetDir, `${ymd}.jsonl`), `${lines.join('\n')}\n`)
+    await fs.writeFile(path.join(sheetDir, `${seedYmd}.jsonl`), `${lines.join('\n')}\n`)
     const dow = (today.getDay() + 6) % 7
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow)
     const week = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
@@ -909,7 +916,7 @@ try {
     const rowId = await page.evaluate(
       ({ date, id }) =>
         [...document.querySelectorAll(`.ts-day[data-date="${date}"] .ts-row`)].find((r) => r.querySelector('select[aria-label="Task"]').value === id && r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null,
-      { date: ymd, id: websiteId }
+      { date: seedYmd, id: websiteId }
     )
     check(rowId !== null, 'an hour tracked on Website becomes a 1:00 entry')
     if (rowId) {
@@ -928,11 +935,59 @@ try {
       await page.waitForSelector('.ts-state.is-final', { timeout: 10_000 })
       check((await page.locator('.ts-add').count()) === 0 && (await row.locator('button[aria-label="15 minutes more"]').isDisabled()), 'a final timesheet is read-only until reopened')
       await page.screenshot({ path: path.join(shots, '04c-timesheet.png') })
+
+      // Send the final week to Jira (a fake one on localhost) through the built-in extension.
+      const jiraRequests = []
+      const jira = http.createServer((req, res) => {
+        let body = ''
+        req.on('data', (c) => (body += c))
+        req.on('end', () => {
+          jiraRequests.push({ method: req.method, url: req.url, body })
+          res.setHeader('Content-Type', 'application/json')
+          if (req.method === 'POST') {
+            res.statusCode = 201
+            return res.end(JSON.stringify({ id: String(500 + jiraRequests.length) }))
+          }
+          res.end('{}')
+        })
+      })
+      await new Promise((r) => jira.listen(0, '127.0.0.1', r))
+      await page.evaluate((id) => window.devlog.canvases.update(id, { fields: { 'ext.builtin.devlog-jira.issue': 'WEB-42' } }), websiteId)
+      await page.keyboard.press('Control+k')
+      await page.waitForSelector('.switcher input', { timeout: 5_000 })
+      await page.keyboard.type('extensions')
+      await page.keyboard.press('Enter')
+      await page.waitForSelector('.modal-extensions', { timeout: 5_000 })
+      await page.locator('.ext-builtins .ext-item[data-builtin="devlog-jira"] button', { hasText: 'Add' }).click()
+      const jiraItem = page.locator('.ext-item[data-ext="devlog-jira"]')
+      await jiraItem.locator('button', { hasText: 'Review and allow' }).click()
+      await page.locator('.modal-consent button', { hasText: 'Allow' }).click()
+      await jiraItem.locator('.ext-state', { hasText: 'Running' }).waitFor({ timeout: 20_000 })
+      await jiraItem.locator('button', { hasText: 'Settings' }).click()
+      await page.locator('#set-devlog-jira-baseurl').fill(`http://127.0.0.1:${jira.address().port}`)
+      await page.locator('#set-devlog-jira-email').fill('me@example.com')
+      await page.locator('.ext-settings button', { hasText: 'Save settings' }).click()
+      await page.locator('#sec-devlog-jira-token').fill('t0ken')
+      await page.locator('.ext-settings .field-row button', { hasText: 'Save' }).last().click()
+      await page.waitForSelector('.ext-settings label:has-text("set on this machine")', { timeout: 5_000 }).catch(() => undefined)
+      await page.locator('.modal-extensions button', { hasText: 'Done' }).click()
+      await page.locator('.ts-actions .ts-send', { hasText: 'Send to Jira' }).waitFor({ timeout: 10_000 })
+      await page.locator('.ts-actions .ts-send', { hasText: 'Send to Jira' }).click()
+      await page.waitForSelector('.modal-send .send-counts', { timeout: 20_000 })
+      check((await page.locator('.modal-send .send-line.action-create .send-target').allTextContents()).includes('WEB-42'), 'the send preview lists a new worklog on the issue set on the canvas')
+      await page.screenshot({ path: path.join(shots, '04d-send-to-jira.png') })
+      await page.locator('.modal-send button', { hasText: /^Send \d/ }).click()
+      await page.waitForSelector('.modal-send .send-result, .modal-send .form-error', { timeout: 30_000 })
+      const sendText = await page.locator('.modal-send .send-result, .modal-send .form-error').first().textContent()
+      check(/worklogs? created/.test(sendText) && jiraRequests.some((r) => r.method === 'POST' && r.url === '/rest/api/2/issue/WEB-42/worklog'), `sending creates the worklogs in Jira (${sendText})`)
+      check((await page.locator('.modal-send button', { hasText: 'Nothing to send' }).count()) === 1, 'afterwards there is nothing left to send')
+      await page.locator('.modal-send button', { hasText: 'Close' }).click()
+      jira.close()
     }
     await fs.rm(path.join(repo, 'activity', 'sheet-machine-0000'), { recursive: true, force: true })
     await page.locator('.sidebar-views .view-link', { hasText: 'Journal' }).click()
     await page.waitForSelector('.page-head .crumb.is-current:has-text("Journal")')
-  } else console.log('skip timesheet check: too early in the day for an hour of tracked time today')
+  } else console.log('skip timesheet check: early on a Monday, no earlier day this week to track an hour on')
 
   // 6b. A long run of completed todos folds into one line and expands to every item.
   const bigList = await page.evaluate(async () => {

@@ -42,7 +42,8 @@ describe('extension manifests', () => {
       canvasFields: [{ key: 'issue', label: 'Jira issue', placeholder: 'ACME-123' }],
       settings: [{ key: 'baseurl', label: 'Jira URL' }],
       secrets: [{ key: 'token', label: 'API token' }],
-      commands: [{ id: 'send', label: 'Send worklogs' }]
+      commands: [{ id: 'send', label: 'Send worklogs' }],
+      destinations: [{ id: 'jira', label: 'Jira worklogs' }]
     },
     permissions: { read: true, network: ['*.atlassian.net'] },
     appendOnly: ['**/*.jsonl']
@@ -52,7 +53,8 @@ describe('extension manifests', () => {
     const m = parseExtensionManifest(good)
     expect(m).toMatchObject({ name: 'devlog-jira', api: '^1.0.0', permissions: { read: true, network: ['*.atlassian.net'] }, appendOnly: ['**/*.jsonl'] })
     expect(m.contributes.commands).toEqual([{ id: 'send', label: 'Send worklogs' }])
-    expect(parseExtensionManifest({ name: 'x', version: '0.1.0', api: '1.x' })).toMatchObject({ displayName: 'x', contributes: { canvasFields: [], settings: [], secrets: [], commands: [] }, permissions: {} })
+    expect(m.contributes.destinations).toEqual([{ id: 'jira', label: 'Jira worklogs' }])
+    expect(parseExtensionManifest({ name: 'x', version: '0.1.0', api: '1.x' })).toMatchObject({ displayName: 'x', contributes: { canvasFields: [], settings: [], secrets: [], commands: [], destinations: [] }, permissions: {} })
   })
 
   it('lists every problem with a bad one', () => {

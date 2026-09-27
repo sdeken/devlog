@@ -386,6 +386,17 @@ or remove entries; per client and day it shows reported against worked
 time and suggests which long entries to trim so short tasks don't inflate
 the day (Apply to take the suggestion). **Mark final** approves the week.
 
+**Sending to Jira.** Add the built-in **Jira worklogs** extension under
+Extensions and allow it (it is sandboxed: it only talks to Jira). In its
+Settings, set the Jira URL, your account email and an API token (Jira Cloud;
+for Data Center leave the email empty and use a personal access token). Put
+the Jira issue key on the task canvases (Edit → Jira issue), or on a
+client or project canvas for everything beneath it. On a final week,
+**Send to Jira…** shows what would be created, changed or removed, then
+sends it: one worklog per entry, with its start time, duration and note.
+Sending again only sends what changed since the last time, from any
+machine. **Check the Jira connection** (quick switcher) tests the settings.
+
 Timesheets are saved in a **Timesheets** canvas Devlog creates on first use:
 one block per week on its Monday, a readable table with the exact data
 underneath, read-only in the stream; every change is an edit record, so the

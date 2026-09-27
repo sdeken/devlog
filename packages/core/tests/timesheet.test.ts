@@ -97,6 +97,13 @@ describe('draft entries', () => {
   })
 })
 
+describe('draft entries near midnight', () => {
+  it('keeps a start that would round past midnight on its own day', () => {
+    const [e] = draftEntries(buildSessions([seg('a', at(23, 53), at(23, 59))]))
+    expect([e.date, localHM(e.start)]).toEqual(['2026-09-22', '23:45'])
+  })
+})
+
 describe('balancing rounding inflation', () => {
   const entry = (id: string, canvasId: string, minutes: number, worked: number, date = '2026-09-22'): TimesheetEntry => ({
     id,
