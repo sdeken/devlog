@@ -11,11 +11,17 @@ interface Props {
   /** The active task, marked with a running dot. */
   activeCanvasId: string | null
   searching: boolean
+  /** The retired journal still holds notes: list it under Archived so they stay reachable. */
+  showJournal: boolean
+  /** An extension needs setting up or allowing. */
+  settingsAttention: boolean
   onSelect: (sel: SidebarSelection) => void
   onNewCanvas: () => void
+  onCanvasMenu: (canvasId: string, x: number, y: number) => void
+  onOpenSettings: () => void
 }
 
-export function Sidebar({ canvases, selection, activeCanvasId, searching, onSelect, onNewCanvas }: Props): React.JSX.Element {
+export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
   const tree = useMemo(() => buildCanvasTree(canvases), [canvases])
   const archived = useMemo(() => canvases.filter((c) => c.archived), [canvases])
   const [showArchived, setShowArchived] = useState(() => {
@@ -63,7 +69,15 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
     const open = !collapsed.has(c.id)
     return (
       <li key={c.id} className={`canvas-node${c.task ? ' is-task' : ''}`}>
-        <div className={`canvas-row${isSelected(c.id) ? ' is-selected' : ''}`} style={{ paddingLeft: 4 + depth * 12 }}>
+        <div
+          className={`canvas-row${isSelected(c.id) ? ' is-selected' : ''}`}
+          style={{ paddingLeft: 4 + depth * 12 }}
+          data-canvas={c.id}
+          onContextMenu={(ev) => {
+            ev.preventDefault()
+            onCanvasMenu(c.id, ev.clientX, ev.clientY)
+          }}
+        >
           <button
             type="button"
             className={`canvas-caret${hasChildren ? '' : ' is-leaf'}`}
@@ -87,12 +101,6 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
     <aside className="sidebar">
       <nav className="sidebar-nav">
         <ul className="sidebar-views">
-          <li>
-            <button type="button" className={`view-link${isSelected(JOURNAL_ID) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'canvas', canvasId: JOURNAL_ID })}>
-              <span className="view-icon">✎</span>
-              <span className="view-name">Journal</span>
-            </button>
-          </li>
           <li>
             <button type="button" className={`view-link${isView('summary') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'summary' })} title={`Hours per client (${kbd('mod', 'shift', 'H')})`}>
               <span className="view-icon">Σ</span>
@@ -124,18 +132,40 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
             +
           </button>
         </div>
-        {tree.length === 0 && <p className="sidebar-hint">No canvases yet. Add a client or a project, or turn a note into a task.</p>}
+        {tree.length === 0 && <p className="sidebar-hint">No canvases yet. Add a client or a project with +.</p>}
         <ul className="canvas-tree">{tree.map((n) => renderNode(n, 0))}</ul>
-        {archived.length > 0 && (
+        {(archived.length > 0 || showJournal) && (
           <div className="sidebar-archived">
             <button type="button" className="sidebar-section archived-toggle" onClick={toggleArchived}>
-              {showArchived ? '▾' : '▸'} Archived ({archived.length})
+              {showArchived ? '▾' : '▸'} Archived ({archived.length + (showJournal ? 1 : 0)})
             </button>
             {showArchived && (
               <ul>
+                {showJournal && (
+                  <li>
+                    <button
+                      type="button"
+                      className={`view-link canvas-archived${isSelected(JOURNAL_ID) ? ' is-selected' : ''}`}
+                      onClick={() => onSelect({ kind: 'canvas', canvasId: JOURNAL_ID })}
+                      title="Notes from the old journal. Move anything worth keeping to a canvas."
+                    >
+                      <span className="view-icon">✎</span>
+                      <span className="view-name">Journal</span>
+                    </button>
+                  </li>
+                )}
                 {archived.map((c) => (
                   <li key={c.id}>
-                    <button type="button" className={`view-link canvas-archived${isSelected(c.id) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={canvasLabel(canvases, c.id)}>
+                    <button
+                      type="button"
+                      className={`view-link canvas-archived${isSelected(c.id) ? ' is-selected' : ''}`}
+                      onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })}
+                      onContextMenu={(ev) => {
+                        ev.preventDefault()
+                        onCanvasMenu(c.id, ev.clientX, ev.clientY)
+                      }}
+                      title={canvasLabel(canvases, c.id)}
+                    >
                       <span className="view-icon">{c.task ? '◉' : '▤'}</span>
                       <span className="view-name">{canvasLabel(canvases, c.id)}</span>
                     </button>
@@ -146,6 +176,13 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
           </div>
         )}
       </nav>
+      <div className="sidebar-foot">
+        <button type="button" className="view-link sidebar-settings" onClick={onOpenSettings} title={`Settings (${kbd('mod', ',')})`}>
+          <span className="view-icon">⚙︎</span>
+          <span className="view-name">Settings</span>
+          {settingsAttention && <span className="sidebar-dot" title="An extension needs setting up" />}
+        </button>
+      </div>
     </aside>
   )
 }

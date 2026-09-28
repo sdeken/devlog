@@ -1,7 +1,7 @@
 {
   "name": "devlog-cms",
   "displayName": "CMS timesheets",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Sends a finished timesheet to the Technology Partners consultant timesheet system (CMS): hours per assignment per day, on the assignment set on the task (or a canvas above it). Sending again only changes the days that differ from what CMS shows.",
   "api": "^1.3.0",
   "main": "main.js",

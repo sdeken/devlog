@@ -18,7 +18,7 @@ import { addDays, weekDates, weekStart, type ReviewNote } from '@shared/review'
 import { draftTimesheet, newEntryId } from '@shared/timesheet'
 import { api } from '@renderer/api'
 import { reported } from '@renderer/toasts'
-import { useExtensions } from './ExtensionsDialog'
+import { useExtensions } from './ExtensionPages'
 import { SendDialog } from './SendDialog'
 
 interface Props {

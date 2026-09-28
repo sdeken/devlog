@@ -13,7 +13,6 @@ interface Props {
   /** The canvas on screen, offered first when starting a task. */
   currentCanvasId: string | null
   onSyncNow: () => void
-  onOpenSettings: () => void
   onStartTask: (canvasId: string) => void
   onStopTask: () => void
   /** Create a new task canvas (under the current canvas) and start it. */
@@ -39,7 +38,8 @@ function StartMenu({ canvases, currentCanvasId, onStart, onNew, onClose }: { can
   }, [canvases, currentCanvasId, query])
   useEffect(() => {
     const onDown = (ev: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(ev.target as Node)) onClose()
+      // The buttons that toggle the menu sit beside it, in the same wrapper.
+      if (ref.current && !(ref.current.parentElement ?? ref.current).contains(ev.target as Node)) onClose()
     }
     const onKey = (ev: KeyboardEvent): void => {
       if (ev.key === 'Escape') onClose()
@@ -75,7 +75,7 @@ function StartMenu({ canvases, currentCanvasId, onStart, onNew, onClose }: { can
         {tasks.length === 0 && <li className="start-empty">{query ? 'No task matches.' : 'No tasks yet.'}</li>}
       </ul>
       <button type="button" className="start-item start-new" onClick={onNew}>
-        + New task{currentCanvasId && currentCanvasId !== JOURNAL_ID ? ` in ${canvasLabel(canvases, currentCanvasId).split(' / ').pop()}` : ''}…
+        + New task{currentCanvasId && currentCanvasId !== JOURNAL_ID && canvases.some((c) => c.id === currentCanvasId) ? ` in ${canvasLabel(canvases, currentCanvasId).split(' / ').pop()}` : ''}…
       </button>
     </div>
   )
@@ -100,7 +100,7 @@ function inFuture(iso: string | null, now: number): string {
   return `${Math.round(s / 60)} min`
 }
 
-export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onOpenSettings, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
+export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
   const [startOpen, setStartOpen] = useState(false)
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
@@ -159,6 +159,10 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
     }
   }
 
+  // The task on screen, offered as the Start button's main action.
+  const current = currentCanvasId ? canvases.find((c) => c.id === currentCanvasId && c.task && !c.archived) : undefined
+  const offer = current && current.id !== tracker?.activeCanvasId ? current : null
+
   const elapsed = tracker?.since && !tracker.paused ? formatMinutes((now - new Date(tracker.since).getTime()) / 60_000) : null
 
   return (
@@ -176,32 +180,57 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
               <span className="status-detail">No active task</span>
             )}
           </button>
-          {tracker.activeCanvasId ? (
+          {tracker.activeCanvasId && (
             <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title={`Stop the active task (${kbd('mod', 'shift', '.')})`}>
               Stop
             </button>
-          ) : (
-            <span className="start-wrap">
+          )}
+          <span className="start-wrap">
+            {offer ? (
+              <span className="split-btn">
+                <button
+                  type="button"
+                  className={`btn btn-xs split-main ${tracker.activeCanvasId ? 'btn-quiet' : 'btn-primary'}`}
+                  onClick={() => onStartTask(offer.id)}
+                  title={`${tracker.activeCanvasId ? 'Switch to' : 'Start'} ${canvasLabel(canvases, offer.id)}`}
+                >
+                  ▶ {tracker.activeCanvasId ? 'Switch to' : 'Start'} <span className="split-title">{offer.title}</span>
+                </button>
+                <button
+                  type="button"
+                  className={`btn btn-xs split-caret ${tracker.activeCanvasId ? 'btn-quiet' : 'btn-primary'}`}
+                  onClick={() => setStartOpen((v) => !v)}
+                  title="Start a different task"
+                  aria-label="Start a different task"
+                >
+                  ▾
+                </button>
+              </span>
+            ) : tracker.activeCanvasId ? (
+              <button type="button" className="btn btn-quiet btn-xs split-caret" onClick={() => setStartOpen((v) => !v)} title="Switch to another task" aria-label="Switch to another task">
+                ▾
+              </button>
+            ) : (
               <button type="button" className="btn btn-primary btn-xs" onClick={() => setStartOpen((v) => !v)} title="Start a task">
                 Start ▾
               </button>
-              {startOpen && (
-                <StartMenu
-                  canvases={canvases}
-                  currentCanvasId={currentCanvasId}
-                  onStart={(id) => {
-                    setStartOpen(false)
-                    onStartTask(id)
-                  }}
-                  onNew={() => {
-                    setStartOpen(false)
-                    onNewTask()
-                  }}
-                  onClose={() => setStartOpen(false)}
-                />
-              )}
-            </span>
-          )}
+            )}
+            {startOpen && (
+              <StartMenu
+                canvases={canvases}
+                currentCanvasId={currentCanvasId}
+                onStart={(id) => {
+                  setStartOpen(false)
+                  onStartTask(id)
+                }}
+                onNew={() => {
+                  setStartOpen(false)
+                  onNewTask()
+                }}
+                onClose={() => setStartOpen(false)}
+              />
+            )}
+          </span>
           <span className="status-sep" />
         </span>
       )}
@@ -244,9 +273,6 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
       )}
       <button type="button" className="btn btn-quiet btn-xs" onClick={onSyncNow} disabled={!status || dot === 'busy'} title={`Commit and push now (${kbd('mod', 'shift', 'S')})`}>
         Sync now
-      </button>
-      <button type="button" className="btn btn-quiet btn-xs" onClick={onOpenSettings} title={`Settings (${kbd('mod', ',')})`}>
-        ⚙︎
       </button>
     </footer>
   )

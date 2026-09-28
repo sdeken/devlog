@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@devlog/core'
-import { JOURNAL, JOURNAL_ID, canvasLabel } from '@devlog/core'
+import { JOURNAL, JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import { themeCssVars } from '@shared/theme'
 import type { CanvasMeta, Day, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { api } from '@renderer/api'
@@ -19,7 +19,8 @@ import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
-import { ExtensionsDialog, useExtensions } from './components/ExtensionsDialog'
+import { needsAttention, useExtensions } from './components/ExtensionPages'
+import { ContextMenu, type MenuItem } from './components/ContextMenu'
 import { Welcome } from './components/Welcome'
 import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
@@ -45,6 +46,22 @@ function samePlace(a: Place, b: Place): boolean {
   return true
 }
 
+const LAST_CANVAS_KEY = 'devlog:last-canvas'
+
+/** Where to land with no canvas chosen: the last one viewed, the running task, or the first in the tree. */
+function homeCanvas(list: CanvasMeta[], activeCanvasId: string | null | undefined): string {
+  const live = (id: string | null | undefined): boolean => Boolean(id) && list.some((c) => c.id === id && !c.archived)
+  let last: string | null = null
+  try {
+    last = localStorage.getItem(LAST_CANVAS_KEY)
+  } catch {
+    /* ignore */
+  }
+  if (live(last)) return last!
+  if (live(activeCanvasId)) return activeCanvasId!
+  return flattenTree(buildCanvasTree(list))[0]?.canvas.id ?? ''
+}
+
 /** Replace or insert one day in an ascending timeline; drop it when empty. */
 function mergeDay(days: Day[], day: Day): Day[] {
   const rest = days.filter((d) => d.date !== day.date)
@@ -61,12 +78,13 @@ export function App(): React.JSX.Element {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [repo, setRepo] = useState<RepoInfo | null | undefined>(undefined)
   const [today, setToday] = useState(localDate(new Date()))
-  const [canvases, setCanvases] = useState<CanvasMeta[]>([JOURNAL])
-  const [canvasId, setCanvasId] = useState<string>(JOURNAL_ID)
+  const [canvases, setCanvases] = useState<CanvasMeta[]>([])
+  // '' until the canvases are known (and when there are none yet).
+  const [canvasId, setCanvasId] = useState<string>('')
   const [view, setView] = useState<View>('canvas')
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Where the composer posts. Follows the open canvas but can be pointed elsewhere.
-  const [targetCanvasId, setTargetCanvasId] = useState<string>(JOURNAL_ID)
+  const [targetCanvasId, setTargetCanvasId] = useState<string>('')
   const [timelineDate, setTimelineDate] = useState<string>(localDate(new Date()))
   const [tracker, setTracker] = useState<TrackerStatus | null>(null)
   const [days, setDays] = useState<Day[]>([])
@@ -75,10 +93,13 @@ export function App(): React.JSX.Element {
   const [search, setSearch] = useState('')
   const [hits, setHits] = useState<SearchResult | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
-  const [settingsOpen, setSettingsOpen] = useState(false)
-  const [extensionsOpen, setExtensionsOpen] = useState(false)
+  // The settings page open, or null when closed.
+  const [settingsPage, setSettingsPage] = useState<string | null>(null)
   const extensions = useExtensions()
   const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
+  const [canvasMenu, setCanvasMenu] = useState<{ canvasId: string; x: number; y: number } | null>(null)
+  // The retired journal is listed (under Archived) only while it still holds notes.
+  const [journalHasNotes, setJournalHasNotes] = useState(false)
   const [focusToken, setFocusToken] = useState(0)
   const [linkRepo, setLinkRepo] = useState<{ canvasId: string; root: string } | null>(null)
   const [bootError, setBootError] = useState<string | null>(null)
@@ -86,6 +107,8 @@ export function App(): React.JSX.Element {
   const searchRef = useRef<HTMLInputElement | null>(null)
   const canvasIdRef = useRef(canvasId)
   canvasIdRef.current = canvasId
+  const trackerRef = useRef(tracker)
+  trackerRef.current = tracker
   const canvasesRef = useRef(canvases)
   canvasesRef.current = canvases
 
@@ -143,17 +166,27 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
-  const canvas = useMemo(() => canvases.find((c) => c.id === canvasId) ?? JOURNAL, [canvases, canvasId])
-  const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId) ?? JOURNAL, [canvases, targetCanvasId])
+  const canvas = useMemo(() => canvases.find((c) => c.id === canvasId) ?? (canvasId === JOURNAL_ID ? JOURNAL : null), [canvases, canvasId])
+  const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId && c.id !== JOURNAL_ID && !c.archived) ?? null, [canvases, targetCanvasId])
 
   const refreshCanvases = useCallback(async () => {
     const list = await api.canvases.list()
     setCanvases(list)
-    if (!list.some((c) => c.id === canvasIdRef.current)) setCanvasId(JOURNAL_ID)
+    if (!list.some((c) => c.id === canvasIdRef.current)) setCanvasId(homeCanvas(list, trackerRef.current?.activeCanvasId))
     return list
   }, [])
 
+  const checkJournal = useCallback(async () => {
+    const t = await api.blocks.timeline(JOURNAL_ID, { days: 1 })
+    setJournalHasNotes(t.days.length > 0)
+  }, [])
+
   const loadTimeline = useCallback(async (id: string) => {
+    if (!id) {
+      setDays([])
+      setHasMore(false)
+      return
+    }
     setLoading(true)
     try {
       const t = await api.blocks.timeline(id, { days: TIMELINE_DAYS })
@@ -191,13 +224,14 @@ export function App(): React.JSX.Element {
     })()
     const offRepo = api.repo.onChanged((info) => {
       setRepo(info)
-      setCanvasId(JOURNAL_ID)
+      setCanvases([])
+      setCanvasId('')
       nav.current = { stack: [], index: -1, restoring: null }
     })
     const offSync = api.sync.onStatus((st) => setSync(st))
     const offTracker = api.tracker.onStatus((st) => setTracker(st))
     const offMenu = api.onMenu((cmd) => {
-      if (cmd === 'openSettings') setSettingsOpen(true)
+      if (cmd === 'openSettings') setSettingsPage((p) => p ?? 'repository')
       if (cmd === 'focusComposer') setFocusToken((n) => n + 1)
       if (cmd === 'search') searchRef.current?.focus()
       if (cmd === 'syncNow') void reported(api.sync.now())
@@ -273,16 +307,22 @@ export function App(): React.JSX.Element {
   // Extensions speak through toasts.
   useEffect(() => api.extensions.onNotify((text) => showToast(text, 'info')), [])
 
-  // The composer target follows the canvas being viewed.
+  // The composer target follows the canvas being viewed; remember it for next time.
   useEffect(() => {
-    if (view === 'canvas') setTargetCanvasId(canvasId)
+    if (view !== 'canvas' || !canvasId || canvasId === JOURNAL_ID) return
+    setTargetCanvasId(canvasId)
+    try {
+      localStorage.setItem(LAST_CANVAS_KEY, canvasId)
+    } catch {
+      /* ignore */
+    }
   }, [view, canvasId])
 
   // Window title follows the view.
   useEffect(() => {
-    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : view === 'timesheet' ? 'Timesheet' : canvasLabel(canvases, canvasId)
+    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : view === 'timesheet' ? 'Timesheet' : canvas ? canvasLabel(canvases, canvas.id) : 'Devlog'
     document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
-  }, [view, canvases, canvasId, search])
+  }, [view, canvases, canvas, search])
 
   // Roll over at midnight.
   useEffect(() => {
@@ -298,11 +338,13 @@ export function App(): React.JSX.Element {
     if (!repo) return
     void refreshCanvases()
     void loadTimeline(canvasId)
+    void checkJournal()
     return api.blocks.onChanged(() => {
       void refreshCanvases()
       void loadTimeline(canvasIdRef.current)
+      void checkJournal()
     })
-  }, [repo, canvasId, refreshCanvases, loadTimeline])
+  }, [repo, canvasId, refreshCanvases, loadTimeline, checkJournal])
 
   // Search (debounced).
   useEffect(() => {
@@ -399,8 +441,8 @@ export function App(): React.JSX.Element {
 
   const goTo = useCallback(
     (target: SwitchTarget) => {
-      if (target.kind === 'extensions') {
-        setExtensionsOpen(true)
+      if (target.kind === 'settings') {
+        setSettingsPage(target.page ?? 'repository')
         return
       }
       if (target.kind === 'command') {
@@ -418,6 +460,39 @@ export function App(): React.JSX.Element {
     },
     [openCanvas]
   )
+
+  const menuItems = (id: string): MenuItem[] => {
+    const c = canvases.find((x) => x.id === id)
+    if (!c) return []
+    const active = tracker?.activeCanvasId === id
+    const items: MenuItem[] = [{ label: 'Open', onClick: () => openCanvas(id) }]
+    if (c.task && tracker?.tracking && !c.archived)
+      items.push(
+        active
+          ? { label: 'Stop this task', onClick: () => void reported(api.tracker.setTask(null)) }
+          : { label: tracker?.activeCanvasId ? 'Switch to this task' : 'Start this task', onClick: () => void reported(api.tracker.setTask(id)) }
+      )
+    items.push('separator', { label: 'Properties…', onClick: () => setCanvasDialog({ canvas: c }) })
+    if (!c.archived)
+      items.push(
+        { label: 'New canvas inside…', onClick: () => setCanvasDialog({ canvas: null, parentId: id }) },
+        { label: 'New task inside…', onClick: () => setCanvasDialog({ canvas: null, parentId: id, task: true }) }
+      )
+    items.push('separator', {
+      label: c.archived ? 'Unarchive' : 'Archive',
+      onClick: () =>
+        void reported(
+          api.canvases.archive(id, !c.archived).then(async () => {
+            await refreshCanvases()
+            showToast(c.archived ? `Restored ${c.title}` : `Archived ${c.title}; it is under Archived in the sidebar`, 'info')
+          })
+        )
+    })
+    return items
+  }
+  const openMenu = (id: string, x: number, y: number): void => {
+    if (canvases.some((c) => c.id === id)) setCanvasMenu({ canvasId: id, x, y })
+  }
 
   if (repo === undefined || settings === null) {
     return <div className="boot">Loading…</div>
@@ -445,6 +520,10 @@ export function App(): React.JSX.Element {
         selection={selection}
         activeCanvasId={tracker?.activeCanvasId ?? null}
         searching={Boolean(search)}
+        showJournal={journalHasNotes}
+        settingsAttention={extensions.some(needsAttention)}
+        onCanvasMenu={openMenu}
+        onOpenSettings={() => setSettingsPage('repository')}
         onSelect={(sel) => {
           setSearch('')
           if (sel.kind === 'canvas') openCanvas(sel.canvasId)
@@ -453,12 +532,12 @@ export function App(): React.JSX.Element {
             setView(sel.kind)
           }
         }}
-        onNewCanvas={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvasId !== JOURNAL_ID ? canvasId : null })}
+        onNewCanvas={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null })}
       />
       <main className="main">
         {search && (
           <Feed
-            canvas={canvas}
+            canvas={canvas ?? JOURNAL}
             canvases={canvases}
             days={[]}
             hasMore={false}
@@ -493,7 +572,16 @@ export function App(): React.JSX.Element {
         {view === 'timeline' && !search && (
           <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={openCanvas} />
         )}
-        {view === 'canvas' && !search && (
+        {view === 'canvas' && !search && !canvas && (
+          <div className="empty-home">
+            <h2>Start with a canvas</h2>
+            <p>Canvases hold your notes: one for each client or project, and tasks inside them that you track time against.</p>
+            <button type="button" className="btn btn-primary" onClick={() => setCanvasDialog({ canvas: null })}>
+              + New canvas
+            </button>
+          </div>
+        )}
+        {view === 'canvas' && !search && canvas && (
           <CanvasView
             key={canvasId}
             canvas={canvas}
@@ -504,6 +592,10 @@ export function App(): React.JSX.Element {
             loading={loading}
             editRequest={editRequest}
             activeCanvasId={tracker?.activeCanvasId ?? null}
+            tracking={Boolean(tracker?.tracking)}
+            onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
+            onStopTask={() => void reported(api.tracker.setTask(null))}
+            onCanvasMenu={openMenu}
             onLoadMore={loadMore}
             onAdd={addEntry}
             onUpdate={updateEntry}
@@ -546,15 +638,13 @@ export function App(): React.JSX.Element {
             onReorder={reorderEntry}
           />
         )}
-        {!search && !(view === 'canvas' && canvas.archived) && (
+        {!search && targetCanvas && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
           <div className="composer-dock">
             <Composer
               key={targetCanvasId}
               mode="new"
               placeholder={
-                targetCanvas.id === JOURNAL_ID
-                  ? undefined
-                  : targetCanvas.task
+                targetCanvas.task
                     ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Shift+Enter new line`
                     : `Note on ${targetCanvas.title}…  Enter posts, ${kbd('mod', 'shift', 'Enter')} posts as a task, Shift+Enter new line`
               }
@@ -581,10 +671,9 @@ export function App(): React.JSX.Element {
           canvases={canvases}
           currentCanvasId={view === 'canvas' ? canvasId : null}
           onSyncNow={() => void reported(api.sync.now())}
-          onOpenSettings={() => setSettingsOpen(true)}
           onStartTask={(id) => void reported(api.tracker.setTask(id))}
           onStopTask={() => void reported(api.tracker.setTask(null))}
-          onNewTask={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvasId !== JOURNAL_ID ? canvasId : null, task: true, start: true })}
+          onNewTask={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null, task: true, start: true })}
           onOpenTimeline={() => {
             setTimelineDate(localDate(new Date()))
             setView('timeline')
@@ -593,7 +682,8 @@ export function App(): React.JSX.Element {
       </main>
       <TodoPanel
         canvases={canvases}
-        canvasId={view === 'canvas' ? canvasId : null}
+        canvasId={view === 'canvas' && canvas ? canvasId : null}
+        fallbackCanvasId={targetCanvas?.id ?? null}
         onOpenCanvas={openCanvas}
         onStreamChanged={(id, date) => void reloadDay(id, date)}
         onCanvasesChanged={refreshCanvases}
@@ -610,21 +700,20 @@ export function App(): React.JSX.Element {
           onClose={() => setSwitcherOpen(false)}
         />
       )}
-      {settingsOpen && (
+      {settingsPage && (
         <SettingsDialog
           settings={settings}
           repo={repo}
-          onClose={() => setSettingsOpen(false)}
+          canvases={canvases}
+          extensions={extensions}
+          initialPage={settingsPage}
+          onClose={() => setSettingsPage(null)}
           onSaved={setSettings}
           onRepoChanged={(r) => setRepo(r)}
           onPreview={applyTheme}
-          onOpenExtensions={() => {
-            setSettingsOpen(false)
-            setExtensionsOpen(true)
-          }}
         />
       )}
-      {extensionsOpen && <ExtensionsDialog canvases={canvases} onClose={() => setExtensionsOpen(false)} />}
+      {canvasMenu && <ContextMenu x={canvasMenu.x} y={canvasMenu.y} items={menuItems(canvasMenu.canvasId)} onClose={() => setCanvasMenu(null)} />}
       {linkRepo && (
         <LinkRepoDialog
           repoPath={linkRepo.root}
@@ -658,7 +747,6 @@ export function App(): React.JSX.Element {
             if (canvasDialog.start && saved.task) void reported(api.tracker.setTask(saved.id))
           }}
           onDeleted={async () => {
-            setCanvasId(JOURNAL_ID)
             await refreshCanvases()
           }}
         />

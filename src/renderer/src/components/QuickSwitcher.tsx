@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
+import { buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 
 export type SwitchTarget =
   | { kind: 'canvas'; canvasId: string }
   | { kind: 'view'; view: 'review' | 'timeline' | 'summary' | 'timesheet' }
-  | { kind: 'extensions' }
+  | { kind: 'settings'; page?: string }
   | { kind: 'command'; extension: string; command: string }
 
 interface Props {
@@ -43,12 +43,12 @@ export function QuickSwitcher({ canvases, extensions = [], onPick, onClose }: Pr
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [
-      { key: 'canvas:journal', label: 'Journal', hint: 'journal', target: { kind: 'canvas', canvasId: JOURNAL_ID } },
       { key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } },
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
       { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } },
       { key: 'view:timesheet', label: 'Timesheet', hint: 'view', target: { kind: 'view', view: 'timesheet' } },
-      { key: 'extensions', label: 'Extensions', hint: 'manage', target: { kind: 'extensions' } }
+      { key: 'settings', label: 'Settings', hint: 'settings', target: { kind: 'settings' } },
+      { key: 'extensions', label: 'Extensions', hint: 'settings', target: { kind: 'settings', page: 'extensions' } }
     ]
     for (const e of extensions) {
       for (const c of e.commands) {

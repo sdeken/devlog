@@ -4478,3 +4478,317 @@ body.is-resizing {
   color: var(--ok);
   font-size: 13px;
 }
+
+/* ---- Paged dialogs (settings, canvas properties): nav on the left, one page on the right ---- */
+.modal.modal-paged {
+  width: min(920px, 94vw);
+  height: min(640px, 88vh);
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.modal-paged.modal-page {
+  width: min(760px, 94vw);
+  height: min(560px, 88vh);
+}
+
+.paged-nav {
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  padding: 16px 8px;
+  overflow-y: auto;
+}
+
+.paged-title {
+  font-size: 15px !important;
+  margin: 0 8px 12px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paged-group + .paged-group {
+  margin-top: 12px;
+}
+
+.paged-group-name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 8px 4px;
+}
+
+.paged-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+}
+
+.paged-link:hover {
+  background: var(--bg-3);
+}
+
+.paged-link.is-selected {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.paged-link-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paged-badge {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--fg-muted);
+}
+
+.paged-badge.is-dirty {
+  background: #d69e2e;
+}
+
+.paged-badge.is-attention {
+  background: #e05252;
+}
+
+.paged-link.is-selected .paged-badge {
+  box-shadow: 0 0 0 2px var(--accent-fg);
+}
+
+.paged-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.paged-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  z-index: 1;
+}
+
+.paged-close:hover {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+
+.paged-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 12px;
+}
+
+.paged-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.paged-footer .form-error {
+  margin: 0;
+  flex-basis: 100%;
+}
+
+.settings-page h3 {
+  margin-top: 4px;
+}
+
+.settings-page h3 ~ h3 {
+  margin-top: 20px;
+}
+
+.settings-page .field-grid {
+  grid-template-columns: 1fr 180px;
+}
+
+.page-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 16px;
+}
+
+/* An extension page's own Save sits at its foot, like the dialog footer. */
+.page-actions {
+  position: sticky;
+  bottom: -12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px -24px -12px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.ext-page-head {
+  padding-right: 32px;
+}
+
+.ext-page-title {
+  font-size: 17px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: var(--fg) !important;
+  margin: 0 !important;
+}
+
+.ext-page .ext-settings-section {
+  margin-top: 18px;
+}
+
+.settings-page .ext-actions {
+  flex-wrap: wrap;
+}
+
+/* ---- Sidebar foot: settings ---- */
+.sidebar-foot {
+  padding: 6px 8px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--sidebar-fg) 12%, transparent);
+  flex: none;
+}
+
+.sidebar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e05252;
+  flex: none;
+}
+
+/* ---- Context menu ---- */
+.context-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 200px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+  font-size: 13px;
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 5px;
+}
+
+.context-item:hover:not(:disabled),
+.context-item:focus-visible {
+  background: var(--accent);
+  color: var(--accent-fg);
+  outline: none;
+}
+
+.context-item:disabled {
+  color: var(--fg-muted);
+}
+
+.context-item.is-danger {
+  color: #c53030;
+}
+
+.context-hint {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.context-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ---- Split Start button ---- */
+.split-btn {
+  display: inline-flex;
+}
+
+.split-btn .split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.split-btn .split-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.split-title {
+  font-weight: 600;
+}
+
+.task-start,
+.task-stop {
+  flex: none;
+}
+
+/* ---- No canvases yet ---- */
+.empty-home {
+  flex: 1;
+  margin: 0 auto;
+  padding-top: 12vh;
+  max-width: 420px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
+.empty-home h2 {
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+
+.settings-page.ext-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}

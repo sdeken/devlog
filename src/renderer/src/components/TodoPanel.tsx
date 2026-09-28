@@ -11,6 +11,8 @@ interface Props {
   canvases: CanvasMeta[]
   /** The canvas on screen; null on the review, summary and timeline views. */
   canvasId: string | null
+  /** Where new todos go when no canvas is on screen (the composer's target). */
+  fallbackCanvasId: string | null
   onOpenCanvas: (id: string) => void
   /** A todo was ticked off or promoted: the stream for that canvas changed today. */
   onStreamChanged: (canvasId: string, date: string) => void
@@ -334,7 +336,7 @@ function TodoItem({
  * Todos pinned to the right edge: open items for the canvas on screen and
  * everything beneath it (or everything), always visible whatever scrolls.
  */
-export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, onCanvasesChanged }: Props): React.JSX.Element {
+export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, onStreamChanged, onCanvasesChanged }: Props): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSE_KEY))
   const [width, setWidth] = useState(readWidth)
   const widthRef = useRef(width)
@@ -406,8 +408,9 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
     return [home!, ...descendantCanvasIds(canvases, home!).filter((id) => live.some((c) => c.id === id))]
   }, [canvases, wholeLog, home])
   const scopeKey = scopeIds.join(',')
-  // New todos go to the canvas on screen, or the journal.
-  const target = home ?? JOURNAL_ID
+  // New todos go to the canvas on screen, or the one the composer posts to.
+  const fallback = fallbackCanvasId && canvases.some((c) => c.id === fallbackCanvasId && !c.archived) ? fallbackCanvasId : null
+  const target = home ?? fallback
 
   const load = useCallback(async () => {
     setLists(await api.todos.list(scopeIds))
@@ -420,7 +423,7 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
 
   const add = async (text: string): Promise<void> => {
     const items = splitTodoLines(text)
-    if (items.length === 0) return
+    if (items.length === 0 || !target) return
     await api.todos.add(target, items)
     setDraft('')
     if (input.current) input.current.style.height = 'auto'
@@ -549,8 +552,9 @@ export function TodoPanel({ canvases, canvasId, onOpenCanvas, onStreamChanged, o
           ref={input}
           rows={1}
           value={draft}
-          placeholder="Add a todo… or paste a list"
-          title={`New todos go to ${canvasLabel(canvases, target)}`}
+          placeholder={target ? 'Add a todo… or paste a list' : 'Open a canvas to add todos'}
+          disabled={!target}
+          title={target ? `New todos go to ${canvasLabel(canvases, target)}` : 'Open a canvas to add todos'}
           onChange={(ev) => {
             setDraft(ev.target.value)
             // Grow with the text instead of scrolling.

@@ -16,6 +16,11 @@ interface Props {
   loading: boolean
   editRequest: string | null
   activeCanvasId: string | null
+  /** Activity tracking is on, so tasks can be started from here. */
+  tracking: boolean
+  onStartTask: () => void
+  onStopTask: () => void
+  onCanvasMenu: (canvasId: string, x: number, y: number) => void
   onLoadMore: () => Promise<void>
   onAdd: (canvasId: string, markdown: string, position: EntryPosition) => Promise<void>
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
@@ -46,6 +51,10 @@ export function CanvasView({
   loading,
   editRequest,
   activeCanvasId,
+  tracking,
+  onStartTask,
+  onStopTask,
+  onCanvasMenu,
   onLoadMore,
   onAdd,
   onUpdate,
@@ -125,25 +134,50 @@ export function CanvasView({
   const surfaceText = full ? lastSaved.current || full.surface : ''
   const showSurface = !isJournal && (editing || surfaceText.trim().length > 0)
 
+  const menuFor =
+    (id: string) =>
+    (ev: React.MouseEvent): void => {
+      ev.preventDefault()
+      onCanvasMenu(id, ev.clientX, ev.clientY)
+    }
+
   const header = (
     <header className="feed-head page-head">
       <div className="page-head-row">
         <h2 className="breadcrumbs">
           {crumbs.map((id) => (
             <span key={id}>
-              <button type="button" className="crumb" onClick={() => onOpenCanvas(id)}>
+              <button type="button" className="crumb" onClick={() => onOpenCanvas(id)} onContextMenu={menuFor(id)}>
                 {canvasLabel(canvases, id).split(' / ').pop()}
               </button>
               <span className="crumb-sep"> / </span>
             </span>
           ))}
-          <span className="crumb is-current">{canvas.title}</span>
-        </h2>
-        {canvas.task && (
-          <span className={`task-badge${isActive ? ' is-active' : ''}`} title={isActive ? 'This is the active task' : 'Task: time is tracked against it'}>
-            {isActive ? '◉ active' : 'task'}
+          <span className="crumb is-current" onContextMenu={isJournal ? undefined : menuFor(canvas.id)}>
+            {canvas.title}
           </span>
-        )}
+        </h2>
+        {canvas.task &&
+          (tracking && !canvas.archived ? (
+            isActive ? (
+              <>
+                <span className="task-badge is-active" title="This is the active task">
+                  ◉ active
+                </span>
+                <button type="button" className="btn btn-quiet btn-xs task-stop" onClick={onStopTask} title="Stop tracking time on this task">
+                  Stop
+                </button>
+              </>
+            ) : (
+              <button type="button" className="btn btn-primary btn-xs task-start" onClick={onStartTask} title={activeCanvasId ? 'Make this the active task (stops the current one)' : 'Start tracking time on this task'}>
+                ▶ {activeCanvasId ? 'Switch to this task' : 'Start this task'}
+              </button>
+            )
+          ) : (
+            <span className="task-badge" title="Task: time is tracked against it">
+              task
+            </span>
+          ))}
         <span className="spacer" />
         {!isJournal && (
           <>
@@ -160,8 +194,8 @@ export function CanvasView({
                 </button>
               </>
             )}
-            <button type="button" className="btn btn-quiet btn-xs" onClick={onEditCanvas} title="Rename, move, mark as task, repositories…">
-              Edit
+            <button type="button" className="btn btn-quiet btn-xs canvas-props" onClick={onEditCanvas} title="Rename, move, mark as task, repositories, extension fields… (or right-click the canvas in the sidebar)">
+              Properties
             </button>
             {confirm ? (
               <>
@@ -195,6 +229,9 @@ export function CanvasView({
           </>
         )}
       </div>
+      {isJournal && (
+        <div className="archived-banner">The journal is retired: nothing new goes here. Move what is worth keeping onto a canvas (hover a block → Move).</div>
+      )}
       {canvas.archived && <div className="archived-banner">This canvas is archived. It stays searchable and readable; unarchive it to post again.</div>}
       {showSurface && (
         <div className="surface">
@@ -264,7 +301,13 @@ export function CanvasView({
             .filter((c) => !c.archived)
             .sort((a, b) => Number(a.task) - Number(b.task) || a.title.localeCompare(b.title))
             .map((c) => (
-              <button key={c.id} type="button" className={`child-chip${c.task ? ' is-task' : ''}${activeCanvasId === c.id ? ' is-active' : ''}`} onClick={() => onOpenCanvas(c.id)}>
+              <button
+                key={c.id}
+                type="button"
+                className={`child-chip${c.task ? ' is-task' : ''}${activeCanvasId === c.id ? ' is-active' : ''}`}
+                onClick={() => onOpenCanvas(c.id)}
+                onContextMenu={menuFor(c.id)}
+              >
                 {c.task ? '◉ ' : '▤ '}
                 {c.title}
               </button>

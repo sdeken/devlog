@@ -232,15 +232,15 @@ async function plan(ctx, sheet, s) {
   const sundays = [...new Set([cmsSunday(sheet.week), cmsSunday(addDays(sheet.week, 6))])].filter((sun) => sun <= today)
   const weeks = []
   for (const sun of sundays) weeks.push(await s.week(sun))
+  // A week still ahead has no page to read yet, but its assignments still
+  // need names: take them from this week.
+  const listed = [...weeks]
+  if (sundays.length < 2 && !sundays.includes(cmsSunday(today))) listed.push(await s.week(cmsSunday(today)))
   const rows = new Map() // assignmentId → { client, project }
   const cells = new Map() // `${assignmentId}|${date}` → cell
-  for (const w of weeks) {
-    for (const r of w.rows) {
-      rows.set(r.assignmentId, { ...r, cells: undefined })
-      for (const c of r.cells) cells.set(`${r.assignmentId}|${c.date}`, c)
-    }
-  }
-  const allRows = weeks.flatMap((w) => w.rows)
+  for (const w of listed) for (const r of w.rows) if (!rows.has(r.assignmentId)) rows.set(r.assignmentId, { ...r, cells: undefined })
+  for (const w of weeks) for (const r of w.rows) for (const c of r.cells) cells.set(`${r.assignmentId}|${c.date}`, c)
+  const allRows = [...rows.values()]
   const ledger = await readLedger(ctx, sheet.week)
 
   const lines = []

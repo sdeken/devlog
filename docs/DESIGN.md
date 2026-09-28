@@ -50,6 +50,8 @@ outside the open repository.
 - `devlog.json` – `{ "format": 3 }`, the storage format version.
 - `.gitattributes` – `merge=union` for block files and activity logs.
 - `entries/YYYY/MM/YYYY-MM-DD.md` – the journal, one file per local day.
+  Retired in 0.13.0: the app no longer offers it as a place to write, and
+  lists it (read-only, under Archived) only while it still holds blocks.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
 - `canvases/<xx>/<id>/canvas.md` + `…/entries/…` + `…/todos.md` – every
   other canvas, in the same day-file layout (see **Canvases** below).

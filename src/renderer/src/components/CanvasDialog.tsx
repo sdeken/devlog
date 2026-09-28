@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, inheritedField, isWithin } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 import { api } from '@renderer/api'
 import { FieldRow } from './FieldInput'
+import { PagedDialog, type DialogPage } from './PagedDialog'
 
 interface Props {
   /** Existing canvas to edit, or null to create one. */
@@ -14,12 +15,20 @@ interface Props {
   /** Pre-selected parent for a new canvas. */
   initialParentId?: string | null
   initialTask?: boolean
+  /** 'general', 'repos', or 'ext:<key>'. */
+  initialPage?: string
   onClose: () => void
   onSaved: (canvas: CanvasMeta) => void
   onDeleted: (id: string) => void
 }
 
-export function CanvasDialog({ canvas, canvases, extensions = [], initialParentId, initialTask, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
+/**
+ * A canvas's properties, a page per concern: the canvas itself, its git
+ * repositories, and one page for each extension that adds fields to
+ * canvases (a Jira issue, a CMS assignment).
+ */
+export function CanvasDialog({ canvas, canvases, extensions = [], initialParentId, initialTask, initialPage, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
+  const [page, setPage] = useState(initialPage ?? 'general')
   const [title, setTitle] = useState(canvas?.title ?? '')
   const [parentId, setParentId] = useState<string>(canvas?.parentId ?? (initialParentId && initialParentId !== JOURNAL_ID ? initialParentId : '') ?? '')
   const [task, setTask] = useState(canvas?.task ?? initialTask ?? false)
@@ -31,36 +40,39 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
   const withFields = extensions.filter((e) => e.canvasFields.length > 0)
   const [fields, setFields] = useState<Record<string, string>>(() => ({ ...(canvas?.fields ?? {}) }))
 
-  useEffect(() => {
-    const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   // Parents: every canvas except this one and anything beneath it.
   const parents = useMemo(
     () => flattenTree(buildCanvasTree(canvases, { includeArchived: true })).filter(({ canvas: c }) => !canvas || !isWithin(canvases, c.id, canvas.id)),
     [canvases, canvas]
   )
 
+  const fieldPatch = (): Record<string, string | null> => {
+    // Extension fields: only the ones shown here change; an empty value removes one.
+    const patch: Record<string, string | null> = {}
+    for (const e of withFields)
+      for (const f of e.canvasFields) {
+        const k = `ext.${e.id}.${f.key}`
+        const v = (fields[k] ?? '').trim()
+        if (v !== (canvas?.fields?.[k] ?? '')) patch[k] = v || null
+      }
+    return patch
+  }
+  const extDirty = (e: ExtensionInfo): boolean => e.canvasFields.some((f) => (fields[`ext.${e.id}.${f.key}`] ?? '').trim() !== (canvas?.fields?.[`ext.${e.id}.${f.key}`] ?? ''))
+  const generalDirty = title !== (canvas?.title ?? '') || (parentId || null) !== (canvas?.parentId ?? null) || task !== (canvas?.task ?? false)
+  const reposDirty = JSON.stringify(repos) !== JSON.stringify(canvas?.repos ?? [])
+  const dirty = !canvas || generalDirty || reposDirty || withFields.some(extDirty)
+
   const save = async (): Promise<void> => {
     if (!title.trim()) {
+      setPage('general')
       setError('Give the canvas a title.')
       return
     }
     setBusy(true)
     setError(null)
     try {
-      // Extension fields: only the ones shown here change; an empty value removes one.
-      const fieldPatch: Record<string, string | null> = {}
-      for (const e of withFields) for (const f of e.canvasFields) {
-        const k = `ext.${e.id}.${f.key}`
-        const v = (fields[k] ?? '').trim()
-        if (v !== (canvas?.fields?.[k] ?? '')) fieldPatch[k] = v || null
-      }
-      const input = { title, parentId: parentId || null, task, repos, ...(Object.keys(fieldPatch).length ? { fields: fieldPatch } : {}) }
+      const patch = fieldPatch()
+      const input = { title, parentId: parentId || null, task, repos, ...(Object.keys(patch).length ? { fields: patch } : {}) }
       let saved = canvas ? await api.canvases.update(canvas.id, input) : await api.canvases.create(input)
       if (!canvas && input.fields) saved = await api.canvases.update(saved.id, { fields: input.fields })
       if (importHistory) {
@@ -93,43 +105,88 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
 
   const beneath = canvas ? canvases.filter((c) => c.id !== canvas.id && isWithin(canvases, c.id, canvas.id)).length : 0
 
+  const pages: DialogPage[] = [
+    { id: 'general', label: canvas ? 'Canvas' : 'New canvas', badge: canvas && generalDirty ? 'dirty' : null },
+    { id: 'repos', label: 'Repositories', badge: canvas && reposDirty ? 'dirty' : null },
+    ...withFields.map((e) => ({ id: `ext:${e.key}`, label: e.displayName, group: 'Extensions', badge: canvas && extDirty(e) ? ('dirty' as const) : null }))
+  ]
+
+  const footer = (
+    <>
+      {error && <p className="form-error">{error}</p>}
+      {canvas &&
+        (confirmDelete ? (
+          <>
+            <span className="entry-confirm">Delete this canvas, its blocks{beneath > 0 ? ` and ${beneath} canvas${beneath === 1 ? '' : 'es'} beneath it` : ''}?</span>
+            <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void remove()}>
+              Delete
+            </button>
+            <button type="button" className="btn btn-quiet" onClick={() => setConfirmDelete(false)}>
+              Keep
+            </button>
+          </>
+        ) : (
+          <button type="button" className="btn btn-quiet btn-danger-text" onClick={() => setConfirmDelete(true)}>
+            Delete…
+          </button>
+        ))}
+      <span className="spacer" />
+      <button type="button" className="btn btn-quiet" onClick={onClose}>
+        Cancel
+      </button>
+      <button type="submit" className="btn btn-primary" disabled={busy || !dirty}>
+        {busy ? 'Saving…' : canvas ? 'Save' : 'Create'}
+      </button>
+    </>
+  )
+
   return (
-    <div className="modal-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && onClose()}>
-      <form
-        className="modal modal-page"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="canvas-title"
-        onSubmit={(ev) => {
-          ev.preventDefault()
-          void save()
-        }}
-      >
-        <h2 id="canvas-title">{canvas ? 'Edit canvas' : 'New canvas'}</h2>
-        <div className="field">
-          <label htmlFor="canvasTitle">Title</label>
-          <input id="canvasTitle" type="text" autoFocus value={title} placeholder="Acme Corp" onChange={(ev) => setTitle(ev.target.value)} />
+    <PagedDialog
+      title={canvas ? canvas.title || 'Canvas' : initialTask ? 'New task' : 'New canvas'}
+      className="modal-page"
+      pages={pages}
+      page={page}
+      onPage={setPage}
+      onClose={onClose}
+      footer={footer}
+      onSubmit={() => void save()}
+    >
+      {page === 'general' && (
+        <div className="settings-page">
+          <div className="field">
+            <label htmlFor="canvasTitle">Title</label>
+            <input id="canvasTitle" type="text" autoFocus value={title} placeholder="Acme Corp" onChange={(ev) => setTitle(ev.target.value)} />
+          </div>
+          <div className="field">
+            <label htmlFor="canvasParent">Inside</label>
+            <select id="canvasParent" value={parentId} onChange={(ev) => setParentId(ev.target.value)}>
+              <option value="">Top level</option>
+              {parents.map(({ canvas: c, depth }) => (
+                <option key={c.id} value={c.id}>
+                  {'  '.repeat(depth)}
+                  {c.title}
+                  {c.task ? ' (task)' : ''}
+                  {c.archived ? ' (archived)' : ''}
+                </option>
+              ))}
+            </select>
+            <p className="hint">Canvases nest: a client holds projects, a project holds tasks. The same project name under two clients is two different projects.</p>
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={task} onChange={(ev) => setTask(ev.target.checked)} /> This is a task (time is tracked against it; posting here makes it the
+            active task)
+          </label>
+          {canvas && (
+            <p className="hint">
+              Stored in <code>canvases/{canvas.id}/</code> · {canvasLabel(canvases, canvas.id)}
+            </p>
+          )}
         </div>
-        <div className="field">
-          <label htmlFor="canvasParent">Inside</label>
-          <select id="canvasParent" value={parentId} onChange={(ev) => setParentId(ev.target.value)}>
-            <option value="">Top level</option>
-            {parents.map(({ canvas: c, depth }) => (
-              <option key={c.id} value={c.id}>
-                {'  '.repeat(depth)}
-                {c.title}
-                {c.task ? ' (task)' : ''}
-                {c.archived ? ' (archived)' : ''}
-              </option>
-            ))}
-          </select>
-          <p className="hint">Canvases nest: a client holds projects, a project holds tasks. The same project name under two clients is two different projects.</p>
-        </div>
-        <label className="check">
-          <input type="checkbox" checked={task} onChange={(ev) => setTask(ev.target.checked)} /> This is a task (time is tracked against it; posting here makes it the active task)
-        </label>
-        <div className="field">
-          <label>Git repositories</label>
+      )}
+      {page === 'repos' && (
+        <div className="settings-page">
+          <h3>Git repositories</h3>
+          <p className="hint">The working copies you code in. Commits land here as read-only blocks; branch switches and pushes show on the timeline.</p>
           <ul className="repo-list">
             {repos.map((r, i) => (
               <li key={`${r}-${i}`}>
@@ -142,6 +199,7 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
               </li>
             ))}
           </ul>
+          {repos.length === 0 && <p className="hint">None linked.</p>}
           <button
             type="button"
             className="btn btn-quiet btn-xs"
@@ -166,11 +224,13 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
               repositories (days set in Settings)
             </label>
           )}
-          <p className="hint">The working copies you code in. Commits land here as read-only blocks; branch switches and pushes show on the timeline.</p>
         </div>
-        {withFields.map((e) => (
-          <fieldset className="field ext-fields" key={e.key}>
-            <legend>{e.displayName}</legend>
+      )}
+      {withFields
+        .filter((e) => page === `ext:${e.key}`)
+        .map((e) => (
+          <div className="settings-page ext-fields" key={e.key}>
+            <h3>{e.displayName}</h3>
             {e.canvasFields.map((f) => {
               const k = `ext.${e.id}.${f.key}`
               const inherited = canvas ? inheritedField(canvases, canvas.parentId ?? '', k) : parentId ? inheritedField(canvases, parentId, k) : null
@@ -185,40 +245,8 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
               )
             })}
             <p className="hint">Canvases inside this one use these values unless they set their own.</p>
-          </fieldset>
+          </div>
         ))}
-        {canvas && (
-          <p className="hint">
-            Stored in <code>canvases/{canvas.id}/</code> · {canvasLabel(canvases, canvas.id)}
-          </p>
-        )}
-        {error && <p className="form-error">{error}</p>}
-        <div className="modal-actions">
-          {canvas &&
-            (confirmDelete ? (
-              <>
-                <span className="entry-confirm">Delete this canvas, its blocks{beneath > 0 ? ` and ${beneath} canvas${beneath === 1 ? '' : 'es'} beneath it` : ''}?</span>
-                <button type="button" className="btn btn-danger" disabled={busy} onClick={() => void remove()}>
-                  Delete
-                </button>
-                <button type="button" className="btn btn-quiet" onClick={() => setConfirmDelete(false)}>
-                  Keep
-                </button>
-              </>
-            ) : (
-              <button type="button" className="btn btn-quiet btn-danger-text" onClick={() => setConfirmDelete(true)}>
-                Delete…
-              </button>
-            ))}
-          <span className="spacer" />
-          <button type="button" className="btn btn-quiet" onClick={onClose}>
-            Cancel
-          </button>
-          <button type="submit" className="btn btn-primary" disabled={busy}>
-            {busy ? 'Saving…' : canvas ? 'Save' : 'Create'}
-          </button>
-        </div>
-      </form>
-    </div>
+    </PagedDialog>
   )
 }

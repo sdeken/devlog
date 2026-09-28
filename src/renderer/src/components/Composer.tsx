@@ -12,7 +12,7 @@ import { clearActiveComposer, setActiveComposer, setDockEditor } from '@renderer
 import { kbd } from '@renderer/keys'
 import { detectCodePaste } from '@renderer/editor/smartPaste'
 import type { CanvasMeta } from '@shared/types'
-import { JOURNAL_ID, buildCanvasTree, flattenTree } from '@devlog/core'
+import { buildCanvasTree, flattenTree } from '@devlog/core'
 
 export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
@@ -471,8 +471,12 @@ export function Composer({
           {mode === 'new' && canvases && onTargetChange && (
             <label className="composer-target" title="Which canvas this block posts to">
               <span className="composer-target-icon">▤</span>
-              <select value={targetCanvasId ?? JOURNAL_ID} onChange={(ev) => onTargetChange(ev.target.value)}>
-                <option value={JOURNAL_ID}>Journal</option>
+              <select value={targetCanvasId ?? ''} onChange={(ev) => onTargetChange(ev.target.value)}>
+                {!targetCanvasId && (
+                  <option value="" disabled>
+                    Choose a canvas…
+                  </option>
+                )}
                 {flattenTree(buildCanvasTree(canvases)).map(({ canvas: c, depth }) => (
                   <option key={c.id} value={c.id}>
                     {'\u00a0\u00a0'.repeat(depth)}
