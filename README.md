@@ -17,11 +17,17 @@ tracked against; any block can become one.
   formatting UI is a small bubble menu that appears when you select text.
   Enter posts, Shift+Enter starts a new line. Start typing with nothing
   focused and the text goes into the note box for the canvas on screen.
-- **Every block is a node.** Reply to a block to start a thread, hover
-  between two blocks and press **+** to insert one there, double-click a
-  block (or press ↑ in the empty composer) to edit it, drag its grip to
-  reorder it within the day, or **Hide** it to collapse it into a one-line
-  stub. Timestamps and actions take no space: on hover they float over
+- **Every block is a page.** Double-click a block (or its **Open**
+  action) to open it: the block sits at the top as the page's surface, and
+  what you write there goes inside it, as blocks of their own that can be
+  opened in turn. **Alt+Enter** posts a block and opens it straight away;
+  **Alt+↑** (or **↑ Up**, or the breadcrumb) goes back up a level. In a
+  stream, a block with blocks inside shows a chip ("3 blocks inside")
+  instead of the blocks themselves. Hover between two blocks and press
+  **+** to insert one there, press ↑ in the empty composer to edit the last
+  block (on a page, double-click the surface to edit it), drag a block's
+  grip to reorder it among the blocks beside it, or **Hide** it to collapse
+  it into a one-line stub. Timestamps and actions take no space: on hover they float over
   whatever sits above the block. Blocks you wrote have no marker; blocks the
   app created carry a leading brace, muted for captured commits and in the
   accent colour for task blocks (click it to open the task). Blocks on past
@@ -206,14 +212,23 @@ or the tasks inside it, first; type to filter; Enter picks the first match)
 plus **New task…**, which creates a task under the canvas on screen and
 starts it. **Stop** sits next to it while a task is active.
 
-**Hide** on a block collapses it (with its thread) into a "1 hidden block"
+**Block pages.** A standup, a call, a bug: post a block for it (Alt+Enter
+opens it), write your notes inside, and later edit the block itself into the
+summary worth keeping. The stream above then reads as a list of those
+summaries, each one openable. Blocks inside a block live in its day file,
+whenever they were written; the review, summary, timeline and timesheet
+count each one on the day it was written. A page on a task canvas belongs to
+the task: writing there makes it the active task.
+
+**Hide** on a block collapses it (with what is inside it) into a "1 hidden block"
 stub so a busy stream reads cleanly; click the stub to look inside and
 **Unhide** to bring it back. Nothing is deleted; hidden blocks stay in the
 file (`hidden=1` in the marker), in search and in the review counts.
 
 **Drag to reorder.** Hover a block and drag the grip at its left edge to
-another spot in the same day; the day's order is the file's order, so this
-is the same operation as insert-between. Timestamps do not change: the
+another spot among the blocks beside it (on a canvas, within the same day;
+on a page, among the blocks inside the same block); the order is the file's
+order, so this is the same operation as insert-between. Timestamps do not change: the
 time on a block is when it was written, its position is where you keep it.
 Blocks cannot be dragged across days, because a day is a file; move them
 with **Move** instead.
@@ -448,7 +463,7 @@ Started on the git sync. Pull before push, rebase on conflicts.
 ![shot](assets/2026-09-19-143201-a1b2.png)
 
 <!-- devlog:add id=p0q1r2s3 parent=k3j9d2ab pos=a0 at=2026-09-19T15:02:00.000Z -->
-A reply in the thread under the first note.
+A block written inside the first one (its page).
 
 <!-- devlog:add id=q8v1m0zz pos=a1 at=2026-09-19T17:45:00.000Z -->
 Fix the login redirect
@@ -472,7 +487,7 @@ blocks you see are what you get by replaying the records in order.
 
 - **Order** comes from the `pos` keys, which sort as text: reordering a block
   appends one `set` with a new key between its neighbours' keys, and
-  threading, unthreading and inserting work the same way. Nothing else moves.
+  nesting a block inside another and inserting work the same way. Nothing else moves.
 - **Safety.** A bug can add a wrong record, but it cannot overwrite what is
   there: everything ever written stays in the file (and in git). A crash
   mid-write leaves at most a torn last record, which is skipped.

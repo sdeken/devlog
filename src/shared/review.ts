@@ -27,6 +27,8 @@ export interface ReviewNote {
   /** Local date the note was written (from its timestamp). */
   date: string
   entry: Entry
+  /** The day file it lives in: a block written inside an older block lives in that block's file. */
+  fileDate?: string
 }
 
 export interface EstimateOptions {

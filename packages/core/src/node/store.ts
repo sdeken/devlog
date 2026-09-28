@@ -561,14 +561,40 @@ export class DevlogStore extends EventEmitter {
     return { canvasId, days, hasMore: i < dates.length }
   }
 
-  /** Every day file across all canvases within [fromDate, toDate], inclusive. */
+  /**
+   * Every day file across all canvases within [fromDate, toDate], inclusive,
+   * plus older ones holding blocks written in that range (index only).
+   */
   async getRange(fromDate: string, toDate: string): Promise<Array<{ canvasId: string; day: Day }>> {
     assertDate(fromDate)
     assertDate(toDate)
     const out: Array<{ canvasId: string; day: Day }> = []
+    // Blocks written inside an older block live in that block's day file; the
+    // index finds those files by creation time (a day of margin either side
+    // for time zones; callers attribute each block by when it was written).
+    const older = new Map<string, Set<string>>()
+    const index = this.liveIndex
+    if (index) {
+      const margin = (d: string, n: number): string => {
+        const [y, m, dd] = d.split('-').map(Number)
+        return new Date(Date.UTC(y, m - 1, dd + n)).toISOString()
+      }
+      for (const { canvasId, date } of index.daysWrittenIn(margin(fromDate, -1), margin(toDate, 2))) {
+        if (date >= fromDate) continue
+        if (!older.has(canvasId)) older.set(canvasId, new Set())
+        older.get(canvasId)!.add(date)
+      }
+    }
+    const writtenInRange = (e: Entry): boolean => {
+      const d = localDate(new Date(e.createdAt))
+      return d >= fromDate && d <= toDate
+    }
     for (const canvas of await this.listCanvases()) {
-      const dates = (await this.listDayFiles(canvas.id)).filter((d) => d >= fromDate && d <= toDate).sort()
-      for (const date of dates) {
+      for (const date of [...(older.get(canvas.id) ?? [])].sort()) {
+        const day = await this.readDay(canvas.id, date)
+        if (day.entries.some(writtenInRange)) out.push({ canvasId: canvas.id, day })
+      }
+      for (const date of (await this.listDayFiles(canvas.id)).filter((d) => d >= fromDate && d <= toDate).sort()) {
         const day = await this.readDay(canvas.id, date)
         if (day.entries.length > 0) out.push({ canvasId: canvas.id, day })
       }

@@ -27,8 +27,8 @@ export interface ComposerProps {
   assetDate?: string
   /** Custom image sink (e.g. a wiki's asset folder). */
   saveImage?: (bytes: Uint8Array, mime: string, name: string) => Promise<{ src: string }>
-  /** Called with markdown when the user posts. Resolve to clear the editor. `task` is set for Mod+Shift+Enter. */
-  onSubmit: (markdown: string, opts?: { task?: boolean }) => Promise<void>
+  /** Called with markdown when the user posts. Resolve to clear the editor. `task` is set for Mod+Shift+Enter, `open` for Alt+Enter. */
+  onSubmit: (markdown: string, opts?: { task?: boolean; open?: boolean }) => Promise<void>
   /** Document mode: called (debounced) whenever the content changes. */
   onChange?: (markdown: string) => Promise<void> | void
   onCancel?: () => void
@@ -46,7 +46,7 @@ export interface ComposerProps {
 }
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
-  new: `Write a block…  Enter posts, ${kbd('mod', 'shift', 'Enter')} posts as a task, Shift+Enter new line`,
+  new: `Write a block…  Enter posts, Alt+Enter posts and opens it, ${kbd('mod', 'shift', 'Enter')} posts as a task`,
   edit: 'Edit block…  Enter saves, Esc cancels',
   reply: 'Reply…  Enter posts, Esc cancels',
   insert: 'New block here…  Enter posts, Esc cancels',
@@ -103,7 +103,7 @@ export function Composer({
   const [linkUrl, setLinkUrl] = useState('')
   const [, forceRender] = useState(0)
   const renderQueued = useRef(false)
-  const submitRef = useRef<(opts?: { task?: boolean }) => boolean>(() => false)
+  const submitRef = useRef<(opts?: { task?: boolean; open?: boolean }) => boolean>(() => false)
   const cancelRef = useRef<() => boolean>(() => false)
   const linkRef = useRef<() => boolean>(() => false)
   const editLastRef = useRef<(() => void) | undefined>(onEditLast)
@@ -188,6 +188,7 @@ export function Composer({
       SubmitKeymap.configure({
         onSubmit: () => (isDocument ? false : submitRef.current()),
         onSubmitTask: () => (isDocument || mode !== 'new' ? false : submitRef.current({ task: true })),
+        onSubmitOpen: () => (isDocument || mode !== 'new' ? false : submitRef.current({ open: true })),
         onCancel: () => (isDocument ? false : cancelRef.current()),
         onLink: () => linkRef.current(),
         onEditLast: () => {
@@ -314,7 +315,7 @@ export function Composer({
     }
   }, [isDocument])
 
-  const submit = useCallback((opts?: { task?: boolean }): boolean => {
+  const submit = useCallback((opts?: { task?: boolean; open?: boolean }): boolean => {
     const e = editorRef.current
     if (!e || busy || uploading > 0) return true
     const markdown = e.getMarkdown().trim()

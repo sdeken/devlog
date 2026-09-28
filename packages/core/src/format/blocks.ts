@@ -302,14 +302,15 @@ export function insertEntry(entries: Entry[], entry: Entry, position: EntryPosit
 }
 
 /**
- * Move a top-level entry (with its thread) to another spot in the same day:
- * after `afterId`'s thread or before `beforeId`. Timestamps are untouched;
+ * Move an entry (with everything inside it) among its siblings: after
+ * `afterId`'s subtree or before `beforeId`. An anchor deeper in the tree
+ * stands for its ancestor at the entry's level. Timestamps are untouched;
  * file order is display order.
  */
 export function moveSubtree(entries: Entry[], id: string, position: { afterId?: string; beforeId?: string }): Entry[] {
   const root = entries.find((e) => e.id === id)
   if (!root) throw new Error(`Entry ${id} not found`)
-  if (root.parentId) throw new Error('Only top-level blocks can be reordered')
+  const parent = root.parentId ?? null
   const ids = descendantIds(entries, id)
   ids.add(id)
   const moving = entries.filter((e) => ids.has(e.id))
@@ -319,9 +320,12 @@ export function moveSubtree(entries: Entry[], id: string, position: { afterId?: 
   if (ids.has(anchorId)) return entries
   const anchor = rest.find((e) => e.id === anchorId)
   if (!anchor) throw new Error(`Entry ${anchorId} not found`)
-  // Anchor on the top of the anchor's thread so a drop next to a reply lands beside its root.
   let top = anchor
-  while (top.parentId) top = rest.find((e) => e.id === top.parentId) ?? top
+  while ((top.parentId ?? null) !== parent) {
+    const up = top.parentId ? rest.find((e) => e.id === top.parentId) : undefined
+    if (!up) throw new Error('A block can only be reordered among the blocks beside it')
+    top = up
+  }
   const at = position.afterId ? subtreeEndIndex(rest, top.id) + 1 : rest.indexOf(top)
   return [...rest.slice(0, at), ...moving, ...rest.slice(at)]
 }

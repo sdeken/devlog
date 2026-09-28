@@ -422,22 +422,29 @@ export function threadIds(log: BlockLog, id: string): string[] {
 }
 
 /**
- * Records that move a top-level block (its thread follows) after `afterId`'s
- * thread or before `beforeId`. Empty when the move would change nothing.
+ * Records that move a block (everything inside it follows) among its
+ * siblings: after `afterId` or before `beforeId`. An anchor deeper in the
+ * tree stands for its ancestor at the block's level. Empty when the move
+ * would change nothing.
  */
 export function planMove(log: BlockLog, id: string, position: { afterId?: string; beforeId?: string }, at: string): Op[] {
   const root = liveEntry(log, id)
-  if (root.parentId) throw new Error('Only top-level blocks can be reordered')
+  const parent = root.parentId ?? null
   const anchorId = position.afterId ?? position.beforeId
   if (!anchorId) throw new Error('Nowhere to move to')
   const moving = new Set(threadIds(log, id))
   if (moving.has(anchorId)) return []
   let top = liveEntry(log, anchorId)
-  while (top.parentId) top = liveEntry(log, top.parentId)
-  const sibs = siblingIds(log, null, moving)
+  while ((top.parentId ?? null) !== parent) {
+    if (!top.parentId) throw new Error('A block can only be reordered among the blocks beside it')
+    top = liveEntry(log, top.parentId)
+  }
+  const sibs = siblingIds(log, parent, moving)
   const index = sibs.indexOf(top.id) + (position.afterId ? 1 : 0)
-  const { pos, renumber } = place(log, null, index, at, moving)
-  return [...renumber, { op: 'set', id, at, attrs: { pos } }]
+  const { pos, renumber } = place(log, parent, index, at, moving)
+  const attrs: Record<string, string> = { pos }
+  if (parent) attrs.parent = parent
+  return [...renumber, { op: 'set', id, at, attrs }]
 }
 
 /** Records that delete a block and its whole thread. */

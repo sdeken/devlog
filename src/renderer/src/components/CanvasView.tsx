@@ -21,6 +21,7 @@ interface Props {
   onStartTask: () => void
   onStopTask: () => void
   onCanvasMenu: (canvasId: string, x: number, y: number) => void
+  onOpenBlock: (canvasId: string, date: string, id: string) => void
   onLoadMore: () => Promise<void>
   onAdd: (canvasId: string, markdown: string, position: EntryPosition) => Promise<void>
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
@@ -36,6 +37,44 @@ interface Props {
   onLinkRepo: () => void
   onUnlinkRepo: (path: string) => void
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
+}
+
+/** On a task canvas (and the pages inside it): start, switch to or stop the task. */
+export function TaskControl({
+  canvas,
+  activeCanvasId,
+  tracking,
+  onStart,
+  onStop
+}: {
+  canvas: CanvasMeta
+  activeCanvasId: string | null
+  tracking: boolean
+  onStart: () => void
+  onStop: () => void
+}): React.JSX.Element | null {
+  if (!canvas.task) return null
+  const isActive = activeCanvasId === canvas.id
+  if (!tracking || canvas.archived)
+    return (
+      <span className="task-badge" title="Task: time is tracked against it">
+        task
+      </span>
+    )
+  return isActive ? (
+    <>
+      <span className="task-badge is-active" title="This is the active task">
+        ◉ active
+      </span>
+      <button type="button" className="btn btn-quiet btn-xs task-stop" onClick={onStop} title="Stop tracking time on this task">
+        Stop
+      </button>
+    </>
+  ) : (
+    <button type="button" className="btn btn-primary btn-xs task-start" onClick={onStart} title={activeCanvasId ? 'Make this the active task (stops the current one)' : 'Start tracking time on this task'}>
+      ▶ {activeCanvasId ? 'Switch to this task' : 'Start this task'}
+    </button>
+  )
 }
 
 /**
@@ -55,6 +94,7 @@ export function CanvasView({
   onStartTask,
   onStopTask,
   onCanvasMenu,
+  onOpenBlock,
   onLoadMore,
   onAdd,
   onUpdate,
@@ -114,7 +154,6 @@ export function CanvasView({
 
   const crumbs = useMemo(() => ancestorIds(canvases, canvas.id).reverse(), [canvases, canvas.id])
   const children = useMemo(() => canvases.filter((c) => c.parentId === canvas.id), [canvases, canvas.id])
-  const isActive = activeCanvasId === canvas.id
 
   const save = async (markdown: string): Promise<void> => {
     if (markdown === lastSaved.current) return
@@ -157,27 +196,7 @@ export function CanvasView({
             {canvas.title}
           </span>
         </h2>
-        {canvas.task &&
-          (tracking && !canvas.archived ? (
-            isActive ? (
-              <>
-                <span className="task-badge is-active" title="This is the active task">
-                  ◉ active
-                </span>
-                <button type="button" className="btn btn-quiet btn-xs task-stop" onClick={onStopTask} title="Stop tracking time on this task">
-                  Stop
-                </button>
-              </>
-            ) : (
-              <button type="button" className="btn btn-primary btn-xs task-start" onClick={onStartTask} title={activeCanvasId ? 'Make this the active task (stops the current one)' : 'Start tracking time on this task'}>
-                ▶ {activeCanvasId ? 'Switch to this task' : 'Start this task'}
-              </button>
-            )
-          ) : (
-            <span className="task-badge" title="Task: time is tracked against it">
-              task
-            </span>
-          ))}
+        <TaskControl canvas={canvas} activeCanvasId={activeCanvasId} tracking={tracking} onStart={onStartTask} onStop={onStopTask} />
         <span className="spacer" />
         {!isJournal && (
           <>
@@ -345,6 +364,7 @@ export function CanvasView({
       onReorder={onReorder}
       onJumpTo={(id) => onOpenCanvas(id)}
       onOpenCanvas={onOpenCanvas}
+      onOpenBlock={onOpenBlock}
     />
   )
 }

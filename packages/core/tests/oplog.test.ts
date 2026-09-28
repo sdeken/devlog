@@ -204,12 +204,18 @@ describe('planning records', () => {
           list = insertEntry(list, { ...entry }, position)
           ops = planAdd(current, entry, position, at)
         } else if (r < 0.8) {
-          const tops = list.filter((e) => !e.parentId)
-          const mover = tops[Math.floor(rnd() * tops.length)]
+          const mover = pick()!
           const anchor = pick()!
           const position = rnd() < 0.5 ? { afterId: anchor.id } : { beforeId: anchor.id }
-          if (!mover) continue
-          list = moveSubtree(list, mover.id, position)
+          let moved: Entry[]
+          try {
+            moved = moveSubtree(list, mover.id, position)
+          } catch {
+            // Not a sibling (or an ancestor of one): the planner refuses it too.
+            expect(() => planMove(current, mover.id, position, at)).toThrow(/beside it/)
+            continue
+          }
+          list = moved
           ops = planMove(current, mover.id, position, at)
         } else {
           const victim = pick()!
@@ -272,6 +278,24 @@ describe('planning records', () => {
     expect(parseBlockFile(text + serializeOps(ops, DIR), DIR).map((e) => e.id)).toEqual(['a', 'b', 'x', 'c'])
   })
 
+  it('reorders blocks among their siblings at any depth', () => {
+    const entries: Entry[] = [
+      { id: 'a', createdAt: T(0), markdown: 'a' },
+      { id: 'r1', createdAt: T(1), markdown: 'r1', parentId: 'a' },
+      { id: 'r2', createdAt: T(2), markdown: 'r2', parentId: 'a' },
+      { id: 'r2x', createdAt: T(3), markdown: 'r2x', parentId: 'r2' },
+      { id: 'r3', createdAt: T(4), markdown: 'r3', parentId: 'a' }
+    ]
+    const current = log(entries)
+    let text = serializeOps(compactOps(current.entries), DIR)
+    text += serializeOps(planMove(current, 'r3', { beforeId: 'r1' }, T(5)), DIR)
+    const after = readBlockLog(text, DIR)
+    expect(after.entries.map((e) => `${e.id}<${e.parentId ?? ''}`)).toEqual(['a<', 'r3<a', 'r1<a', 'r2<a', 'r2x<r2'])
+    // A deeper anchor stands for its ancestor beside the moving block.
+    text += serializeOps(planMove(after, 'r3', { afterId: 'r2x' }, T(6)), DIR)
+    expect(readBlockLog(text, DIR).entries.map((e) => e.id)).toEqual(['a', 'r1', 'r2', 'r2x', 'r3'])
+  })
+
   it('stamps new records no earlier than the latest one in the file', () => {
     const current = log([{ id: 'a', createdAt: T(30), markdown: 'a' }])
     expect(stampFor(current, new Date(T(10)))).toBe(T(30))
@@ -282,7 +306,7 @@ describe('planning records', () => {
     const current = log([{ id: 'a', createdAt: T(0), markdown: 'a' }, { id: 'r', createdAt: T(0), markdown: 'r', parentId: 'a' }])
     expect(() => planAdd(current, { id: 'x', createdAt: T(1), markdown: 'x' }, { afterId: 'zz' }, T(1))).toThrow(/not found/)
     expect(() => planEdit(current, 'zz', 'x', T(1))).toThrow(/not found/)
-    expect(() => planMove(current, 'r', { afterId: 'a' }, T(1))).toThrow(/top-level/)
+    expect(() => planMove(current, 'r', { afterId: 'a' }, T(1))).toThrow(/beside it/)
     expect(planMove(current, 'a', { afterId: 'r' }, T(1))).toEqual([])
     expect(planDelete(current, 'a', T(1)).map((o) => o.id)).toEqual(['a', 'r'])
   })

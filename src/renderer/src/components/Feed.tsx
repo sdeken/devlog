@@ -29,6 +29,17 @@ interface Props {
   onReorder?: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
   onJumpTo: (canvasId: string, date: string) => void
   onOpenCanvas: (id: string) => void
+  /** Open a block as a page (its day file's date and its id). */
+  onOpenBlock?: (canvasId: string, date: string, id: string) => void
+  /**
+   * On a block page the stream is the block's children, grouped by the day
+   * each was written, but they all live in the block's day file: this is
+   * that file's date, used for every change.
+   */
+  fileDate?: string
+  /** On a block page, the block: its children count as the stream's top level. */
+  streamParentId?: string
+  emptyText?: string
 }
 
 const DRAG_MIME = 'application/x-devlog-block'
@@ -79,27 +90,26 @@ interface NodeProps {
   canvases: CanvasMeta[]
   date: string
   editRequest: string | null
-  onAdd: Props['onAdd']
   onUpdate: Props['onUpdate']
   onDelete: Props['onDelete']
   onMove: Props['onMove']
   onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
   onOpenCanvas: Props['onOpenCanvas']
-  /** Root nodes get a drag grip when reordering is available. */
+  onOpenBlock?: Props['onOpenBlock']
+  /** Blocks get a drag grip when reordering is available. */
   draggable?: boolean
 }
 
-function NoteNode({ node, canvasId, canvases, date, editRequest, onAdd, onUpdate, onDelete, onMove, onPromote, onSetHidden, onOpenCanvas, draggable }: NodeProps): React.JSX.Element {
-  const [replying, setReplying] = useState(false)
-  const replies = countDescendants(node)
+/** A block in a stream. What is written inside it lives on its own page, behind a chip. */
+function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onPromote, onSetHidden, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
   return (
-    <div className={`note depth-${Math.min(node.depth, 4)}`}>
+    <div className="note">
       <EntryView
         canvasId={canvasId}
         date={date}
         entry={node.entry}
-        replyCount={replies}
+        replyCount={countDescendants(node)}
         forceEdit={editRequest === node.entry.id}
         canvases={canvases}
         onUpdate={onUpdate}
@@ -108,45 +118,9 @@ function NoteNode({ node, canvasId, canvases, date, editRequest, onAdd, onUpdate
         onPromote={onPromote}
         onSetHidden={onSetHidden}
         onOpenCanvas={onOpenCanvas}
-        onReply={() => setReplying(true)}
+        onOpen={onOpenBlock ? () => onOpenBlock(canvasId, date, node.entry.id) : undefined}
         draggable={draggable}
       />
-      {(node.children.length > 0 || replying) && (
-        <div className="thread">
-          {node.children.map((child) => (
-            <NoteNode
-              key={child.entry.id}
-              node={child}
-              canvasId={canvasId}
-              canvases={canvases}
-              date={date}
-              editRequest={editRequest}
-              onAdd={onAdd}
-              onUpdate={onUpdate}
-              onDelete={onDelete}
-              onMove={onMove}
-              onPromote={onPromote}
-              onSetHidden={onSetHidden}
-              onOpenCanvas={onOpenCanvas}
-            />
-          ))}
-          {replying && (
-            <div className="reply-composer">
-              <Composer
-                mode="reply"
-                assetCanvasId={canvasId}
-                assetDate={date}
-                autoFocus
-                onSubmit={async (md) => {
-                  await onAdd(canvasId, md, { date, parentId: node.entry.id })
-                  setReplying(false)
-                }}
-                onCancel={() => setReplying(false)}
-              />
-            </div>
-          )}
-        </div>
-      )}
     </div>
   )
 }
@@ -186,6 +160,7 @@ const isFoldableDone = (node: EntryNode): boolean => node.entry.kind === 'done' 
 
 function DayGroup({
   day,
+  fileDate,
   isToday,
   canvasId,
   canvases,
@@ -197,9 +172,12 @@ function DayGroup({
   onPromote,
   onSetHidden,
   onReorder,
-  onOpenCanvas
+  onOpenCanvas,
+  onOpenBlock
 }: {
   day: Day
+  /** The day file the blocks live in, when it is not the day they are shown under. */
+  fileDate?: string
   isToday: boolean
   canvasId: string
   canvases: CanvasMeta[]
@@ -212,8 +190,10 @@ function DayGroup({
   onSetHidden?: Props['onSetHidden']
   onReorder?: Props['onReorder']
   onOpenCanvas: Props['onOpenCanvas']
+  onOpenBlock?: Props['onOpenBlock']
 }): React.JSX.Element {
   const roots = buildTree(day.entries)
+  const opDate = fileDate ?? day.date
   const [revealed, setRevealed] = useState<Set<string>>(new Set())
   const [drop, setDrop] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
   const dragging = useRef<string | null>(null)
@@ -261,8 +241,8 @@ function DayGroup({
     if (!onReorder || !raw || !target || target.id !== id) return
     try {
       const { id: movingId, date: fromDate, canvasId: fromCanvas } = JSON.parse(raw) as { id: string; date: string; canvasId: string }
-      if (fromDate !== day.date || fromCanvas !== canvasId || movingId === id) return
-      void onReorder(canvasId, day.date, movingId, target.side === 'before' ? { beforeId: id } : { afterId: id })
+      if (fromDate !== opDate || fromCanvas !== canvasId || movingId === id) return
+      void onReorder(canvasId, opDate, movingId, target.side === 'before' ? { beforeId: id } : { afterId: id })
     } catch {
       /* not ours */
     }
@@ -275,7 +255,7 @@ function DayGroup({
       onDragStart={(ev) => {
         if (!onReorder) return
         dragging.current = node.entry.id
-        ev.dataTransfer.setData(DRAG_MIME, JSON.stringify({ id: node.entry.id, date: day.date, canvasId }))
+        ev.dataTransfer.setData(DRAG_MIME, JSON.stringify({ id: node.entry.id, date: opDate, canvasId }))
         ev.dataTransfer.effectAllowed = 'move'
       }}
       onDragEnd={() => {
@@ -288,27 +268,27 @@ function DayGroup({
       }}
       onDrop={(ev) => onDrop(ev, node.entry.id)}
     >
-      <InsertGap canvasId={canvasId} date={day.date} position={i === 0 ? { beforeId: node.entry.id } : { afterId: roots[i - 1].entry.id }} onAdd={onAdd} />
+      <InsertGap canvasId={canvasId} date={opDate} position={i === 0 ? { beforeId: node.entry.id } : { afterId: roots[i - 1].entry.id }} onAdd={onAdd} />
       <NoteNode
         node={node}
         canvasId={canvasId}
         canvases={canvases}
-        date={day.date}
+        date={opDate}
         editRequest={editRequest}
-        onAdd={onAdd}
         onUpdate={onUpdate}
         onDelete={onDelete}
         onMove={onMove}
         onPromote={onPromote}
         onSetHidden={onSetHidden}
         onOpenCanvas={onOpenCanvas}
+        onOpenBlock={onOpenBlock}
         draggable={Boolean(onReorder)}
       />
     </div>
   )
 
   return (
-    <section className="day-group" data-date={day.date}>
+    <section className="day-group" data-date={day.date} data-file-date={opDate}>
       <div className="day-divider">
         <span className="day-divider-label">{isToday ? 'Today' : headingFmt.format(parseLocal(day.date))}</span>
       </div>
@@ -319,7 +299,7 @@ function DayGroup({
           const open = revealed.has(key)
           return (
             <div key={key} className="done-run">
-              <InsertGap canvasId={canvasId} date={day.date} position={item.index === 0 ? { beforeId: item.key } : { afterId: roots[item.index - 1].entry.id }} onAdd={onAdd} />
+              <InsertGap canvasId={canvasId} date={opDate} position={item.index === 0 ? { beforeId: item.key } : { afterId: roots[item.index - 1].entry.id }} onAdd={onAdd} />
               <DoneGroup nodes={item.nodes} open={open} onToggle={() => toggle(key)} />
               {open && item.nodes.map((node, j) => renderNode(node, item.index + j, ' is-done-run'))}
             </div>
@@ -333,7 +313,7 @@ function DayGroup({
           </div>
         )
       })}
-      {!isToday && roots.length > 0 && <InsertGap canvasId={canvasId} date={day.date} position={{ afterId: roots[roots.length - 1].entry.id }} onAdd={onAdd} />}
+      {!isToday && roots.length > 0 && <InsertGap canvasId={canvasId} date={opDate} position={{ afterId: roots[roots.length - 1].entry.id }} onAdd={onAdd} />}
     </section>
   )
 }
@@ -343,7 +323,32 @@ function isWritten(entry: Entry): boolean {
   return !entry.kind || entry.kind === 'note' || entry.kind === 'task'
 }
 
-export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loading, editRequest, header, onLoadMore, onAdd, onUpdate, onDelete, onMove, onPromote, onSetHidden, onReorder, onJumpTo, onOpenCanvas }: Props): React.JSX.Element {
+export function Feed({
+  canvas,
+  canvases,
+  days,
+  hasMore,
+  today,
+  search,
+  hits,
+  loading,
+  editRequest,
+  header,
+  onLoadMore,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onMove,
+  onPromote,
+  onSetHidden,
+  onReorder,
+  onJumpTo,
+  onOpenCanvas,
+  onOpenBlock,
+  fileDate,
+  streamParentId,
+  emptyText
+}: Props): React.JSX.Element {
   const scroller = useRef<HTMLDivElement>(null)
   const lastCanvas = useRef<string | null>(null)
   const pendingRestore = useRef<{ height: number; top: number } | null>(null)
@@ -352,7 +357,8 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
   const total = days.reduce((n, d) => n + d.entries.length, 0)
   const last = days[days.length - 1]
   const lastEntry = last?.entries[last.entries.length - 1]
-  const key = `${canvas.id}:${total}:${lastEntry?.id ?? ''}`
+  const place = `${canvas.id}/${streamParentId ?? ''}`
+  const key = `${place}:${total}:${lastEntry?.id ?? ''}`
   const lastSeen = useRef<{ total: number; lastId: string | undefined }>({ total: 0, lastId: undefined })
 
   // "Pinned to the bottom": set when a canvas opens or a block is posted, and
@@ -369,17 +375,17 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
 
   useEffect(() => {
     if (search) return
-    const canvasChanged = lastCanvas.current !== canvas.id
+    const canvasChanged = lastCanvas.current !== place
     const before = lastSeen.current
-    lastCanvas.current = canvas.id
+    lastCanvas.current = place
     lastSeen.current = { total, lastId: lastEntry?.id }
     if (pendingRestore.current) return
-    const posted = total > before.total && lastEntry !== undefined && lastEntry.id !== before.lastId && !lastEntry.parentId && isWritten(lastEntry)
+    const posted = total > before.total && lastEntry !== undefined && lastEntry.id !== before.lastId && lastEntry.parentId === streamParentId && isWritten(lastEntry)
     if (canvasChanged || posted) {
       pinned.current = true
       requestAnimationFrame(() => scrollToEnd(!canvasChanged))
     }
-  }, [key, canvas.id, search, total, lastEntry, scrollToEnd])
+  }, [key, place, search, total, lastEntry, scrollToEnd, streamParentId])
 
   useEffect(() => {
     const el = scroller.current
@@ -396,7 +402,7 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
       ro.disconnect()
       mo.disconnect()
     }
-  }, [search, canvas.id])
+  }, [search, place])
 
   // After loading older days, keep the viewport where it was.
   useLayoutEffect(() => {
@@ -439,12 +445,25 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
         ))}
         {hits?.blocks.map((h) => (
           <div key={`${h.canvasId}/${h.date}/${h.entry.id}`} className="hit">
-            <button type="button" className="hit-day" onClick={() => onJumpTo(h.canvasId, h.date)}>
+            <button
+              type="button"
+              className="hit-day"
+              onClick={() => (h.entry.parentId && onOpenBlock ? onOpenBlock(h.canvasId, h.date, h.entry.parentId) : onJumpTo(h.canvasId, h.date))}
+            >
               {labelOf(h.canvasId)} · {headingFmt.format(parseLocal(h.date))}
-              {h.entry.parentId ? ' · in thread' : ''}
+              {h.entry.parentId ? ' · inside a block' : ''}
               {h.archived ? ' · archived' : ''}
             </button>
-            <EntryView canvasId={h.canvasId} date={h.date} entry={h.entry} showDate onUpdate={onUpdate} onDelete={onDelete} onOpenCanvas={onOpenCanvas} />
+            <EntryView
+              canvasId={h.canvasId}
+              date={h.date}
+              entry={h.entry}
+              showDate
+              onUpdate={onUpdate}
+              onDelete={onDelete}
+              onOpenCanvas={onOpenCanvas}
+              onOpen={onOpenBlock ? () => onOpenBlock(h.canvasId, h.date, h.entry.id) : undefined}
+            />
           </div>
         ))}
       </div>
@@ -472,12 +491,13 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
       )}
       {loading && days.length === 0 && <p className="feed-empty">Loading…</p>}
       {!loading && days.length === 0 && (
-        <p className="feed-empty">{canvas.id === JOURNAL_ID ? 'No blocks yet. Write something below.' : `Nothing on ${canvas.title} yet. Write the first block below.`}</p>
+        <p className="feed-empty">{emptyText ?? (canvas.id === JOURNAL_ID ? 'No blocks yet.' : `Nothing on ${canvas.title} yet. Write the first block below.`)}</p>
       )}
-      {days.map((day) => (
+      {days.map((day, i) => (
         <DayGroup
-          key={day.date}
+          key={fileDate ? `${day.date}:${i}` : day.date}
           day={day}
+          fileDate={fileDate}
           isToday={day.date === today}
           canvasId={canvas.id}
           canvases={canvases}
@@ -490,6 +510,7 @@ export function Feed({ canvas, canvases, days, hasMore, today, search, hits, loa
           onSetHidden={onSetHidden}
           onReorder={onReorder}
           onOpenCanvas={onOpenCanvas}
+          onOpenBlock={onOpenBlock}
         />
       ))}
     </div>

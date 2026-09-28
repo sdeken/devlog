@@ -4792,3 +4792,63 @@ body.is-resizing {
   padding: 0;
   margin: 0;
 }
+
+/* ---- Block pages: the block is the page's surface; what is inside it is the stream ---- */
+.block-surface {
+  margin: 10px 0 4px;
+}
+
+.block-surface .entry.entry-surface {
+  background: var(--bg-2);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.block-surface .entry.entry-surface:hover {
+  border-color: var(--border);
+}
+
+/* On the surface the header (time, actions) is always there, above the text. */
+.block-surface .entry-surface > .entry-meta {
+  position: static;
+  visibility: visible;
+  opacity: 1;
+  margin-bottom: 4px;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.block-surface .entry-surface .entry-body {
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.crumb-block {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-weight: 400;
+}
+
+.entry-inside {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.entry-inside:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}

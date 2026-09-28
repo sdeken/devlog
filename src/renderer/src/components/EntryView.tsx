@@ -13,8 +13,10 @@ interface Props {
   date: string
   entry: Entry
   showDate?: boolean
-  /** Number of replies beneath this note (deleted or moved together with it). */
+  /** Number of blocks inside this one (deleted or moved together with it). */
   replyCount?: number
+  /** The block shown as a page's surface: double-click edits, no drag or open. */
+  surface?: boolean
   /** When true the note opens in edit mode (Up arrow in the composer). */
   forceEdit?: boolean
   /** Every canvas, for the move picker and task labels. */
@@ -26,7 +28,8 @@ interface Props {
   onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onOpenCanvas?: (id: string) => void
-  onReply?: () => void
+  /** Open this block as a page (double-click, the Open action, its chip). */
+  onOpen?: () => void
   /** Show a drag grip (the enclosing slot handles the drag events). */
   draggable?: boolean
 }
@@ -63,6 +66,7 @@ export const EntryView = memo(function EntryView({
   entry,
   showDate,
   replyCount = 0,
+  surface,
   forceEdit,
   canvases,
   onUpdate,
@@ -71,7 +75,7 @@ export const EntryView = memo(function EntryView({
   onPromote,
   onSetHidden,
   onOpenCanvas,
-  onReply,
+  onOpen,
   draggable
 }: Props) {
   const [editing, setEditing] = useState(false)
@@ -118,13 +122,17 @@ export const EntryView = memo(function EntryView({
 
   return (
     <article
-      className={`entry${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}${confirmDelete || moving ? ' is-busy' : ''}`}
+      className={`entry${surface ? ' entry-surface' : ''}${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}${confirmDelete || moving ? ' is-busy' : ''}`}
       id={`entry-${entry.id}`}
       onDoubleClick={(ev) => {
-        // Double-click on the text edits the note, unless the user is selecting text.
-        if (readOnly) return
+        // In a stream, double-click opens the block's page; on a page's surface it edits.
         if ((ev.target as HTMLElement).closest('a, img, button, select')) return
-        if (!window.getSelection()?.isCollapsed) return
+        if (onOpen && !surface) {
+          window.getSelection()?.removeAllRanges()
+          onOpen()
+          return
+        }
+        if (readOnly || !window.getSelection()?.isCollapsed) return
         setEditing(true)
       }}
     >
@@ -139,8 +147,8 @@ export const EntryView = memo(function EntryView({
         />
       )}
       <header className="entry-meta">
-        {draggable && !entry.parentId && (
-          <span className="entry-grip" draggable title="Drag to reorder within the day" aria-label="Drag handle">
+        {draggable && !surface && (
+          <span className="entry-grip" draggable title="Drag to reorder" aria-label="Drag handle">
             ⋮⋮
           </span>
         )}
@@ -167,7 +175,7 @@ export const EntryView = memo(function EntryView({
           {confirmDelete ? (
             <>
               <span className="entry-confirm">
-                {replyCount > 0 ? `Delete this block and ${replyCount} repl${replyCount === 1 ? 'y' : 'ies'}?` : 'Delete this block?'}
+                {replyCount > 0 ? `Delete this block and the ${replyCount} block${replyCount === 1 ? '' : 's'} inside it?` : 'Delete this block?'}
               </span>
               <button type="button" className="btn btn-danger btn-xs" onClick={() => void onDelete(canvasId, date, entry.id)}>
                 Delete
@@ -178,7 +186,7 @@ export const EntryView = memo(function EntryView({
             </>
           ) : moving ? (
             <>
-              <span className="entry-confirm">Move {replyCount > 0 ? 'thread' : 'block'} to</span>
+              <span className="entry-confirm">Move {replyCount > 0 ? 'this block and what is inside it' : 'block'} to</span>
               <select
                 autoFocus
                 className="move-select"
@@ -202,17 +210,17 @@ export const EntryView = memo(function EntryView({
             </>
           ) : (
             <>
-              {onReply && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={onReply} title="Reply in thread">
-                  Reply
+              {onOpen && !surface && (
+                <button type="button" className="btn btn-quiet btn-xs entry-open" onClick={onOpen} title="Open this block as a page, to write inside it (or double-click)">
+                  Open
                 </button>
               )}
               {!readOnly && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title="Edit (or double-click)">
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title={surface ? 'Edit (or double-click)' : 'Edit'}>
                   Edit
                 </button>
               )}
-              {onPromote && !readOnly && !isTask && !entry.parentId && (
+              {onPromote && !readOnly && !isTask && (
                 <button type="button" className="btn btn-quiet btn-xs" onClick={() => void onPromote(canvasId, date, entry.id)} title="Turn this block into a task with its own canvas, and start the clock">
                   Task
                 </button>
@@ -230,12 +238,12 @@ export const EntryView = memo(function EntryView({
               >
                 Copy
               </button>
-              {onSetHidden && !entry.parentId && (
+              {onSetHidden && !surface && (
                 <button
                   type="button"
                   className="btn btn-quiet btn-xs"
                   onClick={() => void onSetHidden(canvasId, date, entry.id, !entry.hidden)}
-                  title={entry.hidden ? 'Show this block in the stream again' : 'Collapse this block (and its thread) into a stub; nothing is deleted'}
+                  title={entry.hidden ? 'Show this block in the stream again' : 'Collapse this block into a stub; nothing is deleted'}
                 >
                   {entry.hidden ? 'Unhide' : 'Hide'}
                 </button>
@@ -248,6 +256,11 @@ export const EntryView = memo(function EntryView({
         </div>
       </header>
       <div className="entry-body markdown-body" onClick={(ev) => handleContentClick(ev, (src, alt) => setLightbox({ src, alt }))} dangerouslySetInnerHTML={{ __html: html }} />
+      {!surface && onOpen && replyCount > 0 && (
+        <button type="button" className="entry-inside" onClick={onOpen} title="Open this block to see what is inside it">
+          ▸ {replyCount} block{replyCount === 1 ? '' : 's'} inside
+        </button>
+      )}
       {lightbox && <Lightbox src={lightbox.src} alt={lightbox.alt} onClose={() => setLightbox(null)} />}
     </article>
   )

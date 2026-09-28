@@ -15,14 +15,15 @@ import {
   type ReviewNote,
   type ReviewRow
 } from '@shared/review'
-import type { ActivityEvent, CanvasMeta } from '@shared/types'
+import type { ActivityEvent, CanvasMeta, Entry } from '@shared/types'
 import { api } from '@renderer/api'
 
 interface Props {
   canvases: CanvasMeta[]
   today: string
   focusMinSeconds: number
-  onJumpTo: (canvasId: string, date: string) => void
+  /** Open a canvas at a date, or (given the block) the block where it was written. */
+  onJumpTo: (canvasId: string, date: string, entry?: Entry) => void
   onOpenTimeline: (date: string) => void
 }
 
@@ -143,7 +144,7 @@ export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimel
         for (const entry of day.entries) {
           // Attribute by when it was written; replies can live in an older day file.
           const date = localDate(new Date(entry.createdAt))
-          if (date >= start && date <= end) flat.push({ canvasId, date, entry })
+          if (date >= start && date <= end) flat.push({ canvasId, date, entry, fileDate: day.date })
         }
       }
       setNotes(flat)
@@ -386,7 +387,7 @@ export function Review({ canvases, today, focusMinSeconds, onJumpTo, onOpenTimel
                         <ul className="review-notes">
                           {s.notes.map((n) => (
                             <li key={noteKey(n)}>
-                              <button type="button" className="review-note-link" onClick={() => onJumpTo(n.canvasId, n.date)} title="Open on its canvas">
+                              <button type="button" className="review-note-link" onClick={() => onJumpTo(n.canvasId, n.fileDate ?? n.date, n.entry)} title="Open where it was written">
                                 <time>{timeFmt.format(new Date(n.entry.createdAt))}</time>
                                 <span className="review-note-text">
                                   {n.entry.parentId ? '↳ ' : ''}

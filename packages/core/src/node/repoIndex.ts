@@ -29,7 +29,7 @@ import {
 import type { CanvasMeta, Entry } from '../types'
 
 /** Bump when the schema or what gets indexed changes: the index is then rebuilt. */
-export const INDEX_SCHEMA = 3
+export const INDEX_SCHEMA = 4
 const TODO_FILE = 'todos.md'
 
 /** What a repository file means to the index. */
@@ -138,6 +138,7 @@ export class RepoIndex {
       );
       CREATE INDEX IF NOT EXISTS blocks_path ON blocks (path);
       CREATE INDEX IF NOT EXISTS blocks_date ON blocks (date, created);
+      CREATE INDEX IF NOT EXISTS blocks_created ON blocks (created);
       CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5 (markdown, content='', contentless_delete=1, tokenize='trigram');
     `)
     this.db.exec(`PRAGMA user_version = ${INDEX_SCHEMA}`)
@@ -334,6 +335,17 @@ export class RepoIndex {
   }
 
   /** Blocks (stream and todos) containing `query`, case-insensitively; newest first. */
+  /**
+   * Day files (not todo lists) holding a block created in [fromIso, toIso):
+   * blocks written inside another block live in that block's day file,
+   * which can be older than the range.
+   */
+  daysWrittenIn(fromIso: string, toIso: string): Array<{ canvasId: string; date: string }> {
+    return (
+      this.db.prepare('SELECT DISTINCT canvas, date FROM blocks WHERE todo = 0 AND created >= ? AND created < ?').all(fromIso, toIso) as Array<{ canvas: string; date: string }>
+    ).map((r) => ({ canvasId: r.canvas, date: r.date }))
+  }
+
   searchBlocks(query: string, limit: number): IndexedHit[] {
     const q = query.trim().toLowerCase()
     if (!q) return []

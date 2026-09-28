@@ -89,6 +89,20 @@ describe('RepoIndex', () => {
     expect(await index.refresh()).toMatchObject({ indexed: 0, removed: 0 }) // nothing changed
   })
 
+  it('finds blocks written inside an older block when asked for a date range', async () => {
+    const { acme } = await corpus()
+    index = RepoIndex.open(dbPath, root)
+    indexed.attachIndex(index)
+    await index.refresh()
+    const standup = await indexed.addEntry(acme, 'Standup Jan 12', {}, new Date(2026, 0, 12, 9))
+    await indexed.addEntry(acme, 'a note two days later', { date: standup.date, parentId: standup.entry.id }, new Date(2026, 0, 14, 9))
+    const range = await indexed.getRange('2026-01-14', '2026-01-14')
+    const found = range.find((r) => r.canvasId === acme && r.day.date === '2026-01-12')
+    expect(found?.day.entries.map((e) => e.markdown)).toContain('a note two days later')
+    // Without an index only the range's own files are read.
+    expect((await plain.getRange('2026-01-14', '2026-01-14')).some((r) => r.canvasId === acme)).toBe(false)
+  })
+
   it('stays current through the store without a refresh', async () => {
     const { acme, web, old } = await corpus()
     index = RepoIndex.open(dbPath, root)

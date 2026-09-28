@@ -2,11 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { localDate } from '@devlog/core'
 import { JOURNAL, JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import { themeCssVars } from '@shared/theme'
-import type { CanvasMeta, Day, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
+import type { CanvasMeta, Day, Entry, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
 import { CanvasView } from './components/CanvasView'
+import { BlockPage, blockTitle } from './components/BlockPage'
 import { CanvasDialog } from './components/CanvasDialog'
 import { LinkRepoDialog } from './components/LinkRepoDialog'
 import { TodoPanel } from './components/TodoPanel'
@@ -31,17 +32,27 @@ const TIMELINE_DAYS = 10
 
 type View = 'canvas' | 'review' | 'summary' | 'timeline' | 'timesheet'
 
+/** A block open as a page: its canvas, its day file and its id. */
+interface OpenBlock {
+  canvasId: string
+  date: string
+  id: string
+}
+
 /** A place in the app, for back / forward. */
 interface Place {
   view: View
   canvasId: string
+  block: OpenBlock | null
   timelineDate: string
 }
 
-/** Only what the view shows counts: the open canvas matters on a canvas, the date on the timeline. */
+const blockKey = (b: OpenBlock | null): string => (b ? `${b.canvasId}/${b.date}/${b.id}` : '')
+
+/** Only what the view shows counts: the open canvas (or block page) on a canvas, the date on the timeline. */
 function samePlace(a: Place, b: Place): boolean {
   if (a.view !== b.view) return false
-  if (a.view === 'canvas') return a.canvasId === b.canvasId
+  if (a.view === 'canvas') return a.canvasId === b.canvasId && blockKey(a.block) === blockKey(b.block)
   if (a.view === 'timeline') return a.timelineDate === b.timelineDate
   return true
 }
@@ -82,6 +93,9 @@ export function App(): React.JSX.Element {
   // '' until the canvases are known (and when there are none yet).
   const [canvasId, setCanvasId] = useState<string>('')
   const [view, setView] = useState<View>('canvas')
+  // A block open as a page (on the canvas view), and its day file.
+  const [block, setBlock] = useState<OpenBlock | null>(null)
+  const [pageDay, setPageDay] = useState<Day | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Where the composer posts. Follows the open canvas but can be pointed elsewhere.
   const [targetCanvasId, setTargetCanvasId] = useState<string>('')
@@ -107,6 +121,8 @@ export function App(): React.JSX.Element {
   const searchRef = useRef<HTMLInputElement | null>(null)
   const canvasIdRef = useRef(canvasId)
   canvasIdRef.current = canvasId
+  const blockRef = useRef(block)
+  blockRef.current = block
   const trackerRef = useRef(tracker)
   trackerRef.current = tracker
   const canvasesRef = useRef(canvases)
@@ -115,7 +131,7 @@ export function App(): React.JSX.Element {
   // Back / forward (Alt+←/→, the mouse's side buttons): every place visited, like a browser.
   const nav = useRef<{ stack: Place[]; index: number; restoring: Place | null }>({ stack: [], index: -1, restoring: null })
   useEffect(() => {
-    const here: Place = { view, canvasId, timelineDate }
+    const here: Place = { view, canvasId, block, timelineDate }
     const h = nav.current
     if (h.restoring) {
       const target = h.restoring
@@ -125,7 +141,7 @@ export function App(): React.JSX.Element {
     if (h.index >= 0 && samePlace(h.stack[h.index], here)) return
     h.stack = [...h.stack.slice(0, h.index + 1), here].slice(-100)
     h.index = h.stack.length - 1
-  }, [view, canvasId, timelineDate])
+  }, [view, canvasId, block, timelineDate])
   const goRef = useRef<(delta: 1 | -1) => void>(() => undefined)
   goRef.current = (delta) => {
     const h = nav.current
@@ -139,6 +155,7 @@ export function App(): React.JSX.Element {
     setSearch('')
     setView(place.view)
     setCanvasId(place.canvasId)
+    setBlock(place.block)
     setTimelineDate(place.timelineDate)
   }
   useEffect(() => {
@@ -166,6 +183,7 @@ export function App(): React.JSX.Element {
     }
   }, [])
 
+  const page = block && block.canvasId === canvasId ? block : null
   const canvas = useMemo(() => canvases.find((c) => c.id === canvasId) ?? (canvasId === JOURNAL_ID ? JOURNAL : null), [canvases, canvasId])
   const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId && c.id !== JOURNAL_ID && !c.archived) ?? null, [canvases, targetCanvasId])
 
@@ -210,6 +228,18 @@ export function App(): React.JSX.Element {
   const reloadDay = useCallback(async (id: string, date: string) => {
     const day = await api.blocks.getDay(id, date)
     if (canvasIdRef.current === id) setDays((cur) => mergeDay(cur, day))
+    const b = blockRef.current
+    if (b && b.canvasId === id && b.date === date) setPageDay(day)
+  }, [])
+
+  // The open block's day file.
+  const loadPage = useCallback(async (b: OpenBlock | null) => {
+    if (!b) {
+      setPageDay(null)
+      return
+    }
+    const day = await api.blocks.getDay(b.canvasId, b.date)
+    if (blockKey(blockRef.current) === blockKey(b)) setPageDay(day)
   }, [])
 
   // Boot: settings + repo.
@@ -226,6 +256,7 @@ export function App(): React.JSX.Element {
       setRepo(info)
       setCanvases([])
       setCanvasId('')
+      setBlock(null)
       nav.current = { stack: [], index: -1, restoring: null }
     })
     const offSync = api.sync.onStatus((st) => setSync(st))
@@ -318,11 +349,16 @@ export function App(): React.JSX.Element {
     }
   }, [view, canvasId])
 
+  const pageTitle = page && pageDay?.date === page.date ? (() => {
+    const e = pageDay.entries.find((x) => x.id === page.id)
+    return e ? blockTitle(e, 40) : null
+  })() : null
+
   // Window title follows the view.
   useEffect(() => {
-    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : view === 'timesheet' ? 'Timesheet' : canvas ? canvasLabel(canvases, canvas.id) : 'Devlog'
+    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : view === 'timesheet' ? 'Timesheet' : canvas ? `${pageTitle ? `${pageTitle} · ` : ''}${canvasLabel(canvases, canvas.id)}` : 'Devlog'
     document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
-  }, [view, canvases, canvas, search])
+  }, [view, canvases, canvas, search, pageTitle])
 
   // Roll over at midnight.
   useEffect(() => {
@@ -342,9 +378,15 @@ export function App(): React.JSX.Element {
     return api.blocks.onChanged(() => {
       void refreshCanvases()
       void loadTimeline(canvasIdRef.current)
+      void loadPage(blockRef.current)
       void checkJournal()
     })
-  }, [repo, canvasId, refreshCanvases, loadTimeline, checkJournal])
+  }, [repo, canvasId, refreshCanvases, loadTimeline, checkJournal, loadPage])
+
+  useEffect(() => {
+    setPageDay((d) => (d && page && d.date === page.date ? d : null))
+    void loadPage(page)
+  }, [blockKey(page), loadPage]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Search (debounced).
   useEffect(() => {
@@ -364,11 +406,19 @@ export function App(): React.JSX.Element {
     setSearch('')
     setView('canvas')
     setCanvasId(id)
+    setBlock(null)
     if (date) setTimeout(() => document.querySelector(`.day-group[data-date="${date}"]`)?.scrollIntoView({ block: 'start' }), 250)
   }, [])
 
+  const openBlock = useCallback((id: string, date: string, entryId: string) => {
+    setSearch('')
+    setView('canvas')
+    setCanvasId(id)
+    setBlock({ canvasId: id, date, id: entryId })
+  }, [])
+
   const addEntry = useCallback(
-    async (id: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }) => {
+    async (id: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }): Promise<{ date: string; entry: Entry }> => {
       const res = await api.blocks.add(id, markdown, position, opts)
       if (!position && res.date !== today) setToday(res.date)
       await reloadDay(id, res.date)
@@ -376,8 +426,44 @@ export function App(): React.JSX.Element {
         await refreshCanvases()
         showToast(`Task started: ${res.canvas.title}`)
       }
+      return res
     },
     [today, reloadDay, refreshCanvases]
+  )
+
+  // Up a level: from a block page to the block it is inside (or its canvas); from a canvas to its parent.
+  const goUp = useCallback(() => {
+    const b = blockRef.current
+    if (b && b.canvasId === canvasIdRef.current) {
+      const entry = pageDay?.entries.find((e) => e.id === b.id)
+      if (entry?.parentId) setBlock({ ...b, id: entry.parentId })
+      else setBlock(null)
+      return
+    }
+    const parent = canvasesRef.current.find((c) => c.id === canvasIdRef.current)?.parentId
+    if (parent) openCanvas(parent)
+  }, [pageDay, openCanvas])
+  const goUpRef = useRef(goUp)
+  goUpRef.current = goUp
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      if (!ev.altKey || ev.ctrlKey || ev.metaKey || ev.shiftKey || ev.key !== 'ArrowUp') return
+      if (document.querySelector('.modal-backdrop')) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      goUpRef.current()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
+
+  // A block or canvas reached from a list elsewhere (timeline, review): blocks written inside another open that block's page.
+  const jumpTo = useCallback(
+    (id: string, date: string, entry?: Entry) => {
+      if (entry?.parentId) openBlock(id, date, entry.parentId)
+      else openCanvas(id, date)
+    },
+    [openBlock, openCanvas]
   )
 
   const updateEntry = useCallback(
@@ -433,11 +519,18 @@ export function App(): React.JSX.Element {
   )
 
   const editLast = useCallback(() => {
-    const last = days[days.length - 1]
-    if (!last || last.date !== today || last.entries.length === 0) return
-    setEditRequest(last.entries[last.entries.length - 1].id)
+    let id: string | undefined
+    if (page) {
+      id = pageDay?.entries.filter((e) => e.parentId === page.id).at(-1)?.id
+    } else {
+      const last = days[days.length - 1]
+      if (!last || last.date !== today || last.entries.length === 0) return
+      id = last.entries.filter((e) => !e.parentId).at(-1)?.id
+    }
+    if (!id) return
+    setEditRequest(id)
     setTimeout(() => setEditRequest(null), 0)
-  }, [days, today])
+  }, [days, today, page, pageDay])
 
   const goTo = useCallback(
     (target: SwitchTarget) => {
@@ -460,6 +553,9 @@ export function App(): React.JSX.Element {
     },
     [openCanvas]
   )
+
+  // On a block page, the note box writes inside the block.
+  const pageBlock = view === 'canvas' && page && pageDay?.date === page.date ? (pageDay.entries.find((e) => e.id === page.id) ?? null) : null
 
   const menuItems = (id: string): MenuItem[] => {
     const c = canvases.find((x) => x.id === id)
@@ -547,12 +643,15 @@ export function App(): React.JSX.Element {
             loading={false}
             editRequest={null}
             onLoadMore={async () => undefined}
-            onAdd={addEntry}
+            onAdd={async (id, md, position) => {
+              await addEntry(id, md, position)
+            }}
             onUpdate={updateEntry}
             onDelete={deleteEntry}
             onMove={moveEntry}
             onJumpTo={openCanvas}
             onOpenCanvas={openCanvas}
+            onOpenBlock={openBlock}
           />
         )}
         {view === 'review' && !search && (
@@ -560,7 +659,7 @@ export function App(): React.JSX.Element {
             canvases={canvases}
             today={today}
             focusMinSeconds={settings.focusMinSeconds}
-            onJumpTo={openCanvas}
+            onJumpTo={jumpTo}
             onOpenTimeline={(d) => {
               setTimelineDate(d)
               setView('timeline')
@@ -570,7 +669,7 @@ export function App(): React.JSX.Element {
         {view === 'timesheet' && !search && <Timesheet canvases={canvases} today={today} />}
         {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
         {view === 'timeline' && !search && (
-          <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={openCanvas} />
+          <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
         )}
         {view === 'canvas' && !search && !canvas && (
           <div className="empty-home">
@@ -581,7 +680,35 @@ export function App(): React.JSX.Element {
             </button>
           </div>
         )}
-        {view === 'canvas' && !search && canvas && (
+        {view === 'canvas' && !search && canvas && page && (
+          <BlockPage
+            key={blockKey(page)}
+            canvas={canvas}
+            canvases={canvases}
+            day={pageDay && pageDay.date === page.date ? pageDay : null}
+            blockId={page.id}
+            today={today}
+            editRequest={editRequest}
+            activeCanvasId={tracker?.activeCanvasId ?? null}
+            tracking={Boolean(tracker?.tracking)}
+            onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
+            onStopTask={() => void reported(api.tracker.setTask(null))}
+            onCanvasMenu={openMenu}
+            onAdd={async (id, md, position) => {
+              await addEntry(id, md, position)
+            }}
+            onUpdate={updateEntry}
+            onDelete={deleteEntry}
+            onMove={moveEntry}
+            onPromote={promoteEntry}
+            onSetHidden={setHidden}
+            onReorder={reorderEntry}
+            onOpenCanvas={openCanvas}
+            onOpenBlock={openBlock}
+            onUp={goUp}
+          />
+        )}
+        {view === 'canvas' && !search && canvas && !page && (
           <CanvasView
             key={canvasId}
             canvas={canvas}
@@ -596,8 +723,11 @@ export function App(): React.JSX.Element {
             onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
             onStopTask={() => void reported(api.tracker.setTask(null))}
             onCanvasMenu={openMenu}
+            onOpenBlock={openBlock}
             onLoadMore={loadMore}
-            onAdd={addEntry}
+            onAdd={async (id, md, position) => {
+              await addEntry(id, md, position)
+            }}
             onUpdate={updateEntry}
             onDelete={deleteEntry}
             onMove={moveEntry}
@@ -641,26 +771,30 @@ export function App(): React.JSX.Element {
         {!search && targetCanvas && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
           <div className="composer-dock">
             <Composer
-              key={targetCanvasId}
+              key={pageBlock ? blockKey(page) : targetCanvasId}
               mode="new"
               placeholder={
-                targetCanvas.task
-                    ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Shift+Enter new line`
-                    : `Note on ${targetCanvas.title}…  Enter posts, ${kbd('mod', 'shift', 'Enter')} posts as a task, Shift+Enter new line`
+                pageBlock
+                  ? `Write inside “${blockTitle(pageBlock, 40)}”…  Enter posts, Alt+Enter posts and opens it${targetCanvas.task ? ' · counts toward this task' : ''}`
+                  : targetCanvas.task
+                    ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Alt+Enter posts and opens it`
+                    : `Note on ${targetCanvas.title}…  Enter posts, Alt+Enter posts and opens it, ${kbd('mod', 'shift', 'Enter')} posts as a task`
               }
               assetCanvasId={targetCanvasId}
-              draftKey={`devlog:draft:${repo.path}:${targetCanvasId}`}
+              assetDate={pageBlock ? page?.date : undefined}
+              draftKey={`devlog:draft:${repo.path}:${targetCanvasId}${pageBlock ? `:${pageBlock.id}` : ''}`}
               autoFocus={view === 'canvas'}
               dock
               onSubmit={async (md, opts) => {
-                await addEntry(targetCanvasId, md, undefined, opts)
-                if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
+                const res = await addEntry(targetCanvasId, md, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined, opts)
+                if (opts?.open) openBlock(targetCanvasId, res.date, res.entry.id)
+                else if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
               }}
               onEditLast={view === 'canvas' ? editLast : undefined}
               focusToken={focusToken}
               canvases={canvases}
               targetCanvasId={targetCanvasId}
-              onTargetChange={setTargetCanvasId}
+              onTargetChange={pageBlock ? undefined : setTargetCanvasId}
             />
           </div>
         )}

@@ -245,7 +245,7 @@ describe('hidden blocks and reordering', () => {
     expect(moveSubtree(list, 'b', { beforeId: 'a1' }).map((x) => x.id)).toEqual(['b', 'a', 'a1', 'c', 'c1'])
     // No-ops and errors.
     expect(moveSubtree(list, 'a', { afterId: 'a1' })).toBe(list)
-    expect(() => moveSubtree(list, 'a1', { afterId: 'b' })).toThrow(/top-level/)
+    expect(() => moveSubtree(list, 'a1', { afterId: 'b' })).toThrow(/beside it/)
     expect(() => moveSubtree(list, 'a', { afterId: 'zz' })).toThrow(/not found/)
     expect(moveSubtree(list, 'a', { afterId: 'b' })[1].createdAt).toBe('2026-09-19T09:00:00.000Z')
   })
