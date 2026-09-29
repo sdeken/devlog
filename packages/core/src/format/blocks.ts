@@ -427,6 +427,24 @@ export function stripTaskTag(markdown: string): string {
   return lines.join('\n').trim()
 }
 
+/** Whether the first line carries `#<tag>` (a post command's tag). */
+export function hasTag(markdown: string, tag: string): boolean {
+  const first = markdown.trimStart().split('\n')[0] ?? ''
+  return tagRe(tag).test(first)
+}
+
+/** Remove `#<tag>` from the first line. */
+export function stripTag(markdown: string, tag: string): string {
+  const lines = markdown.trimStart().split('\n')
+  lines[0] = (lines[0] ?? '').replace(tagRe(tag), '$1').replace(/[ \t]+$/, '')
+  return lines.join('\n').trim()
+}
+
+function tagRe(tag: string): RegExp {
+  // Like TASK_TAG_RE: the editor may have escaped the "#".
+  return new RegExp(`(^|\\s)\\\\?#${tag.replace(/[^a-z0-9_-]/g, '')}\\b[ \\t]*`, 'i')
+}
+
 /** A short title for a block, from its first meaningful line. */
 export function titleFromMarkdown(markdown: string, max = 80): string {
   const text = previewText(stripTaskTag(markdown).replace(DURATION_MARKER_RE, ''), 400)

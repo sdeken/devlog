@@ -4,15 +4,17 @@
  * tells the app the page is ready and applies the app's colours as they
  * arrive, so a plain page gets the theme with no further code.
  */
-import type { AppToView, ViewToApp } from '@devlog/extension-api/view'
+import type { AppToView, ViewContext, ViewToApp } from '@devlog/extension-api/view'
 
 type Outgoing = ViewToApp extends infer M ? (M extends { devlog: 1 } ? Omit<M, 'devlog'> : never) : never
 
 const waiting = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>()
 const messageListeners = new Set<(data: unknown) => void>()
 const themeListeners = new Set<(dark: boolean) => void>()
+const contextListeners = new Set<(context: ViewContext) => void>()
 let nextId = 1
 let dark = false
+let context: ViewContext = {}
 
 function send(msg: Outgoing): void {
   window.parent.postMessage({ devlog: 1, ...msg }, '*')
@@ -42,6 +44,10 @@ window.addEventListener('message', (ev: MessageEvent) => {
     case 'message':
       for (const cb of messageListeners) cb(m.data)
       break
+    case 'context':
+      context = m.context ?? {}
+      for (const cb of contextListeners) cb(context)
+      break
   }
 })
 
@@ -66,6 +72,14 @@ export const devlog = {
   onTheme(cb: (dark: boolean) => void): () => void {
     themeListeners.add(cb)
     return () => themeListeners.delete(cb)
+  },
+  /** Where the view is shown (a canvas-header view's canvas), and when that changes. */
+  get context(): ViewContext {
+    return context
+  },
+  onContext(cb: (context: ViewContext) => void): () => void {
+    contextListeners.add(cb)
+    return () => contextListeners.delete(cb)
   },
   /** Ask for a size. A status bar item gets its height from the bar; the width may be clamped. */
   resize(size: { width?: number; height?: number }): void {

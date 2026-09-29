@@ -9,7 +9,7 @@ import { isBlankMarkdown, localDate } from '@devlog/core'
 import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
 import { clearActiveComposer, setActiveComposer, setDockEditor } from '@renderer/editor/active'
-import { kbd } from '@renderer/keys'
+import { kbd, matchesKeybinding } from '@renderer/keys'
 import { detectCodePaste } from '@renderer/editor/smartPaste'
 import type { CanvasMeta } from '@shared/types'
 import { buildCanvasTree, flattenTree } from '@devlog/core'
@@ -29,7 +29,9 @@ export interface ComposerProps {
   /** Custom image sink (e.g. a wiki's asset folder). */
   saveImage?: (bytes: Uint8Array, mime: string, name: string) => Promise<{ src: string }>
   /** Called with markdown when the user posts. Resolve to clear the editor. `task` is set for Mod+Shift+Enter, `open` for Alt+Enter. */
-  onSubmit: (markdown: string, opts?: { task?: boolean; open?: boolean }) => Promise<void>
+  onSubmit: (markdown: string, opts?: SubmitOpts) => Promise<void>
+  /** Extension post commands (1.6): their keybinding posts, then runs the command (`action` is its key). New mode only. */
+  postActions?: Array<{ key: string; keybinding: string }>
   /** Document mode: called (debounced) whenever the content changes. */
   onChange?: (markdown: string) => Promise<void> | void
   onCancel?: () => void
@@ -44,6 +46,13 @@ export interface ComposerProps {
   canvases?: CanvasMeta[]
   targetCanvasId?: string
   onTargetChange?: (canvasId: string) => void
+}
+
+export interface SubmitOpts {
+  task?: boolean
+  open?: boolean
+  /** An extension post command's key. */
+  action?: string
 }
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
@@ -87,6 +96,7 @@ export function Composer({
   assetDate,
   saveImage,
   onSubmit,
+  postActions,
   onChange,
   onCancel,
   onEditLast,
@@ -105,7 +115,9 @@ export function Composer({
   const [linkUrl, setLinkUrl] = useState('')
   const [, forceRender] = useState(0)
   const renderQueued = useRef(false)
-  const submitRef = useRef<(opts?: { task?: boolean; open?: boolean }) => boolean>(() => false)
+  const submitRef = useRef<(opts?: SubmitOpts) => boolean>(() => false)
+  const postActionsRef = useRef(postActions)
+  postActionsRef.current = postActions
   const cancelRef = useRef<() => boolean>(() => false)
   const linkRef = useRef<() => boolean>(() => false)
   const editLastRef = useRef<(() => void) | undefined>(onEditLast)
@@ -205,6 +217,14 @@ export function Composer({
     autofocus: autoFocus ? 'end' : false,
     editorProps: {
       attributes: { class: 'composer-editor', spellcheck: 'true' },
+      // Extension post commands' keybindings come before the editor's own keys.
+      handleKeyDown: (_view, event) => {
+        if (isDocument || mode !== 'new') return false
+        const hit = postActionsRef.current?.find((a) => matchesKeybinding(event, a.keybinding))
+        if (!hit) return false
+        event.preventDefault()
+        return submitRef.current({ action: hit.key })
+      },
       handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile)
         if (files.length > 0) {
@@ -317,7 +337,7 @@ export function Composer({
     }
   }, [isDocument])
 
-  const submit = useCallback((opts?: { task?: boolean; open?: boolean }): boolean => {
+  const submit = useCallback((opts?: SubmitOpts): boolean => {
     const e = editorRef.current
     if (!e || busy || uploading > 0) return true
     const markdown = e.getMarkdown().trim()

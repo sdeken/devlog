@@ -76,16 +76,105 @@ describe('extensions in the app', () => {
       confirm: async () => true,
       onChange: () => undefined,
       onBlockAdded: () => undefined,
-      onViewMessage: (key, viewId, message) => viewMessages.push({ key, viewId, message })
+      onViewMessage: (key, viewId, message) => viewMessages.push({ key, viewId, message }),
+      onAppState: () => appStateChanges++,
+      pick: async (title, items, placeholder) => {
+        picks.push({ title, labels: items.map((i) => i.label), placeholder })
+        return items[1]?.id ?? null
+      },
+      open: (target) => opened.push(target)
     })
     viewMessages = []
+    appStateChanges = 0
+    picks = []
+    opened = []
   })
   let viewMessages: Array<{ key: string; viewId: string; message: unknown }>
+  let appStateChanges: number
+  let picks: Array<{ title: string; labels: string[]; placeholder?: string }>
+  let opened: Array<{ canvasId: string }>
 
   afterEach(async () => {
     await manager.stopAll()
     await fs.rm(root, { recursive: true, force: true })
     await fs.rm(userData, { recursive: true, force: true })
+  })
+
+  it('API 1.6: node types, command context, canvas writes, block events, activity and app state', async () => {
+    await updateManifest(root, (m) => {
+      m.extensions = { shaper: 'builtin' }
+    })
+    await manager.load()
+    await manager.allow('shaper', { read: { all: true }, write: { canvases: [ids.acme] } })
+    const call = (method: string, ...args: unknown[]): Promise<unknown> => manager.viewCall('shaper', 'head', method, args)
+    for (let i = 0; i < 100 && !(await call('seen').catch(() => null)); i++) await new Promise((r) => setTimeout(r, 20))
+
+    const [info] = await manager.list()
+    expect(info.nodeTypes).toEqual([{ id: 'job', label: 'Job', icon: 'J', placeholder: 'What about this job?' }])
+    expect(info.commands.find((c) => c.id === 'where')).toMatchObject({ keybinding: 'Mod+Shift+Y', nodeType: 'builtin.shaper/job', menus: ['canvas', 'block', 'tray'], ready: true })
+    expect(info.commands.find((c) => c.id === 'asjob')).toMatchObject({ keybinding: 'Mod+Alt+J', post: true, tag: 'job' })
+    expect(info.views[0]).toMatchObject({ id: 'head', placement: 'canvasHeader', nodeType: 'builtin.shaper/job' })
+
+    // What it asked of the app.
+    expect(manager.appState()).toEqual({ trayLabel: 'shaping', keepRunning: true, idleMinutes: 7, highlighted: [] })
+    expect(appStateChanges).toBeGreaterThan(0)
+
+    // Commands get where they were run from; canvases it cannot see are left out.
+    const web = (await store.readDay(ids.web, (await store.listDays(ids.web))[0].date)).entries[0]
+    const webDate = (await store.listDays(ids.web))[0].date
+    expect(JSON.parse((await manager.runCommand('shaper', 'where', { source: 'menu', canvasId: ids.web, date: webDate, blockId: web.id }))!)).toEqual({
+      source: 'menu',
+      canvasId: ids.web,
+      date: webDate,
+      blockId: web.id
+    })
+    expect(JSON.parse((await manager.runCommand('shaper', 'where', { source: 'keybinding', canvasId: 'nosuchcanvas' }))!)).toEqual({ source: 'keybinding' })
+
+    // Posted blocks reach it.
+    const posted = await store.addEntry(ids.globex, 'posted by hand')
+    await manager.blockAdded(ids.globex, posted.date, posted.entry)
+    for (let i = 0; i < 50 && !((await call('seen')) as unknown[]).length; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(await call('seen')).toEqual([{ canvasId: ids.globex, date: posted.date, text: 'posted by hand' }])
+
+    // A post command turns the new block into a canvas of its type (where it may write).
+    const note = await store.addEntry(ids.acme, 'Rebuild the widget')
+    const jobId = (await manager.runCommand('shaper', 'asjob', { source: 'post', canvasId: ids.acme, date: note.date, blockId: note.entry.id }))!
+    const job = await store.readCanvas(jobId)
+    expect(job).toMatchObject({ title: 'Rebuild the widget', parentId: ids.acme, type: 'builtin.shaper/job', task: false })
+    expect((await store.readDay(ids.acme, note.date)).entries.find((e) => e.id === note.entry.id)).toMatchObject({ kind: 'task', meta: { canvas: jobId } })
+    for (let i = 0; i < 50 && !manager.appState().highlighted.length; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(manager.appState().highlighted).toEqual([jobId])
+    const inGlobex = await store.addEntry(ids.globex, 'Not writable')
+    await expect(manager.runCommand('shaper', 'asjob', { source: 'post', canvasId: ids.globex, date: inGlobex.date, blockId: inGlobex.entry.id })).rejects.toThrow(/write access/)
+
+    // Its time events join the app's.
+    const today = note.date
+    expect(await manager.activityEvents(today, today)).toEqual([expect.objectContaining({ type: 'task', canvasId: jobId, entryId: note.entry.id, machine: 'desk-1a2b' })])
+    expect(manager.providesActivity()).toBe(true)
+
+    // Canvases: made and changed where it may write, only with its own types.
+    const made = (await call('make', 'Another job', ids.acme)) as { id: string; type: string }
+    expect(made.type).toBe('builtin.shaper/job')
+    await expect(call('make', 'Nope', ids.globex)).rejects.toThrow(/write access/)
+    await expect(call('make', 'Nope', null)).rejects.toThrow(/top-level/)
+    await expect(call('foreign', ids.acme)).rejects.toThrow(/not one of its node types/)
+    expect(await call('retitle', made.id, 'Renamed job')).toMatchObject({ title: 'Renamed job' })
+    expect(await call('untype', made.id)).not.toHaveProperty('type')
+
+    // Blocks: it may edit its own, not yours.
+    expect(await call('note', ids.acme)).toMatchObject({ markdown: 'final', meta: { ext: 'builtin.shaper' } })
+    await expect(call('editOther', ids.acme, note.date, note.entry.id)).rejects.toThrow(/Only blocks it added/)
+
+    // Quick picks and opening canvases go through the app.
+    expect(await manager.runCommand('shaper', 'pick')).toBe('b')
+    expect(picks).toEqual([{ title: 'Shaper', labels: ['A', 'B'], placeholder: 'Which?' }])
+    await call('open', ids.globex)
+    for (let i = 0; i < 50 && !opened.length; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(opened).toEqual([{ canvasId: ids.globex }])
+
+    // Stopped, it asks nothing of the app.
+    await manager.revoke('shaper')
+    expect(manager.appState()).toEqual({ trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [] })
   })
 
   it('serves views only while the extension runs, and relays their calls and messages', async () => {

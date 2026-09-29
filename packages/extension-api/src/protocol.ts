@@ -46,7 +46,7 @@ export type FromExtension =
   | { t: 'registered'; command: string }
 
 /** Methods the app calls on the extension. */
-export type ExtensionSideMethod = 'command.run' | 'activity.notice' | 'provide.focus' | 'destination.preview' | 'destination.send' | 'view.call'
+export type ExtensionSideMethod = 'command.run' | 'activity.notice' | 'block.added' | 'provide.focus' | 'provide.activity' | 'destination.preview' | 'destination.send' | 'view.call'
 
 export type { ActivityNotice }
 
@@ -58,6 +58,12 @@ export const APP_METHODS = [
   'devlog.blocks',
   'devlog.search',
   'devlog.addBlock',
+  'devlog.todos',
+  'devlog.createCanvas',
+  'devlog.updateCanvas',
+  'devlog.editBlock',
+  'devlog.promote',
+  'devlog.subscribe',
   'secrets.get',
   'secrets.set',
   'secrets.delete',
@@ -68,8 +74,14 @@ export const APP_METHODS = [
   'files.stat',
   'files.remove',
   'activity.subscribe',
+  'activity.idleAfter',
   'ui.notify',
   'ui.confirm',
+  'ui.pick',
+  'ui.open',
+  'ui.highlight',
+  'app.trayLabel',
+  'app.keepRunning',
   'provide.register',
   'destination.register',
   'views.handle',

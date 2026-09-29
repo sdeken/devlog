@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { localDate } from '@devlog/core'
+import { hasTag, localDate, stripTag } from '@devlog/core'
 import { JOURNAL, JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import { themeCssVars } from '@shared/theme'
 import type { CanvasMeta, Day, Entry, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
@@ -13,7 +13,7 @@ import { LinkRepoDialog } from './components/LinkRepoDialog'
 import { TodoPanel } from './components/TodoPanel'
 import { Review } from './components/Review'
 import { Summary } from './components/Summary'
-import { QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
+import { ExtensionPick, QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
 import { Timeline } from './components/Timeline'
 import { Timesheet } from './components/Timesheet'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
@@ -28,8 +28,12 @@ import { Welcome } from './components/Welcome'
 import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
 import { errorMessage, reported, showToast } from './toasts'
-import { kbd } from './keys'
+import { kbd, keybindingLabel, matchesKeybinding } from './keys'
 import { NodeTypesContext, buildNodeTypes } from './nodeTypes'
+import { BlockActionsContext, appliesTo, runningCommands, type BlockAction, type ExtCommand } from './extensionCommands'
+import type { CommandContext } from '@devlog/extension-api'
+import type { ViewContext } from '@devlog/extension-api/view'
+import type { ExtensionAppState, ExtensionPickRequest } from '@shared/extensions'
 
 const TIMELINE_DAYS = 10
 
@@ -105,7 +109,7 @@ export function App(): React.JSX.Element {
   // An extension page on screen ('ext' view): "<devlog.json key>/<view id>".
   const [extPage, setExtPage] = useState('')
   // An extension popover open, anchored to the view that asked for it.
-  const [popover, setPopover] = useState<{ extKey: string; viewId: string; url: string; title: string; anchor: DOMRect; width: number; height: number } | null>(null)
+  const [popover, setPopover] = useState<{ extKey: string; viewId: string; url: string; title: string; anchor: DOMRect; width: number; height: number; context?: ViewContext } | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Where the composer posts. Follows the open canvas but can be pointed elsewhere.
   const [targetCanvasId, setTargetCanvasId] = useState<string>('')
@@ -121,6 +125,22 @@ export function App(): React.JSX.Element {
   const [settingsPage, setSettingsPage] = useState<string | null>(null)
   const extensions = useExtensions()
   const nodeTypes = useMemo(() => buildNodeTypes(extensions), [extensions])
+  const extCommands = useMemo(() => runningCommands(extensions), [extensions])
+  // What extensions ask of the app (highlighted canvases), and a quick pick one is showing.
+  const [extState, setExtState] = useState<ExtensionAppState | null>(null)
+  const [extPick, setExtPick] = useState<ExtensionPickRequest | null>(null)
+  useEffect(() => {
+    void api.extensions
+      .appState()
+      .then(setExtState)
+      .catch(() => undefined)
+    const offState = api.extensions.onAppState(setExtState)
+    const offPick = api.extensions.onPick(setExtPick)
+    return () => {
+      offState()
+      offPick()
+    }
+  }, [])
   const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
   const [canvasMenu, setCanvasMenu] = useState<{ canvasId: string; x: number; y: number } | null>(null)
   // The retired journal is listed (under Archived) only while it still holds notes.
@@ -134,6 +154,8 @@ export function App(): React.JSX.Element {
   canvasIdRef.current = canvasId
   const blockRef = useRef(block)
   blockRef.current = block
+  const viewRef = useRef(view)
+  viewRef.current = view
   const trackerRef = useRef(tracker)
   trackerRef.current = tracker
   const canvasesRef = useRef(canvases)
@@ -477,6 +499,58 @@ export function App(): React.JSX.Element {
     return () => window.removeEventListener('keydown', onKey, true)
   }, [])
 
+  // Extension commands (1.6): run with where they were run from and what they were run on.
+  const runExt = useCallback((cmd: { extKey: string; id: string }, context: CommandContext): void => {
+    void reported(api.extensions.run(cmd.extKey, cmd.id, context)).then((text) => {
+      if (text) showToast(text, 'info', 15000)
+    })
+  }, [])
+  const screenContext = (): CommandContext => {
+    const b = blockRef.current
+    if (viewRef.current !== 'canvas' || !canvasIdRef.current) return { source: 'keybinding' }
+    return { source: 'keybinding', canvasId: canvasIdRef.current, ...(b && b.canvasId === canvasIdRef.current ? { date: b.date, blockId: b.id } : {}) }
+  }
+  const keyCommandsRef = useRef<Array<ExtCommand & { keybinding: string }>>([])
+  keyCommandsRef.current = extCommands.filter((c): c is ExtCommand & { keybinding: string } => Boolean(c.keybinding) && !c.post)
+  const screenContextRef = useRef(screenContext)
+  screenContextRef.current = screenContext
+  useEffect(() => {
+    const onKey = (ev: KeyboardEvent): void => {
+      if (!keyCommandsRef.current.length || document.querySelector('.modal-backdrop')) return
+      const ctx = screenContextRef.current()
+      const type = ctx.canvasId ? canvasesRef.current.find((c) => c.id === ctx.canvasId)?.type : undefined
+      const hit = keyCommandsRef.current.find((c) => matchesKeybinding(ev, c.keybinding) && appliesTo(c, type))
+      if (!hit) return
+      ev.preventDefault()
+      ev.stopPropagation()
+      runExt(hit, ctx)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [runExt])
+
+  // An extension asked to show a canvas or a block's page.
+  useEffect(
+    () =>
+      api.extensions.onOpen((t) => {
+        if (!canvasesRef.current.some((c) => c.id === t.canvasId)) return
+        if (t.blockId && t.date) openBlock(t.canvasId, t.date, t.blockId)
+        else openCanvas(t.canvasId, t.date)
+      }),
+    [openBlock, openCanvas]
+  )
+
+  // A block's menu: extension commands for blocks, on canvases of their node type.
+  const blockActions = useCallback(
+    (id: string): BlockAction[] => {
+      const type = canvasesRef.current.find((c) => c.id === id)?.type
+      return extCommands
+        .filter((c) => c.menus?.includes('block') && appliesTo(c, type))
+        .map((c) => ({ key: `${c.extKey}:${c.id}`, label: c.label, run: (date: string, blockId: string) => runExt(c, { source: 'menu', canvasId: id, date, blockId }) }))
+    },
+    [extCommands, runExt]
+  )
+
   // A block or canvas reached from a list elsewhere (timeline, review): blocks written inside another open that block's page.
   const jumpTo = useCallback(
     (id: string, date: string, entry?: Entry) => {
@@ -581,9 +655,7 @@ export function App(): React.JSX.Element {
       }
       if (target.kind === 'command') {
         // A command's answer (e.g. "List my CMS assignments") shows as a toast.
-        void reported(api.extensions.run(target.extension, target.command)).then((text) => {
-          if (text) showToast(text, 'info', 15000)
-        })
+        runExt({ extKey: target.extension, id: target.command }, { ...screenContextRef.current(), source: 'switcher' })
         return
       }
       setSearch('')
@@ -592,7 +664,7 @@ export function App(): React.JSX.Element {
         setView(target.view)
       } else openCanvas(target.canvasId)
     },
-    [openCanvas, openBlock]
+    [openCanvas, openBlock, runExt]
   )
 
   // On a block page, the note box writes inside the block.
@@ -633,6 +705,8 @@ export function App(): React.JSX.Element {
           ? { label: 'Stop this task', onClick: () => void reported(api.tracker.setTask(null)) }
           : { label: tracker?.activeCanvasId ? 'Switch to this task' : 'Start this task', onClick: () => void reported(api.tracker.setTask(id)) }
       )
+    const extItems = extCommands.filter((x) => x.menus?.includes('canvas') && appliesTo(x, c.type))
+    if (extItems.length) items.push('separator', ...extItems.map((x): MenuItem => ({ label: x.label, onClick: () => runExt(x, { source: 'menu', canvasId: id }) })))
     items.push('separator', { label: 'Properties…', onClick: () => setCanvasDialog({ canvas: c }) })
     if (!c.archived)
       items.push(
@@ -676,11 +750,28 @@ export function App(): React.JSX.Element {
   const extPages = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'page').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, icon: v.icon, url: v.url })))
   const statusViews = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'statusbar').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, url: v.url })))
   const openPage = extPages.find((p) => `${p.extKey}/${p.viewId}` === extPage)
-  const showPopover = (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }): void => {
+  const showPopover = (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext): void => {
     const v = extensions.find((e) => e.key === extKey)?.views.find((x) => x.id === viewId && x.placement === 'popover')
     if (!v) return
-    setPopover({ extKey, viewId, url: v.url, title: v.title, anchor, width: Math.min(Math.max(size.width ?? 320, 160), 560), height: Math.min(Math.max(size.height ?? 360, 80), 640) })
+    setPopover({
+      extKey,
+      viewId,
+      url: v.url,
+      title: v.title,
+      anchor,
+      width: Math.min(Math.max(size.width ?? 320, 160), 560),
+      height: Math.min(Math.max(size.height ?? 360, 80), 640),
+      ...(context ? { context } : {})
+    })
   }
+  // Views extensions put in a canvas's header (for canvases of their node type).
+  const headerViews = extensions.flatMap((e) =>
+    e.views.filter((v) => v.placement === 'canvasHeader' && appliesTo(v, canvas?.type)).map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, url: v.url }))
+  )
+  // The note box's extension post commands, for the canvas it posts to.
+  const targetType = canvases.find((c) => c.id === targetCanvasId)?.type
+  const postCommands = extCommands.filter((c) => c.post && appliesTo(c, targetType))
+  const postHint = postCommands.flatMap((c) => (c.keybinding ? [`${keybindingLabel(c.keybinding)} ${c.label.charAt(0).toLowerCase()}${c.label.slice(1)}`] : [])).join(', ')
   const openFromView = (t: { canvasId: string; date?: string; blockId?: string }): void => {
     if (!canvases.some((c) => c.id === t.canvasId)) return
     if (t.blockId && t.date) openBlock(t.canvasId, t.date, t.blockId)
@@ -689,12 +780,13 @@ export function App(): React.JSX.Element {
 
   return (
     <NodeTypesContext.Provider value={nodeTypes}>
+    <BlockActionsContext.Provider value={blockActions}>
       <div className="app">
         <TopBar search={search} onSearch={setSearch} searchRef={searchRef} onSwitcher={() => setSwitcherOpen(true)} />
         <Sidebar
           canvases={canvases}
           selection={selection}
-          activeCanvasId={tracker?.activeCanvasId ?? null}
+          activeCanvasId={tracker?.activeCanvasId ?? extState?.highlighted[0] ?? null}
           searching={Boolean(search)}
           showJournal={journalHasNotes}
           settingsAttention={extensions.some(needsAttention)}
@@ -788,7 +880,7 @@ export function App(): React.JSX.Element {
               blockId={page.id}
               today={today}
               editRequest={editRequest}
-              activeCanvasId={tracker?.activeCanvasId ?? null}
+              activeCanvasId={tracker?.activeCanvasId ?? extState?.highlighted[0] ?? null}
               tracking={Boolean(tracker?.tracking)}
               onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
               onStopTask={() => void reported(api.tracker.setTask(null))}
@@ -819,8 +911,11 @@ export function App(): React.JSX.Element {
               today={today}
               loading={loading}
               editRequest={editRequest}
-              activeCanvasId={tracker?.activeCanvasId ?? null}
+              activeCanvasId={tracker?.activeCanvasId ?? extState?.highlighted[0] ?? null}
               tracking={Boolean(tracker?.tracking)}
+              headerViews={headerViews}
+              onExtPopover={showPopover}
+              onExtOpen={openFromView}
               onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
               onStopTask={() => void reported(api.tracker.setTask(null))}
               onCanvasMenu={openMenu}
@@ -883,15 +978,21 @@ export function App(): React.JSX.Element {
                       ? `${nodeTypes.get(targetCanvas.type)?.placeholder}  Enter posts, Alt+Enter posts and opens it`
                       : targetCanvas.task
                         ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Alt+Enter posts and opens it`
-                        : `Note on ${targetCanvas.title}…  Enter posts, Alt+Enter posts and opens it, ${kbd('mod', 'shift', 'Enter')} posts as a task`
+                        : `Note on ${targetCanvas.title}…  Enter posts, Alt+Enter posts and opens it, ${postHint || `${kbd('mod', 'shift', 'Enter')} posts as a task`}`
                 }
                 assetCanvasId={targetCanvasId}
                 assetDate={pageBlock ? page?.date : undefined}
                 draftKey={`devlog:draft:${repo.path}:${targetCanvasId}${pageBlock ? `:${pageBlock.id}` : ''}`}
                 autoFocus={view === 'canvas'}
                 dock
+                postActions={postCommands.flatMap((c) => (c.keybinding ? [{ key: `${c.extKey}:${c.id}`, keybinding: c.keybinding }] : []))}
                 onSubmit={async (md, opts) => {
-                  const res = await addEntry(targetCanvasId, md, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined, opts)
+                  // A post command: by its keybinding, or by its #tag on the first line (which is taken off).
+                  const tagged = opts?.action ? undefined : postCommands.find((c) => c.tag && hasTag(md, c.tag))
+                  const action = tagged ?? postCommands.find((c) => `${c.extKey}:${c.id}` === opts?.action)
+                  const text = tagged?.tag ? stripTag(md, tagged.tag) : md
+                  const res = await addEntry(targetCanvasId, text, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined, action ? { ...opts, task: false } : opts)
+                  if (action) runExt(action, { source: 'post', canvasId: targetCanvasId, date: res.date, blockId: res.entry.id })
                   if (opts?.open) openBlock(targetCanvasId, res.date, res.entry.id)
                   else if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
                 }}
@@ -958,6 +1059,18 @@ export function App(): React.JSX.Element {
             onPreview={applyTheme}
           />
         )}
+        {extPick && (
+          <ExtensionPick
+            key={extPick.id}
+            title={extPick.title}
+            items={extPick.items}
+            placeholder={extPick.placeholder}
+            onDone={(choice) => {
+              setExtPick(null)
+              void api.extensions.answerPick(extPick.id, choice)
+            }}
+          />
+        )}
         {popover && (
           <ExtensionPopover
             {...popover}
@@ -1007,6 +1120,7 @@ export function App(): React.JSX.Element {
           />
         )}
       </div>
+    </BlockActionsContext.Provider>
     </NodeTypesContext.Provider>
   )
 }

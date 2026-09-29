@@ -21,9 +21,9 @@ import type {
   TrackerStatus,
   UpdateStatus
 } from '../shared/types'
-import type { ExtensionInfo, ExtensionUpdateReport } from '../shared/extensions'
+import type { ExtensionAppState, ExtensionInfo, ExtensionPickRequest, ExtensionUpdateReport } from '../shared/extensions'
 import type { Grant, Timesheet } from '@devlog/core'
-import type { DestinationLine, SendResult } from '@devlog/extension-api'
+import type { CommandContext, DestinationLine, SendResult } from '@devlog/extension-api'
 
 type Unsubscribe = () => void
 
@@ -113,7 +113,15 @@ const api = {
     setSettings: (key: string, values: Record<string, string>): Promise<void> => ipcRenderer.invoke(IPC.extSetSettings, key, values),
     setSecret: (key: string, secretKey: string, value: string | null): Promise<void> => ipcRenderer.invoke(IPC.extSetSecret, key, secretKey, value),
     /** Run a command; resolves to the text it returns, if any (a check's result). */
-    run: (key: string, commandId: string): Promise<string | null> => ipcRenderer.invoke(IPC.extRun, key, commandId),
+    run: (key: string, commandId: string, context?: CommandContext): Promise<string | null> => ipcRenderer.invoke(IPC.extRun, key, commandId, context),
+    /** What extensions ask of the app (tray label, highlighted canvases…) (1.6). */
+    appState: (): Promise<ExtensionAppState> => ipcRenderer.invoke(IPC.extAppState),
+    onAppState: (cb: (st: ExtensionAppState) => void): Unsubscribe => on(IPC.evExtAppState, cb),
+    /** An extension asks the user to pick from a list (1.6). */
+    onPick: (cb: (req: ExtensionPickRequest) => void): Unsubscribe => on(IPC.evExtPick, cb),
+    answerPick: (id: number, choice: string | null): Promise<void> => ipcRenderer.invoke(IPC.extAnswerPick, id, choice),
+    /** An extension asks to show a canvas or a block's page (1.6). */
+    onOpen: (cb: (target: { canvasId: string; date?: string; blockId?: string }) => void): Unsubscribe => on(IPC.evExtOpen, cb),
     /** A call from an extension view's page to its extension (1.5). */
     viewCall: (key: string, viewId: string, method: string, args: unknown[]): Promise<unknown> => ipcRenderer.invoke(IPC.extViewCall, key, viewId, method, args),
     /** Messages an extension posts to its views. */

@@ -6,6 +6,7 @@ import type { DevlogStore } from '@devlog/core/node'
 import type { SyncManager } from '@devlog/core/node'
 import type { SettingsStore } from './settings'
 import type { ExtensionManager } from './extensions/manager'
+import type { CommandContext } from '@devlog/extension-api'
 import { sanitizeGrant } from '@devlog/core'
 import { randomUUID } from 'node:crypto'
 import { inspectWorkingCopy } from './workingCopy'
@@ -25,7 +26,9 @@ export interface IpcDeps {
   chooseDirectory: () => Promise<string | null>
   onSettingsChanged: (s: Settings) => void
   /** A user block was added; lets the tracker switch the active task. */
-  onEntryAdded: (canvasId: string, entry: Entry) => Promise<void>
+  onEntryAdded: (canvasId: string, date: string, entry: Entry) => Promise<void>
+  /** The renderer answered an extension's quick pick. */
+  answerPick: (id: number, choice: string | null) => void
   onCanvasesChanged: () => Promise<void>
   activityRange: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
   /** Append a user correction to the activity log (filed on the day it applies to). */
@@ -66,7 +69,9 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.extUpdate, () => touched(ext().update()))
   ipcMain.handle(IPC.extSetSettings, (_e, key: string, values: Record<string, string>) => touched(ext().setSettings(String(key), values && typeof values === 'object' ? values : {})))
   ipcMain.handle(IPC.extSetSecret, (_e, key: string, secretKey: string, value: string | null) => ext().setSecret(String(key), String(secretKey), typeof value === 'string' ? value : null))
-  ipcMain.handle(IPC.extRun, (_e, key: string, commandId: string) => ext().runCommand(String(key), String(commandId)))
+  ipcMain.handle(IPC.extRun, (_e, key: string, commandId: string, context?: CommandContext) => ext().runCommand(String(key), String(commandId), context ?? { source: 'switcher' }))
+  ipcMain.handle(IPC.extAppState, () => deps.getExtensions()?.appState() ?? { trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [] })
+  ipcMain.handle(IPC.extAnswerPick, (_e, id: number, choice: string | null) => deps.answerPick(Number(id), typeof choice === 'string' ? choice : null))
   ipcMain.handle(IPC.extViewCall, (_e, key: string, viewId: string, method: string, args: unknown[]) => ext().viewCall(String(key), String(viewId), String(method), Array.isArray(args) ? args : []))
   ipcMain.handle(IPC.extDestPreview, (_e, key: string, destId: string, week: string) => ext().destinationPreview(String(key), String(destId), String(week)))
   ipcMain.handle(IPC.extDestSend, (_e, key: string, destId: string, week: string) => ext().destinationSend(String(key), String(destId), String(week)))
@@ -176,16 +181,18 @@ export function registerIpc(deps: IpcDeps): void {
       const { date, entries } = await store.addTodos(canvasId, checklist.map((c) => c.text), { date: position?.date, parentId: position?.parentId }, new Date(), {
         done: checklist.map((c) => c.done)
       })
+      for (const e of entries) await deps.onEntryAdded(canvasId, date, e)
       return { date, entry: entries[0], count: entries.length }
     }
     const result = await store.addEntry(canvasId, text, position ?? {})
     if (wantsTask) {
       const promoted = await store.promoteToTask(canvasId, result.date, result.entry.id)
       await deps.onCanvasesChanged()
+      void deps.getExtensions()?.blockAdded(canvasId, result.date, promoted.entry)
       await deps.trackerSetTask(promoted.canvas.id)
       return { date: result.date, entry: promoted.entry, canvas: promoted.canvas }
     }
-    await deps.onEntryAdded(canvasId, result.entry)
+    await deps.onEntryAdded(canvasId, result.date, result.entry)
     return result
   })
   ipcMain.handle(IPC.entryPromote, async (_e, canvasId: string, date: string, id: string) => {

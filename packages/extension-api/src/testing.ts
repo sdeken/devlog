@@ -15,7 +15,7 @@
  * reached by relative paths only, reads and writes respect the grant you
  * give it, and blocks it adds are marked as its own.
  */
-import { API_VERSION, type ActivityNotice, type DevlogContext, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type Destination, type DestinationLine, type DestinationSheet, type FocusEvent, type SendResult } from './index'
+import { API_VERSION, type ActivityNotice, type BlockAddedEvent, type CommandContext, type DevlogContext, type PickItem, type TimeEvent, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type Destination, type DestinationLine, type DestinationSheet, type FocusEvent, type SendResult } from './index'
 
 export interface TestCanvas extends ExtensionCanvas {
   /** Blocks by date. */
@@ -51,8 +51,21 @@ export interface TestHarness {
   /** The two private folders, as path → content. */
   files: { repo: Map<string, Uint8Array>; local: Map<string, Uint8Array> }
   secrets: Map<string, string>
-  /** Run a registered command. */
-  run(commandId: string): Promise<void>
+  /** Run a registered command (with a context, as the app would give it; 1.6). */
+  run(commandId: string, context?: Partial<CommandContext>): Promise<unknown>
+  /** Tell onBlockAdded listeners that someone posted a block (1.6); it is added to the canvas's day. */
+  post(canvasId: string, date: string, block: ExtensionBlock): void
+  /** Ask the registered activity provider (1.6). */
+  timeEvents(fromDate: string, toDate: string): Promise<TimeEvent[]>
+  /** Canvases made with devlog.createCanvas (they join `canvases`). (1.6) */
+  created: string[]
+  /** Quick picks shown, and how to answer them (default: the first item). (1.6) */
+  picks: Array<{ items: PickItem[]; placeholder?: string }>
+  answerPick: (items: PickItem[]) => string | null
+  /** ui.open targets, in order. (1.6) */
+  opened: Array<{ canvasId: string; date?: string; blockId?: string }>
+  /** What the extension asked of the app (1.6). */
+  app: { trayLabel: string | null; keepRunning: boolean; idleMinutes: number; highlight: string | null }
   /** Deliver an activity notice to listeners. */
   notice(n: ActivityNotice): void
   /** Change devlog-wide settings (listeners are told). */
@@ -126,8 +139,10 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
   let settings = { ...(opts.settings ?? {}) }
   const settingsListeners: Array<(s: Record<string, string>) => void> = []
   const activityListeners: Array<(n: ActivityNotice) => void> = []
-  const commandMap = new Map<string, () => void | Promise<void>>()
+  const blockListeners: Array<(ev: BlockAddedEvent) => void> = []
+  const commandMap = new Map<string, (context: CommandContext) => unknown>()
   let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
+  let activityProvider: ((from: string, to: string) => Promise<TimeEvent[]>) | null = null
   const destinationMap = new Map<string, Destination>()
   const viewHandlers = new Map<string, (method: string, args: unknown[]) => unknown>()
   const destination = (id: string): Destination => {
@@ -141,11 +156,26 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     added: [],
     files: { repo: new Map(), local: new Map() },
     secrets: new Map(Object.entries(opts.secrets ?? {})),
-    run: async (commandId) => {
+    run: async (commandId, context) => {
       const fn = commandMap.get(commandId)
       if (!fn) throw new Error(`No command "${commandId}"`)
-      await fn()
+      return fn({ source: 'switcher', ...(context ?? {}) })
     },
+    post: (canvasId, date, block) => {
+      const c = canvases.find((x) => x.id === canvasId)
+      if (c) (c.days ??= {})[date] = [...(c.days[date] ?? []), block]
+      if (!within(opts.read, canvasId)) return
+      for (const cb of blockListeners) cb({ canvasId, date, block })
+    },
+    timeEvents: async (from, to) => {
+      if (!activityProvider) throw new Error('No activity provider registered')
+      return activityProvider(from, to)
+    },
+    created: [],
+    picks: [],
+    answerPick: (items) => items[0]?.id ?? null,
+    opened: [],
+    app: { trayLabel: null, keepRunning: false, idleMinutes: 0, highlight: null },
     notice: (n) => {
       for (const cb of activityListeners) cb(n)
     },
@@ -182,6 +212,12 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     }
     return false
   }
+  const ownType = (t: unknown): string => {
+    const name = String(t ?? '')
+    if (!name) throw new Error('A node type is needed')
+    return name.includes('/') ? name : `${id}/${name}`
+  }
+  const toCanvas = ({ days: _d, ...c }: TestCanvas): ExtensionCanvas => ({ ...c, fields: { ...c.fields } })
   const canvas = (canvasId: string): TestCanvas => {
     const c = canvases.find((x) => x.id === canvasId)
     if (!c) throw new Error('No access to that canvas')
@@ -257,6 +293,54 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
           }
         }
         return out
+      },
+      createCanvas: async (input) => {
+        const parentId = input.parentId ?? null
+        if (parentId ? !within(opts.write, parentId) : opts.write !== undefined && opts.write !== 'all') throw new Error('No write access there')
+        const type = input.type ? ownType(input.type) : undefined
+        const c: TestCanvas = { id: `c${canvases.length + 1}`, title: input.title.trim(), parentId, task: type?.endsWith('/task') ?? false, ...(type ? { type } : {}), archived: false, fields: {} }
+        canvases.push(c)
+        h.created.push(c.id)
+        return toCanvas(c)
+      },
+      updateCanvas: async (canvasId, patch) => {
+        if (!within(opts.write, canvasId)) throw new Error('No write access to that canvas')
+        const c = canvas(canvasId)
+        if (patch.title !== undefined) c.title = patch.title
+        if (patch.parentId !== undefined) c.parentId = patch.parentId
+        if (patch.type !== undefined) {
+          if (patch.type === null) delete c.type
+          else c.type = ownType(patch.type)
+          c.task = c.type?.endsWith('/task') ?? false
+        }
+        if (patch.archived !== undefined) c.archived = patch.archived
+        return toCanvas(c)
+      },
+      editBlock: async (canvasId, date, blockId, markdown) => {
+        if (!within(opts.write, canvasId)) throw new Error('No write access to that canvas')
+        const b = canvas(canvasId).days?.[date]?.find((x) => x.id === blockId)
+        if (!b) throw new Error(`Entry ${blockId} not found on ${date}`)
+        if (b.meta?.ext !== id) throw new Error('Only blocks it added')
+        b.markdown = markdown.trim()
+        b.updatedAt = now().toISOString()
+        return { ...b }
+      },
+      promote: async (canvasId, date, blockId, o) => {
+        if (!within(opts.write, canvasId)) throw new Error('No write access to that canvas')
+        const list = canvas(canvasId).days?.[date] ?? []
+        const b = list.find((x) => x.id === blockId)
+        if (!b) throw new Error(`Entry ${blockId} not found on ${date}`)
+        if (b.kind === 'task' && b.meta?.canvas) return { canvas: toCanvas(canvas(b.meta.canvas)), block: { ...b } }
+        const type = ownType(o.type)
+        const c: TestCanvas = { id: `c${canvases.length + 1}`, title: b.markdown.split('\n')[0].replace(/^#+\s*/, '').slice(0, 80), parentId: canvasId, task: type.endsWith('/task'), type, archived: false, fields: {} }
+        canvases.push(c)
+        h.created.push(c.id)
+        b.kind = 'task'
+        b.meta = { ...(b.meta ?? {}), canvas: c.id }
+        return { canvas: toCanvas(c), block: { ...b } }
+      },
+      onBlockAdded: (cb) => {
+        blockListeners.push(cb)
       }
     },
     settings: {
@@ -278,6 +362,9 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     activity: {
       on: (cb) => {
         activityListeners.push(cb)
+      },
+      idleAfter: (minutes) => {
+        h.app.idleMinutes = Math.max(0, Number(minutes) || 0)
       }
     },
     ui: {
@@ -287,6 +374,24 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       confirm: async (message) => {
         h.confirmations.push(String(message))
         return opts.confirm ?? true
+      },
+      pick: async (items, o) => {
+        h.picks.push({ items, ...(o?.placeholder ? { placeholder: o.placeholder } : {}) })
+        return h.answerPick(items)
+      },
+      open: (target) => {
+        h.opened.push({ ...target })
+      },
+      highlight: (canvasId) => {
+        h.app.highlight = canvasId
+      }
+    },
+    app: {
+      setTrayLabel: (label) => {
+        h.app.trayLabel = label
+      },
+      keepRunning: (on) => {
+        h.app.keepRunning = on
       }
     },
     commands: {
@@ -310,6 +415,9 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     provide: {
       focus: (fn) => {
         focusProvider = fn
+      },
+      activity: (fn) => {
+        activityProvider = fn
       }
     }
   }

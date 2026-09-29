@@ -7,6 +7,7 @@ import { formatMinutes } from '@shared/review'
 import { api } from '@renderer/api'
 import { Composer } from './Composer'
 import { Lightbox } from './Lightbox'
+import { useBlockActions } from '@renderer/extensionCommands'
 
 interface Props {
   canvasId: string
@@ -84,6 +85,7 @@ export const EntryView = memo(function EntryView({
   onOpen,
   draggable
 }: Props) {
+  const blockActions = useBlockActions()
   const [editing, setEditing] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [moving, setMoving] = useState(false)
@@ -238,6 +240,12 @@ export const EntryView = memo(function EntryView({
                   Task
                 </button>
               )}
+              {!surface &&
+                blockActions(canvasId).map((a) => (
+                  <button key={a.key} type="button" className="btn btn-quiet btn-xs" onClick={() => a.run(date, entry.id)} title={a.label}>
+                    {a.label}
+                  </button>
+                ))}
               {onMove && (targets.length > 0 || (entry.parentId && onNest)) && (
                 <button type="button" className="btn btn-quiet btn-xs" onClick={() => setMoving(true)} title="Move to another canvas, or out of the block it is in (drag it onto a block to put it inside)">
                   Move

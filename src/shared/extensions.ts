@@ -1,4 +1,5 @@
 /** What the renderer knows about the extensions of the open devlog. */
+import type { PickItem } from '@devlog/extension-api'
 import type { ExtensionCommand, ExtensionDestination, ExtensionField, ExtensionNodeType, ExtensionPermissions, ExtensionView, Grant } from '@devlog/core'
 
 export type ExtensionState =
@@ -45,6 +46,26 @@ export interface ExtensionInfo {
   check?: string
   /** Required settings and secrets that are not set yet (their labels). */
   missing: string[]
+}
+
+/** What running extensions ask of the app around the window (1.6). */
+export interface ExtensionAppState {
+  /** Text beside the tray icon (the first extension that set one). */
+  trayLabel: string | null
+  /** Some extension wants the app kept running in the tray when the window closes. */
+  keepRunning: boolean
+  /** Minutes without input before the machine counts as idle (the shortest asked for; 0: nobody asked). */
+  idleMinutes: number
+  /** Canvases extensions marked as their current one (the running task). */
+  highlighted: string[]
+}
+
+/** An extension asked for a quick pick (1.6); answer with `extensions.answerPick(id, choice)`. */
+export interface ExtensionPickRequest {
+  id: number
+  title: string
+  items: PickItem[]
+  placeholder?: string
 }
 
 export interface ExtensionUpdateReport {

@@ -20,6 +20,7 @@ import { installAssetHandler, installViewHandler, registerAssetScheme } from './
 import { buildMenu } from './menu'
 import { registerIpc } from './ipc'
 import { ExtensionManager } from './extensions/manager'
+import type { PickItem } from '@devlog/extension-api'
 import { ExtensionInstaller, sha256 } from './extensions/install'
 import { ConsentStore, SecretStore } from './extensions/localState'
 
@@ -282,8 +283,18 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
       const res = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts)
       return res.response === 0
     },
-    onChange: () => send(IPC.evExtensionsChanged),
-    onBlockAdded: () => send(IPC.evEntriesChanged)
+    onChange: () => {
+      send(IPC.evExtensionsChanged)
+      void refreshTrayCommands()
+    },
+    onBlockAdded: () => send(IPC.evEntriesChanged),
+    onCanvasesChanged: () => void refreshCommitWatchers().catch(() => undefined),
+    onAppState: () => onExtensionAppState(),
+    pick: (title, items, placeholder) => askPick(title, items, placeholder),
+    open: (target) => {
+      showWindow()
+      send(IPC.evExtOpen, target)
+    }
   })
   void extensions.load().catch((err) => console.error('extensions failed to load', err))
   void noticeFocusMoved(root)
@@ -404,7 +415,8 @@ async function onCommit(linkedCanvasId: string, info: CommitInfo): Promise<void>
 }
 
 /** A user block was posted: on a task canvas that task becomes active; elsewhere it is just a note. */
-async function onEntryAdded(canvasId: string, entry: Entry): Promise<void> {
+async function onEntryAdded(canvasId: string, date: string, entry: Entry): Promise<void> {
+  void extensions?.blockAdded(canvasId, date, entry).catch(() => undefined)
   if (!tracker) return
   if (canvasId === JOURNAL_ID || !taskCanvases.has(canvasId)) return
   if (entry.kind && entry.kind !== 'note') return
@@ -413,13 +425,81 @@ async function onEntryAdded(canvasId: string, entry: Entry): Promise<void> {
   await tracker.setTask(canvasId, entry.id)
 }
 
+// ---------------------------------------------------------------------------
+// What extensions ask of the app around the window (1.6)
+// ---------------------------------------------------------------------------
+
+let idleTimer: NodeJS.Timeout | null = null
+/** Commands extensions put in the tray menu. */
+let trayCommands: Array<{ key: string; id: string; label: string }> = []
+
+async function refreshTrayCommands(): Promise<void> {
+  const list = (await extensions?.list().catch(() => [])) ?? []
+  const next = list.flatMap((e) => (e.state === 'running' ? e.commands.filter((c) => c.ready && c.menus?.includes('tray')).map((c) => ({ key: e.key, id: c.id, label: c.label })) : []))
+  if (JSON.stringify(next) === JSON.stringify(trayCommands)) return
+  trayCommands = next
+  updateTray(tracker?.getStatus() ?? null)
+}
+
+function onExtensionAppState(): void {
+  const st = extensions?.appState()
+  if (st) send(IPC.evExtAppState, st)
+  updateTray(tracker?.getStatus() ?? null)
+  // Idle detection runs only while some extension asked for it.
+  const minutes = st?.idleMinutes ?? 0
+  if (minutes > 0 && !idleTimer) {
+    idleTimer = setInterval(pollIdle, 15_000)
+    idleTimer.unref?.()
+  } else if (minutes === 0 && idleTimer) {
+    clearInterval(idleTimer)
+    idleTimer = null
+    extensions?.setSystemState('idle', false)
+  }
+}
+
+function pollIdle(): void {
+  const minutes = extensions?.appState().idleMinutes ?? 0
+  if (!minutes) return
+  let state: string
+  try {
+    state = powerMonitor.getSystemIdleState(minutes * 60)
+  } catch {
+    return
+  }
+  if (state === 'idle') extensions?.setSystemState('idle', true)
+  else if (state === 'active') extensions?.setSystemState('idle', false)
+}
+
+let nextPickId = 1
+const pendingPicks = new Map<number, (choice: string | null) => void>()
+
+/** Show an extension's quick pick in the window and wait for the choice (null if dismissed or the window is gone). */
+function askPick(title: string, items: PickItem[], placeholder?: string): Promise<string | null> {
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(null)
+  showWindow()
+  const id = nextPickId++
+  return new Promise((resolve) => {
+    pendingPicks.set(id, resolve)
+    send(IPC.evExtPick, { id, title, items, ...(placeholder ? { placeholder } : {}) })
+  })
+}
+
+function answerPick(id: number, choice: string | null): void {
+  const done = pendingPicks.get(id)
+  pendingPicks.delete(id)
+  done?.(choice && typeof choice === 'string' ? choice : null)
+}
+
 function updateTray(st: TrackerStatus | null): void {
   if (!tray) return
-  const label = !st || !st.tracking
-    ? 'Devlog'
-    : st.activeCanvasId
-      ? `Devlog · ${canvasLabels.get(st.activeCanvasId) ?? st.activeCanvasId}${st.paused ? ' (paused)' : ''}`
-      : 'Devlog · no active task'
+  const extLabel = extensions?.appState().trayLabel
+  const label = extLabel
+    ? `Devlog · ${extLabel}`
+    : !st || !st.tracking
+      ? 'Devlog'
+      : st.activeCanvasId
+        ? `Devlog · ${canvasLabels.get(st.activeCanvasId) ?? st.activeCanvasId}${st.paused ? ' (paused)' : ''}`
+        : 'Devlog · no active task'
   const up = updater?.getStatus()
   const upLabel =
     up?.state === 'downloaded'
@@ -434,7 +514,8 @@ function updateTray(st: TrackerStatus | null): void {
       ...(upLabel ? [{ label: upLabel, enabled: false } as Electron.MenuItemConstructorOptions] : []),
       { type: 'separator' },
       { label: 'Open Devlog', click: () => showWindow() },
-      { label: 'Stop Active Task', enabled: !!st?.activeCanvasId, click: () => void tracker?.setTask(null) },
+      ...(st?.tracking ? [{ label: 'Stop Active Task', enabled: !!st?.activeCanvasId, click: () => void tracker?.setTask(null) } as Electron.MenuItemConstructorOptions] : []),
+      ...trayCommands.map((c): Electron.MenuItemConstructorOptions => ({ label: c.label, click: () => void extensions?.runCommand(c.key, c.id, { source: 'tray' }).catch((err) => send(IPC.evNotify, err instanceof Error ? err.message : String(err))) })),
       { label: 'Sync Now', click: () => void sync?.syncNow('manual') },
       { type: 'separator' },
       { label: 'Quit Devlog', click: () => quitApp() }
@@ -595,7 +676,7 @@ function createWindow(): BrowserWindow {
   }
   // Closing the window keeps tracking in the tray; quitting is explicit.
   win.on('close', (event) => {
-    if (quitting || !settings.get().trackingEnabled || !tray) return
+    if (quitting || !tray || !(settings.get().trackingEnabled || extensions?.appState().keepRunning)) return
     event.preventDefault()
     win.hide()
   })
@@ -654,11 +735,16 @@ if (!gotLock) {
         applyTheme()
       },
       onEntryAdded,
+      answerPick,
       onCanvasesChanged: refreshCommitWatchers,
       activityRange: async (from, to) => {
-        // The core log, plus focus changes kept by extensions (devlog-focus).
-        const [core, focus] = await Promise.all([activityLog.read(from, to), extensions?.focusEvents(from, to).catch(() => []) ?? []])
-        const events = focus.length ? [...core, ...focus].sort((a, b) => a.t.localeCompare(b.t)) : core
+        // The core log, plus focus changes and time-tracking events kept by extensions (devlog-focus, devlog-time).
+        const [core, focus, time] = await Promise.all([
+          activityLog.read(from, to),
+          extensions?.focusEvents(from, to).catch(() => []) ?? [],
+          extensions?.activityEvents(from, to).catch(() => []) ?? []
+        ])
+        const events = focus.length || time.length ? [...core, ...focus, ...time].sort((a, b) => a.t.localeCompare(b.t)) : core
         const aliases = store ? await store.aliasMap() : new Map<string, string>()
         if (aliases.size === 0) return events
         return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))

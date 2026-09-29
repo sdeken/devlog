@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import type { ViewContext } from '@devlog/extension-api/view'
 import { ExtensionView } from './ExtensionView'
 
 interface Props {
@@ -12,6 +13,8 @@ interface Props {
   height: number
   onClose: () => void
   onOpen: (target: { canvasId: string; date?: string; blockId?: string }) => void
+  /** The context of the view that opened it. */
+  context?: ViewContext
 }
 
 /**
@@ -19,7 +22,7 @@ interface Props {
  * (above it when there is no room below, as for status bar items). Closes
  * on Escape, a click outside, or when the page asks.
  */
-export function ExtensionPopover({ extKey, viewId, url, title, anchor, width, height, onClose, onOpen }: Props): React.JSX.Element {
+export function ExtensionPopover({ extKey, viewId, url, title, anchor, width, height, onClose, onOpen, context }: Props): React.JSX.Element {
   const ref = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState({ width, height })
   const [pos, setPos] = useState({ left: anchor.left, top: anchor.bottom + 4 })
@@ -61,6 +64,7 @@ export function ExtensionPopover({ extKey, viewId, url, title, anchor, width, he
         }
         onClose={onClose}
         onOpen={onOpen}
+        context={context}
       />
     </div>
   )

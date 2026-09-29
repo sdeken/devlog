@@ -53,6 +53,8 @@ export const IPC = {
   todosAdd: 'todos:add',
   todoSetDone: 'todo:setDone',
   extViewCall: 'ext:viewCall',
+  extAppState: 'ext:appState',
+  extAnswerPick: 'ext:answerPick',
   entryReorder: 'entry:reorder',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
@@ -84,7 +86,10 @@ export const IPC = {
   evUpdateStatus: 'ev:updateStatus',
   evExtensionsChanged: 'ev:extensionsChanged',
   evNotify: 'ev:notify',
-  evExtViewMessage: 'ev:extViewMessage'
+  evExtViewMessage: 'ev:extViewMessage',
+  evExtAppState: 'ev:extAppState',
+  evExtPick: 'ev:extPick',
+  evExtOpen: 'ev:extOpen'
 } as const
 
 export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask' | 'back' | 'forward'

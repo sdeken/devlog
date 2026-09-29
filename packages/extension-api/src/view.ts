@@ -5,6 +5,13 @@
  * itself (`window.parent.postMessage({ devlog: 1, … }, '*')`).
  */
 
+/** Where a view is shown (1.6): a `canvasHeader` view's canvas; a popover gets the context of the view that opened it. */
+export interface ViewContext {
+  canvasId?: string
+  date?: string
+  blockId?: string
+}
+
 /** From the page to the app. */
 export type ViewToApp =
   /** The page is listening; the app answers with `theme` (and sends it again when it changes). */
@@ -19,7 +26,7 @@ export type ViewToApp =
   | { devlog: 1; type: 'close' }
   /** Show a canvas, or a block's page, in the app. */
   | { devlog: 1; type: 'open'; canvasId: string; date?: string; blockId?: string }
-  /** Run one of the extension's commands. */
+  /** Run one of the extension's commands (with the view's context, 1.6). */
   | { devlog: 1; type: 'command'; command: string }
 
 /** From the app to the page. */
@@ -29,3 +36,5 @@ export type AppToView =
   | { devlog: 1; type: 'reply'; id: number; ok: boolean; value?: unknown; error?: string }
   /** Something the extension sent with `views.post`. */
   | { devlog: 1; type: 'message'; data: unknown }
+  /** Where the view is shown (1.6); sent after `theme`, and again when it changes. */
+  | { devlog: 1; type: 'context'; context: ViewContext }

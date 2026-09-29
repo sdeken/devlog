@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { AppToView, ViewToApp } from '@devlog/extension-api/view'
+import type { AppToView, ViewContext, ViewToApp } from '@devlog/extension-api/view'
 import { api } from '@renderer/api'
 
 /** The app's colour tokens a view gets, read from the live stylesheet so theme changes reach it. */
@@ -28,6 +28,8 @@ interface Props {
   onPopover?: (viewId: string, anchor: DOMRect, size: { width?: number; height?: number }) => void
   onClose?: () => void
   onOpen?: (target: { canvasId: string; date?: string; blockId?: string }) => void
+  /** Where it is shown (a canvas-header view's canvas); given to the page and to the commands it runs. */
+  context?: ViewContext
 }
 
 /**
@@ -35,10 +37,18 @@ interface Props {
  * access to this window, the app's storage, or the network; see the
  * devlog-ext:// handler's CSP), talking to its extension through the app.
  */
-export function ExtensionView({ extKey, viewId, url, title, className, onResize, onPopover, onClose, onOpen }: Props): React.JSX.Element {
+export function ExtensionView({ extKey, viewId, url, title, className, onResize, onPopover, onClose, onOpen, context }: Props): React.JSX.Element {
   const frame = useRef<HTMLIFrameElement>(null)
   const handlers = useRef({ onResize, onPopover, onClose, onOpen })
   handlers.current = { onResize, onPopover, onClose, onOpen }
+  const contextRef = useRef<ViewContext>(context ?? {})
+  contextRef.current = context ?? {}
+  const contextKey = JSON.stringify(context ?? {})
+
+  // A new context (another canvas on screen) reaches the page.
+  useEffect(() => {
+    frame.current?.contentWindow?.postMessage({ devlog: 1, type: 'context', context: contextRef.current } satisfies AppToView, '*')
+  }, [contextKey])
 
   useEffect(() => {
     const post = (msg: AppToView): void => frame.current?.contentWindow?.postMessage(msg, '*')
@@ -50,6 +60,7 @@ export function ExtensionView({ extKey, viewId, url, title, className, onResize,
       switch (msg.type) {
         case 'ready':
           post(themeMessage())
+          post({ devlog: 1, type: 'context', context: contextRef.current })
           break
         case 'call':
           api.extensions
@@ -73,7 +84,7 @@ export function ExtensionView({ extKey, viewId, url, title, className, onResize,
           if (typeof msg.canvasId === 'string') h.onOpen?.({ canvasId: msg.canvasId, date: msg.date, blockId: msg.blockId })
           break
         case 'command':
-          void api.extensions.run(extKey, String(msg.command)).catch(() => undefined)
+          void api.extensions.run(extKey, String(msg.command), { source: 'view', ...contextRef.current }).catch(() => undefined)
           break
       }
     }

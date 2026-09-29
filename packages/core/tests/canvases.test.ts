@@ -15,7 +15,7 @@ import {
   serializeCanvasFile,
   TASK_TYPE
 } from '../src/format/canvases'
-import { hasTaskTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
+import { hasTag, hasTaskTag, stripTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
 import type { CanvasMeta } from '../src/types'
 
 const c = (id: string, title: string, parentId: string | null = null, extra: Partial<CanvasMeta> = {}): CanvasMeta => ({
@@ -148,6 +148,15 @@ describe('task tags and titles', () => {
     expect(stripTaskTag('#task Fix the login redirect')).toBe('Fix the login redirect')
     expect(stripTaskTag('Fix the login redirect #task\n\nmore')).toBe('Fix the login redirect\n\nmore')
     expect(stripTaskTag('Fix \\#task it')).toBe('Fix it')
+  })
+
+  it("recognises any post command's #tag on the first line (1.6)", () => {
+    expect(hasTag('#job Rebuild the widget', 'job')).toBe(true)
+    expect(hasTag('Rebuild the widget \\#job', 'job')).toBe(true)
+    expect(hasTag('Rebuild the #jobs page', 'job')).toBe(false)
+    expect(hasTag('Rebuild\n#job', 'job')).toBe(false)
+    expect(stripTag('#job Rebuild the widget', 'job')).toBe('Rebuild the widget')
+    expect(stripTag('Rebuild the widget #job\nmore', 'job')).toBe('Rebuild the widget\nmore')
   })
 
   it('titles a task from the first sentence', () => {

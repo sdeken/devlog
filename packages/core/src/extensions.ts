@@ -6,7 +6,7 @@
  *    `extensions`), the id derived from that, and version ranges;
  *  - read/write grants and what they let an extension see.
  */
-import { descendantCanvasIds, JOURNAL_ID } from './format/canvases'
+import { descendantCanvasIds, JOURNAL_ID, NODE_TYPE_RE } from './format/canvases'
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
@@ -62,6 +62,57 @@ export function fieldProblem(field: ExtensionField, value: string | undefined): 
 export interface ExtensionCommand {
   id: string
   label: string
+  /** A key combination that runs it, like `Mod+Shift+S` (Mod is Ctrl, or Cmd on a Mac). (1.6) */
+  keybinding?: string
+  /** Offered only on canvases of this node type (the full name). (1.6) */
+  nodeType?: string
+  /** Menus it appears in, besides the quick switcher. (1.6) */
+  menus?: CommandMenu[]
+  /**
+   * A way to post from the note box (1.6): posting with its keybinding (or
+   * with `#<tag>` on the first line) posts the note, then runs the command
+   * on the new block.
+   */
+  post?: boolean
+  tag?: string
+}
+
+/** `canvas`: a canvas's right-click menu. `block`: a block's menu. `tray`: the tray icon's menu. */
+export type CommandMenu = 'canvas' | 'block' | 'tray'
+export const COMMAND_MENUS: CommandMenu[] = ['canvas', 'block', 'tray']
+
+const KEY_NAMES = new Set(['Enter', 'Space', 'Escape', 'Tab', 'Backspace', 'Delete', 'Home', 'End', 'PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+const MODIFIERS = ['Mod', 'Ctrl', 'Alt', 'Shift'] as const
+
+/**
+ * A keybinding in one spelling (`Mod+Shift+S`): modifiers in the order Mod,
+ * Ctrl, Alt, Shift, then one key (a letter or digit, upper-cased; a
+ * punctuation mark; F1–F24; or a named key). Null if it is not one, or has
+ * no modifier (a plain key would steal typing), except for F-keys.
+ */
+export function normalizeKeybinding(raw: string): string | null {
+  const parts = String(raw).split('+').map((p) => p.trim())
+  // "Mod++" means the plus key.
+  if (parts.length >= 2 && parts[parts.length - 1] === '' && parts[parts.length - 2] === '') parts.splice(parts.length - 2, 2, '+')
+  const key = parts.pop() ?? ''
+  const mods = new Set<string>()
+  for (const p of parts) {
+    const m = { mod: 'Mod', cmdorctrl: 'Mod', ctrl: 'Ctrl', control: 'Ctrl', alt: 'Alt', option: 'Alt', shift: 'Shift' }[p.toLowerCase()]
+    if (!m || mods.has(m)) return null
+    mods.add(m)
+  }
+  let k: string
+  if (/^[a-z0-9]$/i.test(key)) k = key.toUpperCase()
+  else if (/^f([1-9]|1\d|2[0-4])$/i.test(key)) k = key.toUpperCase()
+  else if (/^[`\-=[\]\\;',./+]$/.test(key)) k = key
+  else {
+    const named = [...KEY_NAMES].find((n) => n.toLowerCase() === key.toLowerCase())
+    if (!named) return null
+    k = named
+  }
+  if (mods.size === 0 && !/^F\d/.test(k)) return null
+  if (mods.size === 1 && mods.has('Shift') && !/^F\d/.test(k)) return null
+  return [...MODIFIERS.filter((m) => mods.has(m)), k].join('+')
 }
 
 /**
@@ -76,11 +127,13 @@ export interface ExtensionView {
   title: string
   /** The HTML file, relative to the extension folder. */
   entry: string
-  placement: 'page' | 'statusbar' | 'popover'
+  placement: 'page' | 'statusbar' | 'popover' | 'canvasHeader'
   /** One character or emoji for the sidebar. */
   icon?: string
+  /** A `canvasHeader` view shows only on canvases of this node type (the full name). (1.6) */
+  nodeType?: string
 }
-export const VIEW_PLACEMENTS: ExtensionView['placement'][] = ['page', 'statusbar', 'popover']
+export const VIEW_PLACEMENTS: ExtensionView['placement'][] = ['page', 'statusbar', 'popover', 'canvasHeader']
 
 /**
  * A node type (1.6): a kind of canvas the extension gives meaning to (the
@@ -219,8 +272,30 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
   }
   const commands: ExtensionCommand[] = []
   for (const cmd of (Array.isArray(c.commands) ? c.commands : []) as Array<Record<string, unknown>>) {
-    if (typeof cmd?.id !== 'string' || !KEY_RE.test(cmd.id)) errors.push(`"contributes.commands": id ${JSON.stringify(cmd?.id)} is not valid`)
-    else commands.push({ id: cmd.id, label: typeof cmd.label === 'string' && cmd.label.trim() ? cmd.label.trim() : cmd.id })
+    if (typeof cmd?.id !== 'string' || !KEY_RE.test(cmd.id)) {
+      errors.push(`"contributes.commands": id ${JSON.stringify(cmd?.id)} is not valid`)
+      continue
+    }
+    const out: ExtensionCommand = { id: cmd.id, label: typeof cmd.label === 'string' && cmd.label.trim() ? cmd.label.trim() : cmd.id }
+    if (cmd.keybinding !== undefined) {
+      const k = typeof cmd.keybinding === 'string' ? normalizeKeybinding(cmd.keybinding) : null
+      if (!k) errors.push(`"contributes.commands": ${cmd.id} has keybinding ${JSON.stringify(cmd.keybinding)}; use something like "Mod+Shift+S"`)
+      else out.keybinding = k
+    }
+    if (cmd.nodeType !== undefined) {
+      if (typeof cmd.nodeType !== 'string' || !(TYPE_ID_RE.test(cmd.nodeType) || NODE_TYPE_RE.test(cmd.nodeType))) errors.push(`"contributes.commands": ${cmd.id} has nodeType ${JSON.stringify(cmd.nodeType)}`)
+      else out.nodeType = cmd.nodeType
+    }
+    if (cmd.menus !== undefined) {
+      if (!Array.isArray(cmd.menus) || cmd.menus.some((m) => !COMMAND_MENUS.includes(m as CommandMenu))) errors.push(`"contributes.commands": ${cmd.id} has menus ${JSON.stringify(cmd.menus)}; use canvas, block or tray`)
+      else if (cmd.menus.length) out.menus = [...new Set(cmd.menus as CommandMenu[])]
+    }
+    if (cmd.post === true) out.post = true
+    if (cmd.tag !== undefined) {
+      if (typeof cmd.tag !== 'string' || !TYPE_ID_RE.test(cmd.tag) || cmd.post !== true) errors.push(`"contributes.commands": ${cmd.id}: "tag" is a lowercase word, on a "post" command`)
+      else out.tag = cmd.tag
+    }
+    commands.push(out)
   }
 
   const p = (o.permissions ?? {}) as Record<string, unknown>
@@ -250,14 +325,15 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
     if (typeof v?.id !== 'string' || !KEY_RE.test(v.id)) errors.push(`"contributes.views": id ${JSON.stringify(v?.id)} is not valid`)
     else if (views.some((x) => x.id === v.id)) errors.push(`"contributes.views": duplicate id ${v.id}`)
     else if (typeof v.entry !== 'string' || !isSafeRelativePath(v.entry) || !/\.html?$/i.test(v.entry)) errors.push(`"contributes.views": ${v.id} needs an "entry" .html file inside the extension`)
-    else if (!VIEW_PLACEMENTS.includes(placement)) errors.push(`"contributes.views": ${v.id} has placement ${JSON.stringify(v.placement)}; use page, statusbar or popover`)
+    else if (!VIEW_PLACEMENTS.includes(placement)) errors.push(`"contributes.views": ${v.id} has placement ${JSON.stringify(v.placement)}; use page, statusbar, popover or canvasHeader`)
     else
       views.push({
         id: v.id,
         title: typeof v.title === 'string' && v.title.trim() ? v.title.trim() : v.id,
         entry: v.entry,
         placement,
-        ...(typeof v.icon === 'string' && v.icon.trim() ? { icon: [...v.icon.trim()].slice(0, 2).join('') } : {})
+        ...(typeof v.icon === 'string' && v.icon.trim() ? { icon: [...v.icon.trim()].slice(0, 2).join('') } : {}),
+        ...(typeof v.nodeType === 'string' && (TYPE_ID_RE.test(v.nodeType) || NODE_TYPE_RE.test(v.nodeType)) ? { nodeType: v.nodeType } : {})
       })
   }
   const nodeTypes: ExtensionNodeType[] = []

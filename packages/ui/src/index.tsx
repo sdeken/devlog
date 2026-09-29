@@ -5,6 +5,7 @@
  */
 import { StrictMode, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
+import type { ViewContext } from '@devlog/extension-api/view'
 import { devlog } from './bridge'
 
 export { devlog }
@@ -55,6 +56,13 @@ export function useDark(): boolean {
   const [dark, setDark] = useState(devlog.dark)
   useEffect(() => devlog.onTheme(setDark), [])
   return dark
+}
+
+/** Where the view is shown: a canvas-header view's canvas (1.6). */
+export function useViewContext(): ViewContext {
+  const [ctx, setCtx] = useState<ViewContext>(devlog.context)
+  useEffect(() => devlog.onContext(setCtx), [])
+  return ctx
 }
 
 /** A time that updates on its own (for running clocks). */

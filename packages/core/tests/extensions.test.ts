@@ -6,6 +6,7 @@ import {
   describeScope,
   NODE_TYPE_RE,
   nodeTypeName,
+  normalizeKeybinding,
   extensionId,
   fieldProblem,
   inheritedField,
@@ -109,6 +110,36 @@ describe('extension settings fields', () => {
     expect(NODE_TYPE_RE.test(nodeTypeName('sdeken.devlog-time', 'task'))).toBe(true)
     expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { nodeTypes: [{ id: 'Bad Id' }] } })).toThrow(/nodeTypes/)
     expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { nodeTypes: [{ id: 'a' }, { id: 'a' }] } })).toThrow(/duplicate/)
+  })
+
+  it('reads command keybindings, node types, menus and post commands (1.6)', () => {
+    const m = parseExtensionManifest({
+      name: 'x',
+      version: '1.0.0',
+      api: '^1.6.0',
+      contributes: {
+        commands: [
+          { id: 'go', label: 'Go', keybinding: 'ctrl+shift+s', nodeType: 'task', menus: ['canvas', 'tray', 'canvas'] },
+          { id: 'post', label: 'Post as task', keybinding: 'CmdOrCtrl+Shift+Enter', post: true, tag: 'task' }
+        ],
+        views: [{ id: 'head', entry: 'head.html', placement: 'canvasHeader', nodeType: 'task' }]
+      }
+    })
+    expect(m.contributes.commands).toEqual([
+      { id: 'go', label: 'Go', keybinding: 'Ctrl+Shift+S', nodeType: 'task', menus: ['canvas', 'tray'] },
+      { id: 'post', label: 'Post as task', keybinding: 'Mod+Shift+Enter', post: true, tag: 'task' }
+    ])
+    expect(m.contributes.views[0]).toMatchObject({ placement: 'canvasHeader', nodeType: 'task' })
+    const bad = (cmd: Record<string, unknown>): unknown => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { commands: [{ id: 'a', ...cmd }] } })
+    expect(() => bad({ keybinding: 'S' })).toThrow(/keybinding/)
+    expect(() => bad({ keybinding: 'Shift+S' })).toThrow(/keybinding/)
+    expect(() => bad({ keybinding: 'Mod+Hyper+S' })).toThrow(/keybinding/)
+    expect(() => bad({ menus: ['toolbar'] })).toThrow(/menus/)
+    expect(() => bad({ tag: 'task' })).toThrow(/tag/)
+    expect(normalizeKeybinding('F5')).toBe('F5')
+    expect(normalizeKeybinding('shift+mod+.')).toBe('Mod+Shift+.')
+    expect(normalizeKeybinding('Alt+arrowup')).toBe('Alt+ArrowUp')
+    expect(normalizeKeybinding('Mod++')).toBe('Mod++')
   })
 
   it('checks values by type', () => {

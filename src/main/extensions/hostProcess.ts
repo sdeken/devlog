@@ -11,7 +11,7 @@
  */
 import { builtinModules } from 'node:module'
 import vm from 'node:vm'
-import type { ActivityNotice, Destination, DestinationSheet, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent } from '@devlog/extension-api'
+import type { ActivityNotice, BlockAddedEvent, CommandContext, Destination, DestinationSheet, DevlogContext, ExtensionFiles, ExtensionModule, FocusEvent, TimeEvent } from '@devlog/extension-api'
 import type { CallMessage, FromExtension, InitMessage, ToExtension } from '@devlog/extension-api/protocol'
 
 const send = (msg: FromExtension): void => {
@@ -29,12 +29,14 @@ function call(method: string, ...args: unknown[]): Promise<unknown> {
   })
 }
 
-const commands = new Map<string, () => void | Promise<void>>()
+const commands = new Map<string, (context: CommandContext) => unknown>()
 const activityListeners: Array<(n: ActivityNotice) => void> = []
+const blockListeners: Array<(ev: BlockAddedEvent) => void> = []
 const settingsListeners: Array<(s: Record<string, string>) => void> = []
 const destinations = new Map<string, Destination>()
 const viewHandlers = new Map<string, (method: string, args: unknown[]) => unknown>()
 let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
+let activityProvider: ((from: string, to: string) => Promise<TimeEvent[]>) | null = null
 let settings: Record<string, string> = {}
 let mod: Partial<ExtensionModule> = {}
 
@@ -55,6 +57,7 @@ function files(store: 'repo' | 'local'): ExtensionFiles {
 
 function makeContext(init: InitMessage): DevlogContext {
   let subscribed = false
+  let blocksSubscribed = false
   return {
     id: init.id,
     apiVersion: init.apiVersion,
@@ -67,7 +70,19 @@ function makeContext(init: InitMessage): DevlogContext {
       blocks: (canvasId, date) => call('devlog.blocks', canvasId, date) as ReturnType<DevlogContext['devlog']['blocks']>,
       search: (query) => call('devlog.search', query) as ReturnType<DevlogContext['devlog']['search']>,
       addBlock: (canvasId, markdown, opts) => call('devlog.addBlock', canvasId, markdown, opts ?? {}) as ReturnType<DevlogContext['devlog']['addBlock']>,
-      todos: (opts) => call('devlog.todos', opts ?? {}) as ReturnType<DevlogContext['devlog']['todos']>
+      todos: (opts) => call('devlog.todos', opts ?? {}) as ReturnType<DevlogContext['devlog']['todos']>,
+      createCanvas: (input) => call('devlog.createCanvas', input) as ReturnType<DevlogContext['devlog']['createCanvas']>,
+      updateCanvas: (canvasId, patch) => call('devlog.updateCanvas', canvasId, patch) as ReturnType<DevlogContext['devlog']['updateCanvas']>,
+      editBlock: (canvasId, date, blockId, markdown) => call('devlog.editBlock', canvasId, date, blockId, markdown) as ReturnType<DevlogContext['devlog']['editBlock']>,
+      promote: (canvasId, date, blockId, opts) => call('devlog.promote', canvasId, date, blockId, opts) as ReturnType<DevlogContext['devlog']['promote']>,
+      onBlockAdded: (cb) => {
+        if (typeof cb !== 'function') throw new Error('onBlockAdded(cb): cb must be a function')
+        blockListeners.push(cb)
+        if (!blocksSubscribed) {
+          blocksSubscribed = true
+          void call('devlog.subscribe')
+        }
+      }
     },
     settings: {
       get: (key) => settings[key],
@@ -88,13 +103,31 @@ function makeContext(init: InitMessage): DevlogContext {
           subscribed = true
           void call('activity.subscribe')
         }
+      },
+      idleAfter: (minutes) => {
+        void call('activity.idleAfter', Number(minutes) || 0)
       }
     },
     ui: {
       notify: (message) => {
         void call('ui.notify', String(message))
       },
-      confirm: (message) => call('ui.confirm', String(message)) as Promise<boolean>
+      confirm: (message) => call('ui.confirm', String(message)) as Promise<boolean>,
+      pick: (items, opts) => call('ui.pick', items, opts ?? {}) as Promise<string | null>,
+      open: (target) => {
+        void call('ui.open', target)
+      },
+      highlight: (canvasId) => {
+        void call('ui.highlight', canvasId ?? null)
+      }
+    },
+    app: {
+      setTrayLabel: (label) => {
+        void call('app.trayLabel', label ?? null)
+      },
+      keepRunning: (on) => {
+        void call('app.keepRunning', Boolean(on))
+      }
     },
     commands: {
       register: (id, run) => {
@@ -125,6 +158,11 @@ function makeContext(init: InitMessage): DevlogContext {
         if (typeof fn !== 'function') throw new Error('provide.focus(fn): fn must be a function')
         focusProvider = fn
         void call('provide.register', 'focus')
+      },
+      activity: (fn) => {
+        if (typeof fn !== 'function') throw new Error('provide.activity(fn): fn must be a function')
+        activityProvider = fn
+        void call('provide.register', 'activity')
       }
     }
   }
@@ -155,9 +193,12 @@ async function handleCall(msg: CallMessage): Promise<void> {
     if (msg.method === 'command.run') {
       const run = commands.get(String(msg.args[0]))
       if (!run) throw new Error(`No command "${String(msg.args[0])}"`)
-      value = await run()
+      const context = (msg.args[1] ?? { source: 'switcher' }) as CommandContext
+      value = await run(context)
     } else if (msg.method === 'activity.notice') {
       for (const cb of activityListeners) cb(msg.args[0] as ActivityNotice)
+    } else if (msg.method === 'block.added') {
+      for (const cb of blockListeners) cb(msg.args[0] as BlockAddedEvent)
     } else if (msg.method === 'destination.preview' || msg.method === 'destination.send') {
       const d = destinations.get(String(msg.args[0]))
       if (!d) throw new Error(`No destination "${String(msg.args[0])}"`)
@@ -170,6 +211,9 @@ async function handleCall(msg: CallMessage): Promise<void> {
     } else if (msg.method === 'provide.focus') {
       if (!focusProvider) throw new Error('No focus provider')
       value = await focusProvider(String(msg.args[0]), String(msg.args[1]))
+    } else if (msg.method === 'provide.activity') {
+      if (!activityProvider) throw new Error('No activity provider')
+      value = await activityProvider(String(msg.args[0]), String(msg.args[1]))
     } else throw new Error(`Unknown method ${msg.method}`)
     send({ t: 'res', id: msg.id, ok: true, value: value ?? null })
   } catch (err) {

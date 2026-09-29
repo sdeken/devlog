@@ -346,6 +346,15 @@ export class DevlogStore extends EventEmitter {
    * titled from the block's first line, and the block becomes the link to it.
    */
   async promoteToTask(canvasId: string, date: string, entryId: string, now: Date = new Date()): Promise<PromoteResult> {
+    return this.promoteBlock(canvasId, date, entryId, TASK_TYPE, now)
+  }
+
+  /**
+   * Turn a block into a canvas of a node type (`null`: a plain canvas) just
+   * beneath the block's canvas, titled from its first line. What was written
+   * inside the block moves there; the block becomes the link to it.
+   */
+  async promoteBlock(canvasId: string, date: string, entryId: string, type: string | null, now: Date = new Date()): Promise<PromoteResult> {
     const day = await this.readDay(canvasId, date)
     const entry = day.entries.find((e) => e.id === entryId)
     if (!entry) throw new Error(`Entry ${entryId} not found on ${date}`)
@@ -354,7 +363,7 @@ export class DevlogStore extends EventEmitter {
       const existing = await this.readCanvas(entry.meta.canvas).catch(() => null)
       if (existing) return { canvas: stripSurface(existing), entry }
     }
-    const canvas = await this.createCanvas({ title: titleFromMarkdown(entry.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, task: true }, now)
+    const canvas = await this.createCanvas({ title: titleFromMarkdown(entry.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, type }, now)
     await this.mutateDay(canvasId, date, (log) => ({ ops: planSet(log, entryId, { kind: 'task', canvas: canvas.id }, stampFor(log, now)), result: null }))
     // What was written inside the block moves into the task's own stream; the block stays as the link to it.
     for (const child of day.entries.filter((e) => e.parentId === entryId)) await this.moveBlock({ canvasId, date, id: child.id }, { canvasId: canvas.id, date }, now)
@@ -727,6 +736,20 @@ export class DevlogStore extends EventEmitter {
       const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim(), meta: { ext: extensionId, ...clean } }
       if (opts.todo) entry.kind = 'todo'
       return { ops: planAdd(log, entry, opts.parentId ? { parentId: opts.parentId } : {}, entry.createdAt), result: { date, entry } }
+    })
+  }
+
+  /** Change the text of a block an extension added (only that extension may). */
+  async updateExtensionBlock(canvasId: string, date: string, id: string, extensionId: string, markdown: string, now: Date = new Date()): Promise<Entry> {
+    if (isBlankMarkdown(markdown)) throw new Error('A block cannot be empty')
+    if (markdown.length > 100_000) throw new Error('That block is too long')
+    return this.mutateDay(canvasId, date, (log) => {
+      const entry = log.entries.find((e) => e.id === id)
+      if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
+      if (entry.meta?.ext !== extensionId) throw new Error('Only blocks it added')
+      const at = stampFor(log, now)
+      const md = markdown.trim()
+      return { ops: planEdit(log, id, md, at), result: { ...entry, markdown: md, updatedAt: at } }
     })
   }
 

@@ -67,10 +67,66 @@ export interface ExtensionSearchResult {
   blocks: Array<{ canvasId: string; date: string; block: ExtensionBlock }>
 }
 
+/** Where a command was run from, and what it was run on (1.6). Canvases it cannot see are left out. */
+export interface CommandContext {
+  source: 'switcher' | 'keybinding' | 'menu' | 'post' | 'view' | 'tray'
+  /** The canvas on screen, or the one whose menu it was. */
+  canvasId?: string
+  /** With `blockId`: the day file the block lives in. */
+  date?: string
+  /** The block whose menu it was, the page on screen, or the block just posted (`post`). */
+  blockId?: string
+}
+
+/** A block someone posted in the app (1.6). Only for canvases it may read. */
+export interface BlockAddedEvent {
+  canvasId: string
+  date: string
+  block: ExtensionBlock
+}
+
+/** A new canvas (1.6). `type`: one of its own node types (the id from the manifest, or the full name). */
+export interface NewCanvas {
+  title: string
+  parentId?: string | null
+  type?: string
+}
+
+export interface CanvasPatch {
+  title?: string
+  parentId?: string | null
+  /** One of its own node types, or null to make it a plain canvas (only from one of its own types). */
+  type?: string | null
+  archived?: boolean
+}
+
+/** One entry of a quick pick (1.6). */
+export interface PickItem {
+  id: string
+  label: string
+  hint?: string
+}
+
+/**
+ * Time-tracking events for the app's views (1.6): which canvas time goes
+ * to, from when. `start`/`stop`: the clock started or stopped with the app;
+ * `task`: the active canvas changed (null stops it); `heartbeat`: still
+ * running (the app counts time up to the last one when the log just ends).
+ */
+export interface TimeEvent {
+  t: string
+  type: 'start' | 'task' | 'stop' | 'heartbeat'
+  canvasId?: string | null
+  /** The block that started it, if one did. */
+  blockId?: string
+  /** The machine folder it was recorded on (`ctx.machine` there). */
+  machine: string
+}
+
 export interface ActivityNotice {
   /** When it happened (ISO). */
   t: string
-  /** `pause`: locked, idle or asleep; `resume`: back; `task`: the active task changed. */
+  /** `pause`: locked, idle or asleep; `resume`: back; `task`: the app's own tracker changed task (before 1.6). */
   type: 'pause' | 'resume' | 'task'
   reason?: 'locked' | 'idle' | 'suspended'
   /** For `task`: the new active task (null when the clock stopped), if the extension can see it. */
@@ -196,6 +252,21 @@ export interface DevlogContext {
     addBlock(canvasId: string, markdown: string, opts?: AddBlockOptions): Promise<{ date: string; block: ExtensionBlock }>
     /** Open todos (and those ticked off since `doneSince`) on the canvases it may read (1.4). */
     todos(opts?: { doneSince?: string }): Promise<ExtensionTodo[]>
+    /** Make a canvas (1.6): inside one it may write to, or at the top level if it may write everywhere. */
+    createCanvas(input: NewCanvas): Promise<ExtensionCanvas>
+    /** Change a canvas it may write to (1.6). */
+    updateCanvas(canvasId: string, patch: CanvasPatch): Promise<ExtensionCanvas>
+    /** Change the text of a block it added (1.6). */
+    editBlock(canvasId: string, date: string, blockId: string, markdown: string): Promise<ExtensionBlock>
+    /**
+     * Turn a block into a canvas of one of its node types, just inside the
+     * block's canvas (1.6): what was written inside the block moves there,
+     * and the block becomes the link to it. A block that already links to a
+     * canvas returns that one.
+     */
+    promote(canvasId: string, date: string, blockId: string, opts: { type: string }): Promise<{ canvas: ExtensionCanvas; block: ExtensionBlock }>
+    /** Blocks posted in the app, as they are posted (1.6). */
+    onBlockAdded(cb: (ev: BlockAddedEvent) => void): void
   }
   /** Devlog-wide settings from devlog.json (as declared in `contributes.settings`). */
   settings: {
@@ -210,14 +281,34 @@ export interface DevlogContext {
   }
   /** Private folders: `repo` is synced with the devlog, `local` stays on this machine. */
   files: { repo: ExtensionFiles; local: ExtensionFiles }
-  /** Pause/resume and task changes, as they happen. */
-  activity: { on(cb: (notice: ActivityNotice) => void): void }
+  /** Pause/resume (locked, idle, asleep), as they happen. */
+  activity: {
+    on(cb: (notice: ActivityNotice) => void): void
+    /** Count the machine idle after this many minutes without input (0: never). The app uses the shortest any extension asks for. (1.6) */
+    idleAfter(minutes: number): void
+  }
   ui: {
     notify(message: string): void
     confirm(message: string): Promise<boolean>
+    /** A list to choose from, like the quick switcher (1.6). The chosen item's id, or null. */
+    pick(items: PickItem[], opts?: { placeholder?: string }): Promise<string | null>
+    /** Show a canvas, or a block's page, in the app (1.6). */
+    open(target: { canvasId: string; date?: string; blockId?: string }): void
+    /** Mark one canvas as this extension's current one (the running task): the sidebar highlights it (1.6). */
+    highlight(canvasId: string | null): void
   }
-  /** Commands appear in the quick switcher (declared in `contributes.commands`). */
-  commands: { register(id: string, run: () => void | Promise<void>): void }
+  /** The app around the window (1.6). */
+  app: {
+    /** Text beside the tray icon and in its tooltip (null clears it). */
+    setTrayLabel(label: string | null): void
+    /** Keep the app running in the tray when its window is closed (so the extension keeps going). */
+    keepRunning(on: boolean): void
+  }
+  /**
+   * Commands appear in the quick switcher (declared in `contributes.commands`),
+   * and in the menus, keybindings and note box the manifest names (1.6).
+   */
+  commands: { register(id: string, run: (context: CommandContext) => unknown | Promise<unknown>): void }
   /** Places finished timesheets can be sent (declared in `contributes.destinations`). (1.3) */
   destinations: { register(id: string, destination: Destination): void }
   /**
@@ -234,6 +325,8 @@ export interface DevlogContext {
   provide: {
     /** Focus changes between two local dates (inclusive), for the timeline, review and summary. */
     focus(fn: (fromDate: string, toDate: string) => Promise<FocusEvent[]>): void
+    /** Time-tracking events between two local dates (inclusive), for the review, summary, timeline and timesheet (1.6). */
+    activity(fn: (fromDate: string, toDate: string) => Promise<TimeEvent[]>): void
   }
 }
 

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { JOURNAL_ID, ancestorIds, canvasLabel } from '@devlog/core'
 import type { Canvas, CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { api } from '@renderer/api'
+import type { ViewContext } from '@devlog/extension-api/view'
+import { ExtensionView } from './ExtensionView'
 import { renderMarkdown } from '@renderer/markdown'
 import { Composer } from './Composer'
 import { Feed } from './Feed'
@@ -40,6 +42,40 @@ interface Props {
   onLinkRepo: () => void
   onUnlinkRepo: (path: string) => void
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
+  /** Extension views for this canvas's header (1.6). */
+  headerViews?: Array<{ extKey: string; viewId: string; title: string; url: string }>
+  onExtPopover?: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext) => void
+  onExtOpen?: (target: { canvasId: string; date?: string; blockId?: string }) => void
+}
+
+/** An extension's view in a canvas's header: the header's height; it asks for a width (1.6). */
+function HeaderSlot({
+  view,
+  canvasId,
+  onPopover,
+  onOpen
+}: {
+  view: { extKey: string; viewId: string; title: string; url: string }
+  canvasId: string
+  onPopover?: Props['onExtPopover']
+  onOpen?: Props['onExtOpen']
+}): React.JSX.Element {
+  const [width, setWidth] = useState(120)
+  const context = useMemo(() => ({ canvasId }), [canvasId])
+  return (
+    <span className="canvas-header-ext" style={{ width }} data-ext-view={`${view.extKey}/${view.viewId}`}>
+      <ExtensionView
+        extKey={view.extKey}
+        viewId={view.viewId}
+        url={view.url}
+        title={view.title}
+        context={context}
+        onResize={(s) => s.width && setWidth(Math.round(Math.min(Math.max(s.width, 24), 480)))}
+        onPopover={(id, anchor, size) => onPopover?.(view.extKey, id, anchor, size, context)}
+        onOpen={onOpen}
+      />
+    </span>
+  )
 }
 
 /** On a task canvas (and the pages inside it): start, switch to or stop the task. */
@@ -113,7 +149,10 @@ export function CanvasView({
   onSetDone,
   onLinkRepo,
   onUnlinkRepo,
-  onReorder
+  onReorder,
+  headerViews,
+  onExtPopover,
+  onExtOpen
 }: Props): React.JSX.Element {
   const types = useNodeTypes()
   const isJournal = canvas.id === JOURNAL_ID
@@ -203,6 +242,9 @@ export function CanvasView({
           </span>
         </h2>
         <TaskControl canvas={canvas} activeCanvasId={activeCanvasId} tracking={tracking} onStart={onStartTask} onStop={onStopTask} />
+        {headerViews?.map((v) => (
+          <HeaderSlot key={`${v.extKey}/${v.viewId}`} view={v} canvasId={canvas.id} onPopover={onExtPopover} onOpen={onExtOpen} />
+        ))}
         <span className="spacer" />
         {!isJournal && (
           <>
