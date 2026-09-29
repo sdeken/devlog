@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.6.0'
+export const API_VERSION = '1.7.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -61,6 +61,59 @@ export interface AddBlockOptions {
   date?: string
   /** Add it as a todo (1.4). */
   todo?: boolean
+  /** On a canvas it keeps (`managedCanvas`, 1.7): the block's kind (not todo, task, commit or done), and the day file (`date`) even outside a block. */
+  kind?: string
+}
+
+/**
+ * Something the app recorded (1.7): its own log (locks, idle, sleep, git
+ * events, corrections) merged with what extensions provide (time, focus).
+ * Canvases it may not read show as none.
+ */
+export interface ActivityRecord {
+  t: string
+  type: 'start' | 'stop' | 'heartbeat' | 'lock' | 'unlock' | 'idle' | 'active' | 'suspend' | 'resume' | 'task' | 'focus' | 'git' | 'exclude'
+  canvasId?: string | null
+  entryId?: string
+  /** focus: the app and window title (only with read access to the whole devlog). */
+  app?: string
+  title?: string
+  /** git */
+  repo?: string
+  action?: string
+  branch?: string
+  from?: string
+  detail?: string
+  /** exclude (a correction): no task time between start and end; or undoes the one it `cancels`. */
+  start?: string
+  end?: string
+  id?: string
+  cancels?: string
+  machine?: string
+}
+
+/** A day file's blocks (1.7). */
+export interface ExtensionDayBlocks {
+  canvasId: string
+  date: string
+  blocks: ExtensionBlock[]
+}
+
+/** A destination some extension registered (1.7). */
+export interface DestinationInfo {
+  /** The extension's devlog.json key. */
+  extension: string
+  /** Its display name. */
+  from: string
+  id: string
+  label: string
+}
+
+/** A week's timesheet handed to another extension's destination (1.7): what `DestinationSheet` is built from. */
+export interface SheetToSend {
+  week: string
+  status: 'draft' | 'final'
+  entries: Array<{ id: string; date: string; start: string; minutes: number; canvasId: string; note?: string; worked?: number; source?: string }>
 }
 
 export interface ExtensionSearchResult {
@@ -267,6 +320,16 @@ export interface DevlogContext {
     promote(canvasId: string, date: string, blockId: string, opts: { type: string }): Promise<{ canvas: ExtensionCanvas; block: ExtensionBlock }>
     /** Blocks posted in the app, as they are posted (1.6). */
     onBlockAdded(cb: (ev: BlockAddedEvent) => void): void
+    /** What the app recorded between two local dates, inclusive (needs read access). (1.7) */
+    activity(fromDate: string, toDate: string): Promise<ActivityRecord[]>
+    /** The day files with blocks written between two local dates (on canvases it may read). (1.7) */
+    range(fromDate: string, toDate: string): Promise<ExtensionDayBlocks[]>
+    /**
+     * A canvas this extension keeps (made on first use, with `title`): it may
+     * read and write every block on it whatever it was granted, add blocks of
+     * its own kinds on any day, and edit any block there. (1.7)
+     */
+    managedCanvas(key: string, opts?: { title?: string }): Promise<ExtensionCanvas>
   }
   /** Devlog-wide settings from devlog.json (as declared in `contributes.settings`). */
   settings: {
@@ -294,6 +357,8 @@ export interface DevlogContext {
     pick(items: PickItem[], opts?: { placeholder?: string }): Promise<string | null>
     /** Show a canvas, or a block's page, in the app (1.6). */
     open(target: { canvasId: string; date?: string; blockId?: string }): void
+    /** Show one of its `page` views (1.7). */
+    openPage(viewId: string): void
     /** Mark one canvas as this extension's current one (the running task): the sidebar highlights it (1.6). */
     highlight(canvasId: string | null): void
   }
@@ -309,8 +374,19 @@ export interface DevlogContext {
    * and in the menus, keybindings and note box the manifest names (1.6).
    */
   commands: { register(id: string, run: (context: CommandContext) => unknown | Promise<unknown>): void }
-  /** Places finished timesheets can be sent (declared in `contributes.destinations`). (1.3) */
-  destinations: { register(id: string, destination: Destination): void }
+  /**
+   * Places finished timesheets can be sent (declared in `contributes.destinations`). (1.3)
+   * With `permissions.send` (1.7), it can also send through other extensions' destinations.
+   */
+  destinations: {
+    register(id: string, destination: Destination): void
+    /** Destinations registered by running extensions (1.7). */
+    list(): Promise<DestinationInfo[]>
+    /** What sending would do (1.7). */
+    preview(to: { extension: string; id: string }, sheet: SheetToSend): Promise<DestinationLine[]>
+    /** Send a final week (1.7). */
+    send(to: { extension: string; id: string }, sheet: SheetToSend): Promise<SendResult>
+  }
   /**
    * Views declared in `contributes.views` (1.5): pages from your package the
    * app shows in a sandboxed frame. The page talks to this process through

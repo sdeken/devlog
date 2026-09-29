@@ -307,6 +307,7 @@ export function ExtensionPage({
           {ext.permissions.write ? <>Writes: {ext.grant ? describeScope(canvases, ext.grant.write) : 'asks for access'}. </> : null}
           {ext.permissions.unrestricted ? <>Runs unrestricted{ext.grant?.trusted ? ' (trusted)' : ''}. </> : null}
           {ext.permissions.network?.length ? <>Network: {ext.permissions.network.join(', ')}. </> : null}
+          {ext.permissions.send ? <>Sends timesheets through other extensions. </> : null}
         </p>
         <div className="ext-actions">
           {ext.state === 'needs-consent' && (
@@ -543,6 +544,11 @@ export function ConsentDialog({ ext, canvases, onClose }: { ext: ExtensionInfo; 
               <>It declares no network use, but network access is not restricted, so it could send out anything it can read.</>
             )}
           </li>
+          {ext.permissions.send && (
+            <li>
+              It can send finished timesheets through your other extensions' destinations (Jira, CMS…): it sees what they would do, and sends what you mark final.
+            </li>
+          )}
         </ul>
 
         {ext.permissions.read && (

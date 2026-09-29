@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID, NODE_TYPE_RE } from './format/canvases
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.6.0'
+export const EXTENSION_API_VERSION = '1.7.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'
@@ -167,6 +167,8 @@ export interface ExtensionPermissions {
   write?: boolean
   /** Domains it talks to: shown at consent, not enforced in v1. */
   network?: string[]
+  /** Sends finished timesheets through other extensions' destinations (Jira, CMS…). (1.7) */
+  send?: boolean
   /**
    * Runs without the sandbox: it can read and change your files, start
    * programs and see everything you can. It runs only if you say you trust it.
@@ -303,6 +305,7 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
   if (p.read === true) permissions.read = true
   if (p.write === true) permissions.write = true
   if (p.unrestricted === true) permissions.unrestricted = true
+  if (p.send === true) permissions.send = true
   if (p.network !== undefined) {
     if (!Array.isArray(p.network) || p.network.some((d) => typeof d !== 'string' || !/^(\*\.)?[a-z0-9.-]+(:\d+)?$/i.test(d))) errors.push('"permissions.network" must be a list of domains')
     else permissions.network = (p.network as string[]).map((d) => d.toLowerCase())

@@ -722,7 +722,7 @@ export class DevlogStore extends EventEmitter {
     markdown: string,
     meta: Record<string, string> = {},
     now: Date = new Date(),
-    opts: { parentId?: string; date?: string; todo?: boolean } = {}
+    opts: { parentId?: string; date?: string; todo?: boolean; kind?: string; anyDate?: boolean } = {}
   ): Promise<{ date: string; entry: Entry }> {
     if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty block')
     if (markdown.length > 100_000) throw new Error('That block is too long')
@@ -731,22 +731,25 @@ export class DevlogStore extends EventEmitter {
       if (!/^[a-z][a-z0-9_-]{0,31}$/.test(k) || ['id', 'at', 'parent', 'pos', 'kind', 'hidden', 'updated', 'ext'].includes(k)) throw new Error(`Not a metadata key: ${k}`)
       clean[k] = String(v).replace(/[\r\n]+/g, ' ').slice(0, 500)
     }
-    const date = opts.parentId && opts.date ? opts.date : localDate(now)
+    // Inside a block: that block's day file. On a canvas the extension keeps, any day it names.
+    const date = opts.date && (opts.parentId || opts.anyDate) ? opts.date : localDate(now)
+    assertDate(date)
     return this.mutateDay(canvasId, date, (log) => {
       const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim(), meta: { ext: extensionId, ...clean } }
       if (opts.todo) entry.kind = 'todo'
+      else if (opts.kind) entry.kind = opts.kind as Entry['kind']
       return { ops: planAdd(log, entry, opts.parentId ? { parentId: opts.parentId } : {}, entry.createdAt), result: { date, entry } }
     })
   }
 
-  /** Change the text of a block an extension added (only that extension may). */
-  async updateExtensionBlock(canvasId: string, date: string, id: string, extensionId: string, markdown: string, now: Date = new Date()): Promise<Entry> {
+  /** Change the text of a block an extension added (only that extension may; any block on a canvas it keeps, with `any`). */
+  async updateExtensionBlock(canvasId: string, date: string, id: string, extensionId: string, markdown: string, now: Date = new Date(), opts: { any?: boolean } = {}): Promise<Entry> {
     if (isBlankMarkdown(markdown)) throw new Error('A block cannot be empty')
     if (markdown.length > 100_000) throw new Error('That block is too long')
     return this.mutateDay(canvasId, date, (log) => {
       const entry = log.entries.find((e) => e.id === id)
       if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
-      if (entry.meta?.ext !== extensionId) throw new Error('Only blocks it added')
+      if (entry.meta?.ext !== extensionId && !opts.any) throw new Error('Only blocks it added')
       const at = stampFor(log, now)
       const md = markdown.trim()
       return { ops: planEdit(log, id, md, at), result: { ...entry, markdown: md, updatedAt: at } }
@@ -770,10 +773,19 @@ export class DevlogStore extends EventEmitter {
 
   /** The canvas timesheets are kept in, marked by a field; created on first use. */
   async timesheetsCanvas(create = false): Promise<CanvasMeta | null> {
-    const found = (await this.listCanvases()).find((c) => c.fields?.[MANAGED_FIELD] === TIMESHEETS_MANAGED)
-    if (found || !create) return found ?? null
-    const c = await this.createCanvas({ title: 'Timesheets' })
-    return this.updateCanvas(c.id, { fields: { [MANAGED_FIELD]: TIMESHEETS_MANAGED } })
+    return this.managedCanvas(TIMESHEETS_MANAGED, create ? 'Timesheets' : null)
+  }
+
+  /**
+   * A canvas kept by an extension (or the app), found by the owner named in
+   * its `devlog.managed` field; made (with `title`) if it is missing and a
+   * title is given.
+   */
+  async managedCanvas(owner: string, title: string | null = null): Promise<CanvasMeta | null> {
+    const found = (await this.listCanvases()).find((c) => c.fields?.[MANAGED_FIELD] === owner)
+    if (found || !title) return found ?? null
+    const c = await this.createCanvas({ title })
+    return this.updateCanvas(c.id, { fields: { [MANAGED_FIELD]: owner } })
   }
 
   /** The saved timesheet for a week (by its Monday), or null. */

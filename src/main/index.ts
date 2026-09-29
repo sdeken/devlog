@@ -274,6 +274,7 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     },
     onAppState: () => onExtensionAppState(),
     pick: (title, items, placeholder) => askPick(title, items, placeholder),
+    activity: (from, to) => activityRange(from, to),
     open: (target) => {
       showWindow()
       send(IPC.evExtOpen, target)
@@ -441,6 +442,19 @@ async function onEntryAdded(canvasId: string, date: string, entry: Entry): Promi
 // ---------------------------------------------------------------------------
 // What extensions ask of the app around the window (1.6)
 // ---------------------------------------------------------------------------
+
+/** The app's activity log, plus focus changes and time-tracking events kept by extensions (devlog-focus, devlog-time); old canvas ids resolved. */
+async function activityRange(from: string, to: string): Promise<ActivityEvent[]> {
+  const [core, focus, time] = await Promise.all([
+    activityLog.read(from, to),
+    extensions?.focusEvents(from, to).catch(() => []) ?? [],
+    extensions?.activityEvents(from, to).catch(() => []) ?? []
+  ])
+  const events = focus.length || time.length ? [...core, ...focus, ...time].sort((a, b) => a.t.localeCompare(b.t)) : core
+  const aliases = store ? await store.aliasMap() : new Map<string, string>()
+  if (aliases.size === 0) return events
+  return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))
+}
 
 // ---------------------------------------------------------------------------
 // Machine state: locked, idle, asleep. Told to extensions as pause/resume,
@@ -761,18 +775,7 @@ if (!gotLock) {
       onEntryAdded,
       answerPick,
       onCanvasesChanged: refreshCommitWatchers,
-      activityRange: async (from, to) => {
-        // The core log, plus focus changes and time-tracking events kept by extensions (devlog-focus, devlog-time).
-        const [core, focus, time] = await Promise.all([
-          activityLog.read(from, to),
-          extensions?.focusEvents(from, to).catch(() => []) ?? [],
-          extensions?.activityEvents(from, to).catch(() => []) ?? []
-        ])
-        const events = focus.length || time.length ? [...core, ...focus, ...time].sort((a, b) => a.t.localeCompare(b.t)) : core
-        const aliases = store ? await store.aliasMap() : new Map<string, string>()
-        if (aliases.size === 0) return events
-        return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))
-      },
+      activityRange,
       activityAppend: (ev) => activityLog.append(ev),
       updateStatus: () => updater?.getStatus() ?? { state: 'unavailable', currentVersion: app.getVersion(), availableVersion: null, checkedAt: null, error: null },
       importCommitHistory: (canvasId, repoPath, days) => backfillCommits(canvasId, repoPath, days),

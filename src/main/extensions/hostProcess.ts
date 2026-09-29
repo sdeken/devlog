@@ -75,6 +75,9 @@ function makeContext(init: InitMessage): DevlogContext {
       updateCanvas: (canvasId, patch) => call('devlog.updateCanvas', canvasId, patch) as ReturnType<DevlogContext['devlog']['updateCanvas']>,
       editBlock: (canvasId, date, blockId, markdown) => call('devlog.editBlock', canvasId, date, blockId, markdown) as ReturnType<DevlogContext['devlog']['editBlock']>,
       promote: (canvasId, date, blockId, opts) => call('devlog.promote', canvasId, date, blockId, opts) as ReturnType<DevlogContext['devlog']['promote']>,
+      activity: (from, to) => call('devlog.activity', from, to) as ReturnType<DevlogContext['devlog']['activity']>,
+      range: (from, to) => call('devlog.range', from, to) as ReturnType<DevlogContext['devlog']['range']>,
+      managedCanvas: (key, opts) => call('devlog.managedCanvas', key, opts ?? {}) as ReturnType<DevlogContext['devlog']['managedCanvas']>,
       onBlockAdded: (cb) => {
         if (typeof cb !== 'function') throw new Error('onBlockAdded(cb): cb must be a function')
         blockListeners.push(cb)
@@ -117,6 +120,9 @@ function makeContext(init: InitMessage): DevlogContext {
       open: (target) => {
         void call('ui.open', target)
       },
+      openPage: (viewId) => {
+        void call('ui.openPage', String(viewId))
+      },
       highlight: (canvasId) => {
         void call('ui.highlight', canvasId ?? null)
       }
@@ -141,7 +147,10 @@ function makeContext(init: InitMessage): DevlogContext {
         if (!destination || typeof destination.preview !== 'function' || typeof destination.send !== 'function') throw new Error('destinations.register(id, { preview, send })')
         destinations.set(String(id), destination)
         void call('destination.register', String(id))
-      }
+      },
+      list: () => call('destinations.list') as ReturnType<DevlogContext['destinations']['list']>,
+      preview: (to, sheet) => call('destinations.preview', to, sheet) as ReturnType<DevlogContext['destinations']['preview']>,
+      send: (to, sheet) => call('destinations.send', to, sheet) as ReturnType<DevlogContext['destinations']['send']>
     },
     views: {
       handle: (viewId, handler) => {

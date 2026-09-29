@@ -527,7 +527,13 @@ export function App(): React.JSX.Element {
   useEffect(
     () =>
       api.extensions.onOpen((t) => {
-        if (!canvasesRef.current.some((c) => c.id === t.canvasId)) return
+        if (t.page) {
+          setSearch('')
+          setExtPage(t.page)
+          setView('ext')
+          return
+        }
+        if (!t.canvasId || !canvasesRef.current.some((c) => c.id === t.canvasId)) return
         if (t.blockId && t.date) openBlock(t.canvasId, t.date, t.blockId)
         else openCanvas(t.canvasId, t.date)
       }),

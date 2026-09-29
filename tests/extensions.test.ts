@@ -82,8 +82,10 @@ describe('extensions in the app', () => {
         picks.push({ title, labels: items.map((i) => i.label), placeholder })
         return items[1]?.id ?? null
       },
-      open: (target) => opened.push(target)
+      open: (target) => opened.push(target),
+      activity: async () => activity
     })
+    activity = []
     viewMessages = []
     appStateChanges = 0
     picks = []
@@ -92,7 +94,8 @@ describe('extensions in the app', () => {
   let viewMessages: Array<{ key: string; viewId: string; message: unknown }>
   let appStateChanges: number
   let picks: Array<{ title: string; labels: string[]; placeholder?: string }>
-  let opened: Array<{ canvasId: string }>
+  let opened: Array<{ canvasId?: string; page?: string }>
+  let activity: import('@shared/types').ActivityEvent[]
 
   afterEach(async () => {
     await manager.stopAll()
@@ -175,6 +178,54 @@ describe('extensions in the app', () => {
     // Stopped, it asks nothing of the app.
     await manager.revoke('shaper')
     expect(manager.appState()).toEqual({ trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [], providesTime: false })
+  })
+
+  it('API 1.7: activity and block ranges, canvases it keeps, sending through destinations, its pages', async () => {
+    await updateManifest(root, (m) => {
+      m.extensions = { shaper: 'builtin' }
+    })
+    await manager.load()
+    await manager.allow('shaper', { read: { canvases: [ids.acme] }, write: { canvases: [ids.acme] } })
+    const call = (method: string, ...args: unknown[]): Promise<unknown> => manager.viewCall('shaper', 'board', method, args)
+    for (let i = 0; i < 100 && !(await call('dests').catch(() => null)); i++) await new Promise((r) => setTimeout(r, 20))
+    const today = (await store.listDays(ids.acme))[0].date
+
+    // What the app recorded: canvases it may not read show as none; git events there are left out.
+    activity = [
+      { t: `${today}T09:00:00.000Z`, type: 'task', canvasId: ids.web, machine: 'desk-1a2b' },
+      { t: `${today}T10:00:00.000Z`, type: 'task', canvasId: ids.globex, machine: 'desk-1a2b' },
+      { t: `${today}T10:30:00.000Z`, type: 'git', canvasId: ids.globex, action: 'commit', machine: 'desk-1a2b' },
+      { t: `${today}T11:00:00.000Z`, type: 'focus', app: 'Code', title: 'secret.txt', machine: 'desk-1a2b' }
+    ]
+    expect(((await call('activity', today, today)) as Array<{ type: string; canvasId?: string | null }>).map((e) => [e.type, e.canvasId ?? null])).toEqual([
+      ['task', ids.web],
+      ['task', null]
+    ])
+    await expect(call('activity', today, '2020-01-01')).rejects.toThrow(/ends before/)
+
+    // Blocks written in a range, on canvases it may read.
+    const days = (await call('range', today, today)) as Array<{ canvasId: string; blocks: Array<{ markdown: string }> }>
+    expect(days.map((d) => d.canvasId).sort()).toEqual([ids.acme, ids.web].sort())
+
+    // A canvas it keeps: its own, whatever the grant; blocks of its kinds on any day, and editable.
+    const kept = (await call('keep')) as { id: string; same: boolean; date: string; kind: string; markdown: string }
+    expect(kept).toMatchObject({ same: true, date: '2026-09-21', kind: 'sheet', markdown: 'week one, edited' })
+    expect((await store.readCanvas(kept.id)).fields).toMatchObject({ 'devlog.managed': 'builtin.shaper/sheets' })
+    await expect(call('badKind', kept.id, 'task')).rejects.toThrow(/not a kind/)
+    await expect(call('badKind', ids.acme, 'sheet')).rejects.toThrow(/canvas it keeps/)
+
+    // Destinations through the app, labelled and with the week checked.
+    expect(await call('dests')).toEqual([{ extension: 'shaper', from: 'Shaper', id: 'ledger', label: 'Ledger' }])
+    const sheet = { week: '2026-09-21', status: 'draft', entries: [{ id: 'e1', date: '2026-09-22', start: '2026-09-22T09:00:00.000Z', minutes: 60, canvasId: ids.web, worked: 60, source: 'tracked' }] }
+    expect(((await call('preview', sheet)) as Array<{ target: string }>)[0].target).toBe('Acme / Web')
+    await expect(call('send', sheet)).rejects.toThrow(/final/)
+    expect(await call('send', { ...sheet, status: 'final' })).toMatchObject({ done: ['e1'], summary: '1 booked' })
+    expect(await call('ledger')).toEqual(['Acme|Acme / Web|60'])
+
+    // Its pages open in the app.
+    await call('page')
+    for (let i = 0; i < 50 && !opened.length; i++) await new Promise((r) => setTimeout(r, 20))
+    expect(opened).toEqual([{ page: 'shaper/board' }])
   })
 
   it('serves views only while the extension runs, and relays their calls and messages', async () => {
@@ -507,6 +558,7 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
   let notices: string[]
   let ids: Record<string, string>
   const week = '2026-09-21'
+  let sheet: unknown
 
   beforeEach(async () => {
     const http = await import('node:http')
@@ -596,18 +648,18 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
     await expect(manager.setSettings('devlog-jira', { baseurl: 'not a url' })).rejects.toThrow(/Jira address/)
 
     const entries = [entry('e1', ids.fix, 9, 60, 'login redirect'), entry('e2', ids.acme, 10, 30), entry('e3', ids.globex, 11, 15)]
-    await store.saveTimesheet({ week, status: 'draft', entries })
-    const preview = await manager.destinationPreview('devlog-jira', 'worklogs', week)
+    sheet = ({ week, status: 'draft', entries })
+    const preview = await manager.destinationPreview('devlog-jira', 'worklogs', sheet)
     expect(preview.map((l) => [l.id, l.action, l.target])).toEqual([
       ['e1', 'create', 'ACME-7'],
       ['e2', 'create', 'ACME-1'],
       ['e3', 'skip', '']
     ])
     expect(preview[2].reason).toMatch(/No Jira issue/)
-    await expect(manager.destinationSend('devlog-jira', 'worklogs', week)).rejects.toThrow(/final/)
+    await expect(manager.destinationSend('devlog-jira', 'worklogs', sheet)).rejects.toThrow(/final/)
 
-    await store.saveTimesheet({ week, status: 'final', entries })
-    const first = await manager.destinationSend('devlog-jira', 'worklogs', week)
+    sheet = ({ week, status: 'final', entries })
+    const first = await manager.destinationSend('devlog-jira', 'worklogs', sheet)
     expect(first).toMatchObject({ done: ['e1', 'e2'], failed: [], summary: '2 worklogs created (1:30 on 2 issues)' })
     const posts = requests.filter((r) => r.method === 'POST')
     expect(posts.map((r) => r.url)).toEqual(['/rest/api/2/issue/ACME-7/worklog', '/rest/api/2/issue/ACME-1/worklog'])
@@ -615,29 +667,24 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
     expect(posts[0].body).toMatchObject({ timeSpentSeconds: 3600, comment: 'login redirect' })
     expect(posts[0].body.started).toMatch(/^2026-09-22T09:00:00\.000[+-]\d{4}$/)
 
-    // The record, under the week's timesheet.
-    const canvas = (await store.timesheetsCanvas())!
-    const day = await store.readDay(canvas.id, week)
-    const sheetBlock = day.entries.find((e) => e.kind === 'timesheet')!
-    expect(day.entries.find((e) => e.parentId === sheetBlock.id)).toMatchObject({ markdown: 'Sent to Jira: 2 worklogs created (1:30 on 2 issues).', meta: { ext: 'builtin.devlog-jira', destination: 'worklogs' } })
     const ledger = JSON.parse(await fs.readFile(path.join(root, 'extensions/builtin.devlog-jira/sent', `${week}.json`), 'utf8'))
     expect(Object.keys(ledger)).toEqual(['e1', 'e2'])
 
     // Nothing changed: nothing sent.
-    expect((await manager.destinationPreview('devlog-jira', 'worklogs', week)).map((l) => l.action)).toEqual(['unchanged', 'unchanged', 'skip'])
+    expect((await manager.destinationPreview('devlog-jira', 'worklogs', sheet)).map((l) => l.action)).toEqual(['unchanged', 'unchanged', 'skip'])
     requests = []
-    expect((await manager.destinationSend('devlog-jira', 'worklogs', week)).summary).toBe('2 unchanged (1:30 on 2 issues)')
+    expect((await manager.destinationSend('devlog-jira', 'worklogs', sheet)).summary).toBe('2 unchanged (1:30 on 2 issues)')
     expect(requests).toEqual([])
 
     // Shorter e1, e2 moved to a canvas with no issue: one update, one delete.
-    await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 45, 'login redirect'), entry('e2', ids.globex, 10, 30), entry('e3', ids.globex, 11, 15)] })
-    expect((await manager.destinationPreview('devlog-jira', 'worklogs', week)).map((l) => [l.id, l.action])).toEqual([
+    sheet = ({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 45, 'login redirect'), entry('e2', ids.globex, 10, 30), entry('e3', ids.globex, 11, 15)] })
+    expect((await manager.destinationPreview('devlog-jira', 'worklogs', sheet)).map((l) => [l.id, l.action])).toEqual([
       ['e1', 'update'],
       ['e2:old', 'delete'],
       ['e2', 'skip'],
       ['e3', 'skip']
     ])
-    const third = await manager.destinationSend('devlog-jira', 'worklogs', week)
+    const third = await manager.destinationSend('devlog-jira', 'worklogs', sheet)
     expect(third.summary).toBe('1 updated, 1 deleted (0:45 on 1 issue)')
     expect(requests.map((r) => [r.method, r.url])).toEqual([
       ['PUT', '/rest/api/2/issue/ACME-7/worklog/100'],
@@ -651,8 +698,8 @@ describe('devlog-jira: sending a timesheet as worklogs', () => {
     expect((await manager.list())[0].missing).toEqual(['Jira address'])
     await manager.setSecret('devlog-jira', 'token', null)
     expect((await manager.list())[0].missing).toEqual(['Jira address', 'API token'])
-    await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 60)] })
-    const r = await manager.destinationSend('devlog-jira', 'worklogs', week).catch((e: Error) => e)
+    sheet = ({ week, status: 'final', entries: [entry('e1', ids.fix, 9, 60)] })
+    const r = await manager.destinationSend('devlog-jira', 'worklogs', sheet).catch((e: Error) => e)
     expect(String(r)).toMatch(/Set the Jira URL/)
   })
 })
@@ -667,6 +714,7 @@ describe('devlog-cms: sending a timesheet as CMS hours', () => {
   let logins: number
   let ids: Record<string, string>
   const week = '2026-09-21'
+  let sheet: unknown
   const pad = (n: number) => String(n).padStart(2, '0')
   const ymd = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
   const addDays = (s: string, n: number) => {
@@ -811,8 +859,8 @@ describe('devlog-cms: sending a timesheet as CMS hours', () => {
       entry('e5', ids.globex, '2026-09-22', 13, 15),
       entry('e6', ids.api, '2026-09-27', 9, 450)
     ]
-    await store.saveTimesheet({ week, status: 'final', entries })
-    const preview = await manager.destinationPreview('devlog-cms', 'hours', week)
+    sheet = ({ week, status: 'final', entries })
+    const preview = await manager.destinationPreview('devlog-cms', 'hours', sheet)
     expect(preview.map((l) => [l.id, l.action, l.target])).toEqual([
       ['skip:e5', 'skip', ''],
       ['90001|2026-09-22', 'create', 'Initech / Platform'],
@@ -825,7 +873,7 @@ describe('devlog-cms: sending a timesheet as CMS hours', () => {
     expect(preview[1]).toMatchObject({ entryIds: ['e1', 'e2'], minutes: 90, description: '0 → 1.5 h · api' })
 
     logins = 0
-    const first = await manager.destinationSend('devlog-cms', 'hours', week)
+    const first = await manager.destinationSend('devlog-cms', 'hours', sheet)
     expect(first).toMatchObject({ failed: [], summary: '3 days filled in (9:45 in CMS this week)' })
     expect(logins).toBe(1) // once for the whole send, across both CMS weeks
     expect(updates.map((u) => [u.timesheet_id, u.hrs_worked, u.work_desc, u.revision_ts])).toEqual([
@@ -838,13 +886,13 @@ describe('devlog-cms: sending a timesheet as CMS hours', () => {
 
     // Nothing changed: nothing sent.
     updates = []
-    expect((await manager.destinationPreview('devlog-cms', 'hours', week)).map((l) => l.action)).toEqual(['skip', 'unchanged', 'unchanged', 'unchanged', 'skip'])
-    expect((await manager.destinationSend('devlog-cms', 'hours', week)).summary).toBe('nothing to change (9:45 in CMS this week)')
+    expect((await manager.destinationPreview('devlog-cms', 'hours', sheet)).map((l) => l.action)).toEqual(['skip', 'unchanged', 'unchanged', 'unchanged', 'skip'])
+    expect((await manager.destinationSend('devlog-cms', 'hours', sheet)).summary).toBe('nothing to change (9:45 in CMS this week)')
     expect(updates).toEqual([])
 
     // More on Tuesday, nothing on Sunday any more: one changed, one cleared.
-    await store.saveTimesheet({ week, status: 'final', entries: [entry('e1', ids.api, '2026-09-22', 9, 60, 'api'), entry('e2', ids.api, '2026-09-22', 10, 60), entries[2]] })
-    const third = await manager.destinationSend('devlog-cms', 'hours', week)
+    sheet = ({ week, status: 'final', entries: [entry('e1', ids.api, '2026-09-22', 9, 60, 'api'), entry('e2', ids.api, '2026-09-22', 10, 60), entries[2]] })
+    const third = await manager.destinationSend('devlog-cms', 'hours', sheet)
     expect(third.summary).toBe('1 changed, 1 cleared (2:45 in CMS this week)')
     expect(updates.map((u) => [u.timesheet_id, u.hrs_worked])).toEqual([
       [tsId(0, '2026-09-22'), '2'],
@@ -857,8 +905,8 @@ describe('devlog-cms: sending a timesheet as CMS hours', () => {
   it('waits for days CMS has not opened yet', async () => {
     const today = ymd(new Date())
     const monday = addDays(today, 7 - ((new Date().getDay() + 6) % 7))
-    await store.saveTimesheet({ week: monday, status: 'final', entries: [entry('e1', ids.api, addDays(monday, 1), 9, 60)] })
-    const [line] = await manager.destinationPreview('devlog-cms', 'hours', monday)
+    sheet = ({ week: monday, status: 'final', entries: [entry('e1', ids.api, addDays(monday, 1), 9, 60)] })
+    const [line] = await manager.destinationPreview('devlog-cms', 'hours', sheet)
     expect(line).toMatchObject({ action: 'skip', target: 'Initech / Platform' })
     expect(line.reason).toMatch(/on the day/)
   })

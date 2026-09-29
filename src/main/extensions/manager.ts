@@ -13,7 +13,11 @@ import {
   canvasLabel,
   fieldProblem,
   inheritedField,
+  MANAGED_FIELD,
+  TIMESHEETS_MANAGED,
+  localDate,
   nodeTypeName,
+  sanitizeTimesheet,
   parseExtensionEntry,
   topLevelCanvasId,
   scopeCanvasIds,
@@ -65,8 +69,10 @@ export interface ManagerDeps {
   onAppState?: () => void
   /** Show a quick pick; the chosen id, or null. */
   pick?: (title: string, items: PickItem[], placeholder?: string) => Promise<string | null>
-  /** Show a canvas or a block's page. */
-  open?: (target: { canvasId: string; date?: string; blockId?: string }) => void
+  /** Show a canvas, a block's page, or an extension's page (`page`: "<key>/<view id>"). */
+  open?: (target: { canvasId?: string; date?: string; blockId?: string; page?: string }) => void
+  /** What the app recorded (its log, and what extensions provide), with canvas aliases resolved. */
+  activity?: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
 }
 
 
@@ -639,10 +645,9 @@ export class ExtensionManager {
   // Destinations: sending a finished timesheet
   // -------------------------------------------------------------------------
 
-  /** A week's saved timesheet as the extension sees it: labels, and its own canvas fields (inherited). */
-  private async destinationSheet(rec: Rec, week: string): Promise<DestinationSheet> {
-    const sheet = await this.deps.store.readTimesheet(week)
-    if (!sheet) throw new Error('Save the timesheet first')
+  /** A week's timesheet as a destination sees it: labels, and its own canvas fields (inherited). */
+  private async destinationSheet(rec: Rec, input: unknown): Promise<DestinationSheet> {
+    const sheet = sanitizeTimesheet(input)
     const all = await this.deps.store.listCanvases()
     const keys = rec.installed?.manifest.contributes.canvasFields.map((f) => f.key) ?? []
     return {
@@ -693,10 +698,10 @@ export class ExtensionManager {
     return rec.host.call('view.call', [viewId, String(method), Array.isArray(args) ? args : []], 60_000)
   }
 
-  /** What sending the week's timesheet to a destination would do. */
-  async destinationPreview(key: string, destId: string, week: string): Promise<DestinationLine[]> {
+  /** What sending a week's timesheet to a destination would do. */
+  async destinationPreview(key: string, destId: string, sheet: unknown): Promise<DestinationLine[]> {
     const { rec, host } = this.destinationHost(key, destId)
-    const lines = await host.call('destination.preview', [destId, await this.destinationSheet(rec, week)], 120_000)
+    const lines = await host.call('destination.preview', [destId, await this.destinationSheet(rec, sheet)], 120_000)
     if (!Array.isArray(lines)) throw new Error('The extension returned no preview')
     const actions = new Set(['create', 'update', 'delete', 'unchanged', 'skip'])
     return (lines as DestinationLine[])
@@ -714,22 +719,37 @@ export class ExtensionManager {
       }))
   }
 
-  /** Send a final timesheet, and record what happened under it in the Timesheets canvas. */
-  async destinationSend(key: string, destId: string, week: string): Promise<SendResult> {
+  /** Send a final timesheet through a destination; the sender keeps the record. */
+  async destinationSend(key: string, destId: string, input: unknown): Promise<SendResult> {
     const { rec, host } = this.destinationHost(key, destId)
-    const sheet = await this.destinationSheet(rec, week)
+    const sheet = await this.destinationSheet(rec, input)
     if (sheet.status !== 'final') throw new Error('Mark the timesheet final before sending it')
     const raw = (await host.call('destination.send', [destId, sheet], 10 * 60_000)) as Partial<SendResult> | null
-    const result: SendResult = {
+    return {
       done: Array.isArray(raw?.done) ? raw.done.map(String) : [],
       failed: Array.isArray(raw?.failed) ? raw.failed.map((f) => ({ lineId: String(f?.lineId ?? ''), error: String(f?.error ?? 'Failed').slice(0, 500) })) : [],
       summary: typeof raw?.summary === 'string' && raw.summary.trim() ? raw.summary.trim().slice(0, 500) : 'Sent'
     }
-    const label = rec.installed?.manifest.contributes.destinations.find((d) => d.id === destId)?.label ?? destId
-    const failed = result.failed.length ? ` ${result.failed.length} failed: ${result.failed.map((f) => f.error).join('; ')}` : ''
-    await this.deps.store.addTimesheetRecord(week, rec.id, `Sent to ${label}: ${result.summary}.${failed}`, { destination: destId })
-    this.deps.onBlockAdded('', week)
-    return result
+  }
+
+  /** Destinations running extensions registered (1.7). */
+  destinationsList(): Array<{ extension: string; from: string; id: string; label: string }> {
+    return [...this.recs.values()].flatMap((r) =>
+      r.host && r.installed
+        ? r.installed.manifest.contributes.destinations.filter((d) => r.destinations.has(d.id)).map((d) => ({ extension: r.key, from: r.installed!.manifest.displayName, id: d.id, label: d.label }))
+        : []
+    )
+  }
+
+  /** The `devlog.managed` value for an extension's kept canvas (the Timesheets canvas the app made before 0.18 is devlog-time's). */
+  private managedOwner(extId: string, key: string): string {
+    return extId === 'builtin.devlog-time' && key === 'timesheets' ? TIMESHEETS_MANAGED : `${extId}/${key}`
+  }
+
+  /** Whether a canvas is one this extension keeps. */
+  private keeps(extId: string, c: CanvasMeta | undefined): boolean {
+    const owner = c?.fields?.[MANAGED_FIELD]
+    return Boolean(owner && (owner.startsWith(`${extId}/`) || (extId === 'builtin.devlog-time' && owner === TIMESHEETS_MANAGED)))
   }
 
   /** Labels of required settings and secrets that are not set yet. */
@@ -791,15 +811,27 @@ export class ExtensionManager {
       return v
     }
     const canvases = async (): Promise<CanvasMeta[]> => (await this.deps.store.listCanvases()).filter((c) => c.id !== 'journal')
-    const canRead = async (canvasId: string): Promise<boolean> => scopeCanvasIds(await canvases(), grant.read).has(canvasId)
-    const canWrite = async (canvasId: string): Promise<boolean> => scopeCanvasIds(await canvases(), grant.write).has(canvasId)
+    // Canvases it keeps (1.7) are its own whatever it was granted.
+    const kept = async (canvasId: string): Promise<boolean> => this.keeps(ext.id, (await canvases()).find((c) => c.id === canvasId))
+    const canRead = async (canvasId: string): Promise<boolean> => scopeCanvasIds(await canvases(), grant.read).has(canvasId) || (await kept(canvasId))
+    const canWrite = async (canvasId: string): Promise<boolean> => scopeCanvasIds(await canvases(), grant.write).has(canvasId) || (await kept(canvasId))
+    const dateArg = (i: number): string => {
+      const v = str(i, 'date')
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) throw new Error(`${method}: not a date: ${v}`)
+      return v
+    }
+    const span = (from: string, to: string): void => {
+      if (to < from) throw new Error(`${method}: the range ends before it starts`)
+      if ((Date.parse(to) - Date.parse(from)) / 86_400_000 > 400) throw new Error(`${method}: at most 400 days at a time`)
+    }
     const fieldPrefix = `ext.${ext.id}.`
     const writesEverywhere = Boolean(grant.write && 'all' in grant.write && grant.write.all)
 
     switch (method) {
       case 'devlog.canvases': {
         const all = await this.deps.store.listCanvases()
-        const visible = visibleCanvases(all, grant)
+        const shown = visibleCanvases(all, grant)
+        const visible = [...shown, ...all.filter((c) => this.keeps(ext.id, c) && !shown.includes(c))]
         this.visibleCache.set(rec.key, new Set(visible.map((c) => c.id)))
         return visible.map((c) => this.toCanvas(c, fieldPrefix))
       }
@@ -831,14 +863,23 @@ export class ExtensionManager {
       case 'devlog.addBlock': {
         const canvasId = str(0, 'canvasId')
         const markdown = str(1, 'markdown')
-        const opts = (args[2] ?? {}) as { meta?: Record<string, string>; parentId?: unknown; date?: unknown; todo?: unknown }
+        const opts = (args[2] ?? {}) as { meta?: Record<string, string>; parentId?: unknown; date?: unknown; todo?: unknown; kind?: unknown }
         if (!(await canWrite(canvasId))) throw new Error('No write access to that canvas')
+        const own = await kept(canvasId)
         const parentId = typeof opts.parentId === 'string' ? opts.parentId : undefined
         const at = typeof opts.date === 'string' ? opts.date : undefined
         if (parentId && !at) throw new Error('devlog.addBlock: a block added inside another needs that block\'s date')
+        let kind: string | undefined
+        if (opts.kind !== undefined) {
+          if (!own) throw new Error('devlog.addBlock: a kind only on a canvas it keeps')
+          if (typeof opts.kind !== 'string' || !/^[a-z][a-z0-9-]{0,31}$/.test(opts.kind) || ['note', 'todo', 'task', 'commit', 'done'].includes(opts.kind)) throw new Error(`devlog.addBlock: not a kind it may use: ${String(opts.kind)}`)
+          kind = opts.kind
+        }
         const { date, entry } = await this.deps.store.addExtensionBlock(canvasId, ext.id, markdown, opts.meta ?? {}, new Date(), {
-          ...(parentId ? { parentId, date: at } : {}),
-          todo: opts.todo === true
+          ...(parentId || own ? { parentId, date: at } : {}),
+          todo: opts.todo === true,
+          ...(kind ? { kind } : {}),
+          anyDate: own
         })
         this.deps.onBlockAdded(canvasId, date)
         return { date, block: toBlock(entry) }
@@ -891,7 +932,7 @@ export class ExtensionManager {
       case 'devlog.editBlock': {
         const canvasId = str(0, 'canvasId')
         if (!(await canWrite(canvasId))) throw new Error('No write access to that canvas')
-        const entry = await this.deps.store.updateExtensionBlock(canvasId, str(1, 'date'), str(2, 'blockId'), ext.id, str(3, 'markdown'))
+        const entry = await this.deps.store.updateExtensionBlock(canvasId, str(1, 'date'), str(2, 'blockId'), ext.id, str(3, 'markdown'), new Date(), { any: await kept(canvasId) })
         this.deps.onBlockAdded(canvasId, str(1, 'date'))
         return toBlock(entry)
       }
@@ -905,6 +946,56 @@ export class ExtensionManager {
         this.deps.onCanvasesChanged?.()
         this.deps.onBlockAdded(canvasId, date)
         return { canvas: this.toCanvas(result.canvas, fieldPrefix), block: toBlock(result.entry) }
+      }
+      case 'devlog.activity': {
+        if (!grant.read) throw new Error('No read access')
+        const from = dateArg(0)
+        const to = dateArg(1)
+        span(from, to)
+        const all = await this.deps.store.listCanvases()
+        const readable = scopeCanvasIds(all, grant.read)
+        const everything = 'all' in grant.read
+        const events = (await this.deps.activity?.(from, to)) ?? []
+        // Window titles only for an extension that may read everything; canvases it may not read show as none.
+        return events.flatMap((ev) => {
+          if (ev.type === 'focus' && !everything) return []
+          if (ev.canvasId && !readable.has(ev.canvasId)) return ev.type === 'git' ? [] : [{ ...ev, canvasId: null }]
+          return [ev]
+        })
+      }
+      case 'devlog.range': {
+        if (!grant.read) return []
+        const from = dateArg(0)
+        const to = dateArg(1)
+        span(from, to)
+        const readable = scopeCanvasIds(await canvases(), grant.read)
+        return (await this.deps.store.getRange(from, to))
+          .filter((d) => readable.has(d.canvasId))
+          .map((d) => ({ canvasId: d.canvasId, date: d.day.date, blocks: d.day.entries.map(toBlock) }))
+      }
+      case 'devlog.managedCanvas': {
+        const key = str(0, 'key')
+        if (!KEY_RE.test(key)) throw new Error('devlog.managedCanvas: the key is lowercase letters, digits, "_" or "-"')
+        const opts = (args[1] ?? {}) as { title?: unknown }
+        const title = typeof opts.title === 'string' && opts.title.trim() ? opts.title.trim().slice(0, 200) : key
+        const canvas = await this.deps.store.managedCanvas(this.managedOwner(ext.id, key), title)
+        this.deps.onCanvasesChanged?.()
+        return this.toCanvas(canvas!, fieldPrefix)
+      }
+      case 'destinations.list':
+        return this.destinationsList()
+      case 'destinations.preview':
+      case 'destinations.send': {
+        if (!ext.manifest.permissions.send) throw new Error('Sending through destinations needs "permissions": { "send": true }')
+        const to = (args[0] ?? {}) as { extension?: unknown; id?: unknown }
+        if (typeof to.extension !== 'string' || typeof to.id !== 'string') throw new Error(`${method}: say which destination ({ extension, id })`)
+        return method === 'destinations.preview' ? this.destinationPreview(to.extension, to.id, args[1]) : this.destinationSend(to.extension, to.id, args[1])
+      }
+      case 'ui.openPage': {
+        const viewId = str(0, 'viewId')
+        if (!ext.manifest.contributes.views.some((v) => v.id === viewId && v.placement === 'page')) throw new Error(`"${viewId}" is not one of its page views`)
+        this.deps.open?.({ page: `${rec.key}/${viewId}` })
+        return null
       }
       case 'devlog.subscribe':
         rec.blocks = true

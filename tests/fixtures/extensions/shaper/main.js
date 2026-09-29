@@ -19,6 +19,46 @@ exports.activate = async (ctx) => {
   })
   ctx.commands.register('pick', async () => ctx.ui.pick([{ id: 'a', label: 'A' }, { id: 'b', label: 'B', hint: 'the second' }], { placeholder: 'Which?' }))
 
+  // API 1.7: a destination of its own, which it can also send through (via the app).
+  const ledger = []
+  ctx.destinations.register('ledger', {
+    preview: async (sheet) => sheet.entries.map((e) => ({ id: e.id, entryIds: [e.id], date: e.date, minutes: e.minutes, target: e.task, action: 'create' })),
+    send: async (sheet) => {
+      ledger.push(...sheet.entries.map((e) => `${e.client}|${e.task}|${e.minutes}`))
+      return { done: sheet.entries.map((e) => e.id), failed: [], summary: `${sheet.entries.length} booked` }
+    }
+  })
+  ctx.views.handle('board', async (method, args) => {
+    switch (method) {
+      case 'activity':
+        return ctx.devlog.activity(args[0], args[1])
+      case 'range':
+        return ctx.devlog.range(args[0], args[1])
+      case 'keep': {
+        const c = await ctx.devlog.managedCanvas('sheets', { title: 'Sheets' })
+        const again = await ctx.devlog.managedCanvas('sheets', { title: 'Sheets' })
+        const r = await ctx.devlog.addBlock(c.id, 'week one', { kind: 'sheet', date: '2026-09-21', meta: { week: '2026-09-21' } })
+        const edited = await ctx.devlog.editBlock(c.id, r.date, r.block.id, 'week one, edited')
+        return { id: c.id, same: again.id === c.id, date: r.date, kind: r.block.kind, markdown: edited.markdown }
+      }
+      case 'badKind':
+        return ctx.devlog.addBlock(args[0], 'x', { kind: args[1] })
+      case 'dests':
+        return ctx.destinations.list()
+      case 'preview':
+        return ctx.destinations.preview({ extension: 'shaper', id: 'ledger' }, args[0])
+      case 'send':
+        return ctx.destinations.send({ extension: 'shaper', id: 'ledger' }, args[0])
+      case 'ledger':
+        return ledger
+      case 'page':
+        ctx.ui.openPage('board')
+        return null
+      default:
+        throw new Error(`board: no method ${method}`)
+    }
+  })
+
   ctx.views.handle('head', async (method, args) => {
     switch (method) {
       case 'seen':

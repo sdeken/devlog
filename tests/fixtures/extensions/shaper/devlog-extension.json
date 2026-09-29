@@ -3,7 +3,7 @@
   "displayName": "Shaper",
   "version": "1.0.0",
   "description": "Test extension for API 1.6: node types, commands in menus and the note box, canvas writes, events.",
-  "api": "^1.6.0",
+  "api": "^1.7.0",
   "main": "main.js",
   "contributes": {
     "nodeTypes": [
@@ -20,7 +20,11 @@
         "label": "Where am I",
         "keybinding": "Mod+Shift+Y",
         "nodeType": "job",
-        "menus": ["canvas", "block", "tray"]
+        "menus": [
+          "canvas",
+          "block",
+          "tray"
+        ]
       },
       {
         "id": "asjob",
@@ -41,11 +45,24 @@
         "entry": "views/head.html",
         "placement": "canvasHeader",
         "nodeType": "job"
+      },
+      {
+        "id": "board",
+        "title": "Board",
+        "entry": "views/head.html",
+        "placement": "page"
+      }
+    ],
+    "destinations": [
+      {
+        "id": "ledger",
+        "label": "Ledger"
       }
     ]
   },
   "permissions": {
     "read": true,
-    "write": true
+    "write": true,
+    "send": true
   }
 }

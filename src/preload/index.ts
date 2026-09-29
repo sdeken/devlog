@@ -116,7 +116,7 @@ const api = {
     onPick: (cb: (req: ExtensionPickRequest) => void): Unsubscribe => on(IPC.evExtPick, cb),
     answerPick: (id: number, choice: string | null): Promise<void> => ipcRenderer.invoke(IPC.extAnswerPick, id, choice),
     /** An extension asks to show a canvas or a block's page (1.6). */
-    onOpen: (cb: (target: { canvasId: string; date?: string; blockId?: string }) => void): Unsubscribe => on(IPC.evExtOpen, cb),
+    onOpen: (cb: (target: { canvasId?: string; date?: string; blockId?: string; page?: string }) => void): Unsubscribe => on(IPC.evExtOpen, cb),
     /** A call from an extension view's page to its extension (1.5). */
     viewCall: (key: string, viewId: string, method: string, args: unknown[]): Promise<unknown> => ipcRenderer.invoke(IPC.extViewCall, key, viewId, method, args),
     /** Messages an extension posts to its views. */

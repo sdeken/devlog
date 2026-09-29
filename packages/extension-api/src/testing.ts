@@ -15,7 +15,7 @@
  * reached by relative paths only, reads and writes respect the grant you
  * give it, and blocks it adds are marked as its own.
  */
-import { API_VERSION, type ActivityNotice, type BlockAddedEvent, type CommandContext, type DevlogContext, type PickItem, type TimeEvent, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type Destination, type DestinationLine, type DestinationSheet, type FocusEvent, type SendResult } from './index'
+import { API_VERSION, type ActivityRecord, type DestinationInfo, type ActivityNotice, type BlockAddedEvent, type CommandContext, type DevlogContext, type PickItem, type TimeEvent, type ExtensionBlock, type ExtensionCanvas, type ExtensionFileInfo, type ExtensionFiles, type Destination, type DestinationLine, type DestinationSheet, type FocusEvent, type SendResult } from './index'
 
 export interface TestCanvas extends ExtensionCanvas {
   /** Blocks by date. */
@@ -35,6 +35,10 @@ export interface TestOptions {
   read?: string[] | 'all' | null
   /** Canvas ids it may write to, or 'all'. Default: all. */
   write?: string[] | 'all' | null
+  /** What devlog.activity answers (1.7): filtered to the dates asked for. */
+  activity?: ActivityRecord[]
+  /** Other extensions' destinations it can send through (1.7). */
+  destinations?: Array<DestinationInfo & { destination: Destination }>
   /** Answer for ui.confirm. Default true. */
   confirm?: boolean
   now?: () => Date
@@ -62,6 +66,8 @@ export interface TestHarness {
   /** Quick picks shown, and how to answer them (default: the first item). (1.6) */
   picks: Array<{ items: PickItem[]; placeholder?: string }>
   answerPick: (items: PickItem[]) => string | null
+  /** Pages shown with ui.openPage (1.7). */
+  openedPages: string[]
   /** ui.open targets, in order. (1.6) */
   opened: Array<{ canvasId: string; date?: string; blockId?: string }>
   /** What the extension asked of the app (1.6). */
@@ -175,6 +181,7 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     picks: [],
     answerPick: (items) => items[0]?.id ?? null,
     opened: [],
+    openedPages: [],
     app: { trayLabel: null, keepRunning: false, idleMinutes: 0, highlight: null },
     notice: (n) => {
       for (const cb of activityListeners) cb(n)
@@ -211,6 +218,36 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       cur = byId.get(cur.parentId)
     }
     return false
+  }
+  const localDay = (d: Date): string => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  const other = (to: { extension: string; id: string }): Destination => {
+    const d = opts.destinations?.find((x) => x.extension === to.extension && x.id === to.id)
+    if (!d) throw new Error(`No destination ${to.extension}/${to.id}`)
+    return d.destination
+  }
+  // Labels as the app would give them (the canvas's title path; its top-level canvas as the client).
+  const toDestinationSheet = (sheet: { week: string; status: 'draft' | 'final'; entries: Array<{ id: string; date: string; start: string; minutes: number; canvasId: string; note?: string }> }): DestinationSheet => {
+    const byId = new Map(canvases.map((c) => [c.id, c]))
+    const path = (cid: string): TestCanvas[] => {
+      const out: TestCanvas[] = []
+      for (let c = byId.get(cid); c && out.length < 50; c = c.parentId ? byId.get(c.parentId) : undefined) out.unshift(c)
+      return out
+    }
+    return {
+      week: sheet.week,
+      status: sheet.status,
+      entries: sheet.entries.map((e) => ({
+        id: e.id,
+        date: e.date,
+        start: e.start,
+        minutes: e.minutes,
+        ...(e.note ? { note: e.note } : {}),
+        canvasId: e.canvasId,
+        task: path(e.canvasId).map((c) => c.title).join(' / ') || e.canvasId,
+        client: path(e.canvasId)[0]?.title ?? e.canvasId,
+        fields: {}
+      }))
+    }
   }
   const ownType = (t: unknown): string => {
     const name = String(t ?? '')
@@ -341,6 +378,34 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       },
       onBlockAdded: (cb) => {
         blockListeners.push(cb)
+      },
+      activity: async (from, to) => (opts.activity ?? []).filter((e) => {
+        const d = localDay(new Date(e.t))
+        return d >= from && d <= to
+      }),
+      range: async (from, to) => {
+        const out: Array<{ canvasId: string; date: string; blocks: ExtensionBlock[] }> = []
+        for (const c of canvases) {
+          if (!within(opts.read, c.id)) continue
+          for (const [date, list] of Object.entries(c.days ?? {})) {
+            const written = list.some((b) => {
+              const d = localDay(new Date(b.createdAt))
+              return d >= from && d <= to
+            })
+            if ((date >= from && date <= to) || written) out.push({ canvasId: c.id, date, blocks: [...list] })
+          }
+        }
+        return out
+      },
+      managedCanvas: async (key, o) => {
+        const owner = `${id}/${key}`
+        let c = canvases.find((x) => x.fields['devlog.managed'] === owner)
+        if (!c) {
+          c = { id: `c${canvases.length + 1}`, title: o?.title ?? key, parentId: null, task: false, archived: false, fields: { 'devlog.managed': owner } }
+          canvases.push(c)
+          h.created.push(c.id)
+        }
+        return toCanvas(c)
       }
     },
     settings: {
@@ -382,6 +447,9 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       open: (target) => {
         h.opened.push({ ...target })
       },
+      openPage: (viewId) => {
+        h.openedPages.push(viewId)
+      },
       highlight: (canvasId) => {
         h.app.highlight = canvasId
       }
@@ -402,6 +470,12 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     destinations: {
       register: (id, d) => {
         destinationMap.set(id, d)
+      },
+      list: async () => (opts.destinations ?? []).map(({ destination: _d, ...info }) => info),
+      preview: async (to, sheet) => other(to).preview(toDestinationSheet(sheet)),
+      send: async (to, sheet) => {
+        if (sheet.status !== 'final') throw new Error('Mark the timesheet final before sending it')
+        return other(to).send(toDestinationSheet(sheet))
       }
     },
     views: {
