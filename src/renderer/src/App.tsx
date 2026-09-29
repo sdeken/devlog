@@ -29,6 +29,7 @@ import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
 import { errorMessage, reported, showToast } from './toasts'
 import { kbd } from './keys'
+import { NodeTypesContext, buildNodeTypes } from './nodeTypes'
 
 const TIMELINE_DAYS = 10
 
@@ -119,6 +120,7 @@ export function App(): React.JSX.Element {
   // The settings page open, or null when closed.
   const [settingsPage, setSettingsPage] = useState<string | null>(null)
   const extensions = useExtensions()
+  const nodeTypes = useMemo(() => buildNodeTypes(extensions), [extensions])
   const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
   const [canvasMenu, setCanvasMenu] = useState<{ canvasId: string; x: number; y: number } | null>(null)
   // The retired journal is listed (under Archived) only while it still holds notes.
@@ -686,321 +688,325 @@ export function App(): React.JSX.Element {
   }
 
   return (
-    <div className="app">
-      <TopBar search={search} onSearch={setSearch} searchRef={searchRef} onSwitcher={() => setSwitcherOpen(true)} />
-      <Sidebar
-        canvases={canvases}
-        selection={selection}
-        activeCanvasId={tracker?.activeCanvasId ?? null}
-        searching={Boolean(search)}
-        showJournal={journalHasNotes}
-        settingsAttention={extensions.some(needsAttention)}
-        extPages={extPages}
-        onCanvasMenu={openMenu}
-        onOpenSettings={() => setSettingsPage('repository')}
-        onSelect={(sel) => {
-          setSearch('')
-          if (sel.kind === 'canvas') openCanvas(sel.canvasId)
-          else if (sel.kind === 'ext') {
-            setExtPage(`${sel.extKey}/${sel.viewId}`)
-            setView('ext')
-          }
-          else {
-            if (sel.kind === 'timeline') setTimelineDate(localDate(new Date()))
-            setView(sel.kind)
-          }
-        }}
-        onNewCanvas={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null })}
-      />
-      <main className="main">
-        {search && (
-          <Feed
-            canvas={canvas ?? JOURNAL}
+    <NodeTypesContext.Provider value={nodeTypes}>
+      <div className="app">
+        <TopBar search={search} onSearch={setSearch} searchRef={searchRef} onSwitcher={() => setSwitcherOpen(true)} />
+        <Sidebar
+          canvases={canvases}
+          selection={selection}
+          activeCanvasId={tracker?.activeCanvasId ?? null}
+          searching={Boolean(search)}
+          showJournal={journalHasNotes}
+          settingsAttention={extensions.some(needsAttention)}
+          extPages={extPages}
+          onCanvasMenu={openMenu}
+          onOpenSettings={() => setSettingsPage('repository')}
+          onSelect={(sel) => {
+            setSearch('')
+            if (sel.kind === 'canvas') openCanvas(sel.canvasId)
+            else if (sel.kind === 'ext') {
+              setExtPage(`${sel.extKey}/${sel.viewId}`)
+              setView('ext')
+            }
+            else {
+              if (sel.kind === 'timeline') setTimelineDate(localDate(new Date()))
+              setView(sel.kind)
+            }
+          }}
+          onNewCanvas={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null })}
+        />
+        <main className="main">
+          {search && (
+            <Feed
+              canvas={canvas ?? JOURNAL}
+              canvases={canvases}
+              days={[]}
+              hasMore={false}
+              today={today}
+              search={search}
+              hits={hits}
+              loading={false}
+              editRequest={null}
+              onLoadMore={async () => undefined}
+              onAdd={async (id, md, position) => {
+                await addEntry(id, md, position)
+              }}
+              onUpdate={updateEntry}
+              onDelete={deleteEntry}
+              onMove={moveEntry}
+              onJumpTo={openCanvas}
+              onOpenCanvas={openCanvas}
+              onOpenBlock={openBlock}
+            />
+          )}
+          {view === 'review' && !search && (
+            <Review
+              canvases={canvases}
+              today={today}
+              focusMinSeconds={settings.focusMinSeconds}
+              onJumpTo={jumpTo}
+              onOpenTimeline={(d) => {
+                setTimelineDate(d)
+                setView('timeline')
+              }}
+            />
+          )}
+          {view === 'timesheet' && !search && <Timesheet canvases={canvases} today={today} />}
+          {view === 'ext' && !search && (openPage ? (
+            <ExtensionView
+              key={extPage}
+              className="ext-page-view"
+              extKey={openPage.extKey}
+              viewId={openPage.viewId}
+              url={openPage.url}
+              title={openPage.title}
+              onPopover={(id, anchor, size) => showPopover(openPage.extKey, id, anchor, size)}
+              onOpen={openFromView}
+            />
+          ) : (
+            <p className="feed-empty">That page is not available: its extension is not running.</p>
+          ))}
+          {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
+          {view === 'timeline' && !search && (
+            <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
+          )}
+          {view === 'canvas' && !search && !canvas && (
+            <div className="empty-home">
+              <h2>Start with a canvas</h2>
+              <p>Canvases hold your notes: one for each client or project, and tasks inside them that you track time against.</p>
+              <button type="button" className="btn btn-primary" onClick={() => setCanvasDialog({ canvas: null })}>
+                + New canvas
+              </button>
+            </div>
+          )}
+          {view === 'canvas' && !search && canvas && page && (
+            <BlockPage
+              key={blockKey(page)}
+              canvas={canvas}
+              canvases={canvases}
+              day={pageDay && pageDay.date === page.date ? pageDay : null}
+              blockId={page.id}
+              today={today}
+              editRequest={editRequest}
+              activeCanvasId={tracker?.activeCanvasId ?? null}
+              tracking={Boolean(tracker?.tracking)}
+              onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
+              onStopTask={() => void reported(api.tracker.setTask(null))}
+              onCanvasMenu={openMenu}
+              onAdd={async (id, md, position) => {
+                await addEntry(id, md, position)
+              }}
+              onUpdate={updateEntry}
+              onDelete={deleteEntry}
+              onMove={moveEntry}
+              onNest={nestEntry}
+              onPromote={promoteEntry}
+              onSetHidden={setHidden}
+              onSetDone={setTodoDone}
+              onReorder={reorderEntry}
+              onOpenCanvas={openCanvas}
+              onOpenBlock={openBlock}
+              onUp={goUp}
+            />
+          )}
+          {view === 'canvas' && !search && canvas && !page && (
+            <CanvasView
+              key={canvasId}
+              canvas={canvas}
+              canvases={canvases}
+              days={days}
+              hasMore={hasMore}
+              today={today}
+              loading={loading}
+              editRequest={editRequest}
+              activeCanvasId={tracker?.activeCanvasId ?? null}
+              tracking={Boolean(tracker?.tracking)}
+              onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
+              onStopTask={() => void reported(api.tracker.setTask(null))}
+              onCanvasMenu={openMenu}
+              onOpenBlock={openBlock}
+              onLoadMore={loadMore}
+              onAdd={async (id, md, position) => {
+                await addEntry(id, md, position)
+              }}
+              onUpdate={updateEntry}
+              onDelete={deleteEntry}
+              onMove={moveEntry}
+              onNest={nestEntry}
+              onPromote={promoteEntry}
+              onOpenCanvas={openCanvas}
+              onEditCanvas={() => setCanvasDialog({ canvas })}
+              onNewCanvasHere={(task) => setCanvasDialog({ canvas: null, parentId: canvasId, task })}
+              onArchive={async (archived) => {
+                await api.canvases.archive(canvasId, archived)
+                await refreshCanvases()
+              }}
+              onSetHidden={setHidden}
+              onSetDone={setTodoDone}
+              onLinkRepo={() =>
+                void reported(
+                  api.repo.chooseDirectory().then(async (dir) => {
+                    if (!dir) return
+                    const check = await api.repo.inspectWorkingCopy(dir)
+                    if (!check.ok) {
+                      showToast(`${check.error}. Pick the folder that contains .git.`)
+                      return
+                    }
+                    if (canvas.repos.includes(check.root)) {
+                      showToast('That repository is already linked here')
+                      return
+                    }
+                    setLinkRepo({ canvasId, root: check.root })
+                  })
+                )
+              }
+              onUnlinkRepo={(path) =>
+                void reported(
+                  api.canvases.update(canvasId, { repos: canvas.repos.filter((r) => r !== path) }).then(async () => {
+                    await refreshCanvases()
+                    showToast(`Unlinked ${path.split(/[\\/]/).filter(Boolean).pop()}`)
+                  })
+                )
+              }
+              onReorder={reorderEntry}
+            />
+          )}
+          {!search && targetCanvas && view !== 'ext' && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
+            <div className="composer-dock">
+              <Composer
+                key={pageBlock ? blockKey(page) : targetCanvasId}
+                mode="new"
+                placeholder={
+                  pageBlock
+                    ? `Write inside “${blockTitle(pageBlock, 40)}”…  Enter posts, Alt+Enter posts and opens it${targetCanvas.task ? ' · counts toward this task' : ''}`
+                    : targetCanvas.type && nodeTypes.get(targetCanvas.type)?.placeholder
+                      ? `${nodeTypes.get(targetCanvas.type)?.placeholder}  Enter posts, Alt+Enter posts and opens it`
+                      : targetCanvas.task
+                        ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Alt+Enter posts and opens it`
+                        : `Note on ${targetCanvas.title}…  Enter posts, Alt+Enter posts and opens it, ${kbd('mod', 'shift', 'Enter')} posts as a task`
+                }
+                assetCanvasId={targetCanvasId}
+                assetDate={pageBlock ? page?.date : undefined}
+                draftKey={`devlog:draft:${repo.path}:${targetCanvasId}${pageBlock ? `:${pageBlock.id}` : ''}`}
+                autoFocus={view === 'canvas'}
+                dock
+                onSubmit={async (md, opts) => {
+                  const res = await addEntry(targetCanvasId, md, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined, opts)
+                  if (opts?.open) openBlock(targetCanvasId, res.date, res.entry.id)
+                  else if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
+                }}
+                onEditLast={view === 'canvas' ? editLast : undefined}
+                focusToken={focusToken}
+                canvases={canvases}
+                targetCanvasId={targetCanvasId}
+                onTargetChange={pageBlock ? undefined : setTargetCanvasId}
+              />
+            </div>
+          )}
+          <StatusBar
+            extViews={statusViews}
+            onExtPopover={showPopover}
+            onExtOpen={openFromView}
+            status={sync}
+            tracker={tracker}
+            taskLabel={tracker?.activeCanvasId ? canvasLabel(canvases, tracker.activeCanvasId) : null}
             canvases={canvases}
-            days={[]}
-            hasMore={false}
-            today={today}
-            search={search}
-            hits={hits}
-            loading={false}
-            editRequest={null}
-            onLoadMore={async () => undefined}
-            onAdd={async (id, md, position) => {
-              await addEntry(id, md, position)
-            }}
-            onUpdate={updateEntry}
-            onDelete={deleteEntry}
-            onMove={moveEntry}
-            onJumpTo={openCanvas}
-            onOpenCanvas={openCanvas}
-            onOpenBlock={openBlock}
-          />
-        )}
-        {view === 'review' && !search && (
-          <Review
-            canvases={canvases}
-            today={today}
-            focusMinSeconds={settings.focusMinSeconds}
-            onJumpTo={jumpTo}
-            onOpenTimeline={(d) => {
-              setTimelineDate(d)
+            currentCanvasId={view === 'canvas' ? canvasId : null}
+            onSyncNow={() => void reported(api.sync.now())}
+            onStartTask={(id) => void reported(api.tracker.setTask(id))}
+            onStopTask={() => void reported(api.tracker.setTask(null))}
+            onNewTask={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null, task: true, start: true })}
+            onOpenTimeline={() => {
+              setTimelineDate(localDate(new Date()))
               setView('timeline')
             }}
           />
-        )}
-        {view === 'timesheet' && !search && <Timesheet canvases={canvases} today={today} />}
-        {view === 'ext' && !search && (openPage ? (
-          <ExtensionView
-            key={extPage}
-            className="ext-page-view"
-            extKey={openPage.extKey}
-            viewId={openPage.viewId}
-            url={openPage.url}
-            title={openPage.title}
-            onPopover={(id, anchor, size) => showPopover(openPage.extKey, id, anchor, size)}
-            onOpen={openFromView}
-          />
-        ) : (
-          <p className="feed-empty">That page is not available: its extension is not running.</p>
-        ))}
-        {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
-        {view === 'timeline' && !search && (
-          <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
-        )}
-        {view === 'canvas' && !search && !canvas && (
-          <div className="empty-home">
-            <h2>Start with a canvas</h2>
-            <p>Canvases hold your notes: one for each client or project, and tasks inside them that you track time against.</p>
-            <button type="button" className="btn btn-primary" onClick={() => setCanvasDialog({ canvas: null })}>
-              + New canvas
-            </button>
-          </div>
-        )}
-        {view === 'canvas' && !search && canvas && page && (
-          <BlockPage
-            key={blockKey(page)}
-            canvas={canvas}
+        </main>
+        <TodoPanel
+          canvases={canvases}
+          canvasId={view === 'canvas' && canvas ? canvasId : null}
+          page={pageBlock && page ? { canvasId: page.canvasId, date: page.date, id: page.id, title: blockTitle(pageBlock, 40) } : null}
+          fallbackCanvasId={targetCanvas?.id ?? null}
+          onOpenCanvas={openCanvas}
+          onOpenBlock={openBlock}
+          onStreamChanged={(id, date) => void reloadDay(id, date)}
+          version={dayVersion}
+        />
+        <Toasts />
+        {switcherOpen && (
+          <QuickSwitcher
             canvases={canvases}
-            day={pageDay && pageDay.date === page.date ? pageDay : null}
-            blockId={page.id}
-            today={today}
-            editRequest={editRequest}
-            activeCanvasId={tracker?.activeCanvasId ?? null}
-            tracking={Boolean(tracker?.tracking)}
-            onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
-            onStopTask={() => void reported(api.tracker.setTask(null))}
-            onCanvasMenu={openMenu}
-            onAdd={async (id, md, position) => {
-              await addEntry(id, md, position)
+            extensions={extensions}
+            recentPages={recentPages}
+            onPick={(t) => {
+              setSwitcherOpen(false)
+              goTo(t)
             }}
-            onUpdate={updateEntry}
-            onDelete={deleteEntry}
-            onMove={moveEntry}
-            onNest={nestEntry}
-            onPromote={promoteEntry}
-            onSetHidden={setHidden}
-            onSetDone={setTodoDone}
-            onReorder={reorderEntry}
-            onOpenCanvas={openCanvas}
-            onOpenBlock={openBlock}
-            onUp={goUp}
+            onClose={() => setSwitcherOpen(false)}
           />
         )}
-        {view === 'canvas' && !search && canvas && !page && (
-          <CanvasView
-            key={canvasId}
-            canvas={canvas}
+        {settingsPage && (
+          <SettingsDialog
+            settings={settings}
+            repo={repo}
             canvases={canvases}
-            days={days}
-            hasMore={hasMore}
-            today={today}
-            loading={loading}
-            editRequest={editRequest}
-            activeCanvasId={tracker?.activeCanvasId ?? null}
-            tracking={Boolean(tracker?.tracking)}
-            onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
-            onStopTask={() => void reported(api.tracker.setTask(null))}
-            onCanvasMenu={openMenu}
-            onOpenBlock={openBlock}
-            onLoadMore={loadMore}
-            onAdd={async (id, md, position) => {
-              await addEntry(id, md, position)
+            extensions={extensions}
+            initialPage={settingsPage}
+            onClose={() => setSettingsPage(null)}
+            onSaved={setSettings}
+            onRepoChanged={(r) => setRepo(r)}
+            onPreview={applyTheme}
+          />
+        )}
+        {popover && (
+          <ExtensionPopover
+            {...popover}
+            onClose={() => setPopover(null)}
+            onOpen={(t) => {
+              setPopover(null)
+              openFromView(t)
             }}
-            onUpdate={updateEntry}
-            onDelete={deleteEntry}
-            onMove={moveEntry}
-            onNest={nestEntry}
-            onPromote={promoteEntry}
-            onOpenCanvas={openCanvas}
-            onEditCanvas={() => setCanvasDialog({ canvas })}
-            onNewCanvasHere={(task) => setCanvasDialog({ canvas: null, parentId: canvasId, task })}
-            onArchive={async (archived) => {
-              await api.canvases.archive(canvasId, archived)
+          />
+        )}
+        {canvasMenu && <ContextMenu x={canvasMenu.x} y={canvasMenu.y} items={menuItems(canvasMenu.canvasId)} onClose={() => setCanvasMenu(null)} />}
+        {linkRepo && (
+          <LinkRepoDialog
+            repoPath={linkRepo.root}
+            canvasTitle={canvases.find((c) => c.id === linkRepo.canvasId)?.title ?? 'this canvas'}
+            defaultDays={settings.commitBackfillDays}
+            onClose={() => setLinkRepo(null)}
+            onLink={async (importDays) => {
+              const target = canvases.find((c) => c.id === linkRepo.canvasId)
+              if (!target) return
+              const name = linkRepo.root.split(/[\\/]/).filter(Boolean).pop()
+              await api.canvases.update(target.id, { repos: [...target.repos, linkRepo.root] })
+              await refreshCanvases()
+              if (importDays) {
+                const n = await api.repo.importHistory(target.id, linkRepo.root, importDays)
+                showToast(`Linked ${name}; imported ${n} commit${n === 1 ? '' : 's'}`)
+              } else showToast(`Linked ${name}`)
+            }}
+          />
+        )}
+        {canvasDialog && (
+          <CanvasDialog
+            canvas={canvasDialog.canvas}
+            canvases={canvases}
+            extensions={extensions}
+            initialParentId={canvasDialog.parentId}
+            initialTask={canvasDialog.task}
+            onClose={() => setCanvasDialog(null)}
+            onSaved={async (saved) => {
+              await refreshCanvases()
+              openCanvas(saved.id)
+              if (canvasDialog.start && saved.task) void reported(api.tracker.setTask(saved.id))
+            }}
+            onDeleted={async () => {
               await refreshCanvases()
             }}
-            onSetHidden={setHidden}
-            onSetDone={setTodoDone}
-            onLinkRepo={() =>
-              void reported(
-                api.repo.chooseDirectory().then(async (dir) => {
-                  if (!dir) return
-                  const check = await api.repo.inspectWorkingCopy(dir)
-                  if (!check.ok) {
-                    showToast(`${check.error}. Pick the folder that contains .git.`)
-                    return
-                  }
-                  if (canvas.repos.includes(check.root)) {
-                    showToast('That repository is already linked here')
-                    return
-                  }
-                  setLinkRepo({ canvasId, root: check.root })
-                })
-              )
-            }
-            onUnlinkRepo={(path) =>
-              void reported(
-                api.canvases.update(canvasId, { repos: canvas.repos.filter((r) => r !== path) }).then(async () => {
-                  await refreshCanvases()
-                  showToast(`Unlinked ${path.split(/[\\/]/).filter(Boolean).pop()}`)
-                })
-              )
-            }
-            onReorder={reorderEntry}
           />
         )}
-        {!search && targetCanvas && view !== 'ext' && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
-          <div className="composer-dock">
-            <Composer
-              key={pageBlock ? blockKey(page) : targetCanvasId}
-              mode="new"
-              placeholder={
-                pageBlock
-                  ? `Write inside “${blockTitle(pageBlock, 40)}”…  Enter posts, Alt+Enter posts and opens it${targetCanvas.task ? ' · counts toward this task' : ''}`
-                  : targetCanvas.task
-                    ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Alt+Enter posts and opens it`
-                    : `Note on ${targetCanvas.title}…  Enter posts, Alt+Enter posts and opens it, ${kbd('mod', 'shift', 'Enter')} posts as a task`
-              }
-              assetCanvasId={targetCanvasId}
-              assetDate={pageBlock ? page?.date : undefined}
-              draftKey={`devlog:draft:${repo.path}:${targetCanvasId}${pageBlock ? `:${pageBlock.id}` : ''}`}
-              autoFocus={view === 'canvas'}
-              dock
-              onSubmit={async (md, opts) => {
-                const res = await addEntry(targetCanvasId, md, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined, opts)
-                if (opts?.open) openBlock(targetCanvasId, res.date, res.entry.id)
-                else if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
-              }}
-              onEditLast={view === 'canvas' ? editLast : undefined}
-              focusToken={focusToken}
-              canvases={canvases}
-              targetCanvasId={targetCanvasId}
-              onTargetChange={pageBlock ? undefined : setTargetCanvasId}
-            />
-          </div>
-        )}
-        <StatusBar
-          extViews={statusViews}
-          onExtPopover={showPopover}
-          onExtOpen={openFromView}
-          status={sync}
-          tracker={tracker}
-          taskLabel={tracker?.activeCanvasId ? canvasLabel(canvases, tracker.activeCanvasId) : null}
-          canvases={canvases}
-          currentCanvasId={view === 'canvas' ? canvasId : null}
-          onSyncNow={() => void reported(api.sync.now())}
-          onStartTask={(id) => void reported(api.tracker.setTask(id))}
-          onStopTask={() => void reported(api.tracker.setTask(null))}
-          onNewTask={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null, task: true, start: true })}
-          onOpenTimeline={() => {
-            setTimelineDate(localDate(new Date()))
-            setView('timeline')
-          }}
-        />
-      </main>
-      <TodoPanel
-        canvases={canvases}
-        canvasId={view === 'canvas' && canvas ? canvasId : null}
-        page={pageBlock && page ? { canvasId: page.canvasId, date: page.date, id: page.id, title: blockTitle(pageBlock, 40) } : null}
-        fallbackCanvasId={targetCanvas?.id ?? null}
-        onOpenCanvas={openCanvas}
-        onOpenBlock={openBlock}
-        onStreamChanged={(id, date) => void reloadDay(id, date)}
-        version={dayVersion}
-      />
-      <Toasts />
-      {switcherOpen && (
-        <QuickSwitcher
-          canvases={canvases}
-          extensions={extensions}
-          recentPages={recentPages}
-          onPick={(t) => {
-            setSwitcherOpen(false)
-            goTo(t)
-          }}
-          onClose={() => setSwitcherOpen(false)}
-        />
-      )}
-      {settingsPage && (
-        <SettingsDialog
-          settings={settings}
-          repo={repo}
-          canvases={canvases}
-          extensions={extensions}
-          initialPage={settingsPage}
-          onClose={() => setSettingsPage(null)}
-          onSaved={setSettings}
-          onRepoChanged={(r) => setRepo(r)}
-          onPreview={applyTheme}
-        />
-      )}
-      {popover && (
-        <ExtensionPopover
-          {...popover}
-          onClose={() => setPopover(null)}
-          onOpen={(t) => {
-            setPopover(null)
-            openFromView(t)
-          }}
-        />
-      )}
-      {canvasMenu && <ContextMenu x={canvasMenu.x} y={canvasMenu.y} items={menuItems(canvasMenu.canvasId)} onClose={() => setCanvasMenu(null)} />}
-      {linkRepo && (
-        <LinkRepoDialog
-          repoPath={linkRepo.root}
-          canvasTitle={canvases.find((c) => c.id === linkRepo.canvasId)?.title ?? 'this canvas'}
-          defaultDays={settings.commitBackfillDays}
-          onClose={() => setLinkRepo(null)}
-          onLink={async (importDays) => {
-            const target = canvases.find((c) => c.id === linkRepo.canvasId)
-            if (!target) return
-            const name = linkRepo.root.split(/[\\/]/).filter(Boolean).pop()
-            await api.canvases.update(target.id, { repos: [...target.repos, linkRepo.root] })
-            await refreshCanvases()
-            if (importDays) {
-              const n = await api.repo.importHistory(target.id, linkRepo.root, importDays)
-              showToast(`Linked ${name}; imported ${n} commit${n === 1 ? '' : 's'}`)
-            } else showToast(`Linked ${name}`)
-          }}
-        />
-      )}
-      {canvasDialog && (
-        <CanvasDialog
-          canvas={canvasDialog.canvas}
-          canvases={canvases}
-          extensions={extensions}
-          initialParentId={canvasDialog.parentId}
-          initialTask={canvasDialog.task}
-          onClose={() => setCanvasDialog(null)}
-          onSaved={async (saved) => {
-            await refreshCanvases()
-            openCanvas(saved.id)
-            if (canvasDialog.start && saved.task) void reported(api.tracker.setTask(saved.id))
-          }}
-          onDeleted={async () => {
-            await refreshCanvases()
-          }}
-        />
-      )}
-    </div>
+      </div>
+    </NodeTypesContext.Provider>
   )
 }

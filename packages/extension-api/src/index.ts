@@ -18,13 +18,15 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.5.0'
+export const API_VERSION = '1.6.0'
 
 export interface ExtensionCanvas {
   id: string
   title: string
   parentId: string | null
   task: boolean
+  /** Its node type ("<extension id>/<type id>"), if it has one (1.6). */
+  type?: string
   archived: boolean
   /** This extension's own canvas fields set on this canvas (keys as declared in `contributes.canvasFields`). */
   fields: Record<string, string>

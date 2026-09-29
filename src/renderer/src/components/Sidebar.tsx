@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import { kbd } from '@renderer/keys'
+import { canvasIcon, typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 export type SidebarSelection =
   | { kind: 'canvas'; canvasId: string }
@@ -31,6 +32,7 @@ interface Props {
 }
 
 export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, extPages, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
+  const types = useNodeTypes()
   const tree = useMemo(() => buildCanvasTree(canvases), [canvases])
   const archived = useMemo(() => canvases.filter((c) => c.archived), [canvases])
   const [showArchived, setShowArchived] = useState(() => {
@@ -96,8 +98,8 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, showJo
           >
             {hasChildren ? (open ? '▾' : '▸') : ''}
           </button>
-          <button type="button" className="canvas-link" onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={c.task ? `${c.title} · task` : c.title}>
-            <span className={`canvas-icon${activeCanvasId === c.id ? ' is-active' : ''}`}>{c.task ? '◉' : '▤'}</span>
+          <button type="button" className="canvas-link" onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={typeOf(types, c) ? `${c.title} · ${typeOf(types, c)?.label.toLowerCase()}` : c.title}>
+            <span className={`canvas-icon${activeCanvasId === c.id ? ' is-active' : ''}`}>{canvasIcon(types, c)}</span>
             <span className="canvas-name">{c.title}</span>
           </button>
         </div>
@@ -190,7 +192,7 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, showJo
                       }}
                       title={canvasLabel(canvases, c.id)}
                     >
-                      <span className="view-icon">{c.task ? '◉' : '▤'}</span>
+                      <span className="view-icon">{canvasIcon(types, c)}</span>
                       <span className="view-name">{canvasLabel(canvases, c.id)}</span>
                     </button>
                   </li>

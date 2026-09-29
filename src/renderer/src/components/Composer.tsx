@@ -13,6 +13,7 @@ import { kbd } from '@renderer/keys'
 import { detectCodePaste } from '@renderer/editor/smartPaste'
 import type { CanvasMeta } from '@shared/types'
 import { buildCanvasTree, flattenTree } from '@devlog/core'
+import { typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
@@ -96,6 +97,7 @@ export function Composer({
   targetCanvasId,
   onTargetChange
 }: ComposerProps): React.JSX.Element {
+  const types = useNodeTypes()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(0)
@@ -481,7 +483,7 @@ export function Composer({
                 {flattenTree(buildCanvasTree(canvases)).map(({ canvas: c, depth }) => (
                   <option key={c.id} value={c.id}>
                     {'\u00a0\u00a0'.repeat(depth)}
-                    {c.task ? '◉ ' : ''}
+                    {typeOf(types, c) ? `${typeOf(types, c)?.icon} ` : ''}
                     {c.title}
                   </option>
                 ))}

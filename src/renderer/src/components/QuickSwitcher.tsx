@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
+import { typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 export type SwitchTarget =
   | { kind: 'canvas'; canvasId: string }
@@ -42,6 +43,7 @@ function score(query: string, label: string): number {
 }
 
 export function QuickSwitcher({ canvases, extensions = [], recentPages = [], onPick, onClose }: Props): React.JSX.Element {
+  const types = useNodeTypes()
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -74,12 +76,12 @@ export function QuickSwitcher({ canvases, extensions = [], recentPages = [], onP
       out.push({
         key: `canvas:${c.id}`,
         label: canvasLabel(canvases, c.id),
-        hint: `${c.task ? 'task' : 'canvas'}${c.archived ? ' · archived' : ''}`,
+        hint: `${typeOf(types, c)?.label.toLowerCase() ?? 'canvas'}${c.archived ? ' · archived' : ''}`,
         target: { kind: 'canvas', canvasId: c.id }
       })
     }
     return out
-  }, [canvases, extensions, recentPages])
+  }, [canvases, extensions, recentPages, types])
 
   const results = useMemo(() => {
     return items

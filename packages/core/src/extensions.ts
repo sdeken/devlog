@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID } from './format/canvases'
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.5.0'
+export const EXTENSION_API_VERSION = '1.6.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'
@@ -82,6 +82,25 @@ export interface ExtensionView {
 }
 export const VIEW_PLACEMENTS: ExtensionView['placement'][] = ['page', 'statusbar', 'popover']
 
+/**
+ * A node type (1.6): a kind of canvas the extension gives meaning to (the
+ * time extension's "task"). Stored in canvas.md as `type: <extension id>/<id>`;
+ * the app shows its icon and label, and offers it in canvas properties.
+ */
+export interface ExtensionNodeType {
+  id: string
+  label: string
+  /** One character or emoji, shown before the canvas's name. */
+  icon?: string
+  /** Placeholder for the note box on canvases of this type. */
+  placeholder?: string
+}
+
+/** The full node type name for one of an extension's types. */
+export function nodeTypeName(extensionId: string, typeId: string): string {
+  return `${extensionId}/${typeId}`
+}
+
 /** Somewhere a finished timesheet can be sent (Jira worklogs, a CSV file, …). */
 export interface ExtensionDestination {
   id: string
@@ -118,6 +137,8 @@ export interface ExtensionManifest {
     commands: ExtensionCommand[]
     destinations: ExtensionDestination[]
     views: ExtensionView[]
+    /** Node types (1.6). */
+    nodeTypes: ExtensionNodeType[]
     /** A command that tests the settings (its return value is shown); offered on the settings page. */
     check?: string
   }
@@ -128,6 +149,8 @@ export interface ExtensionManifest {
 
 const NAME_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/
 const KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/
+/** The part after the "/" of NODE_TYPE_RE. */
+const TYPE_ID_RE = /^[a-z][a-z0-9_-]{0,63}$/
 const GLOB_RE = /^[A-Za-z0-9_.*/{}-]{1,128}$/
 
 /** Validate a parsed `devlog-extension.json`. Throws with every problem found. */
@@ -237,12 +260,24 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
         ...(typeof v.icon === 'string' && v.icon.trim() ? { icon: [...v.icon.trim()].slice(0, 2).join('') } : {})
       })
   }
+  const nodeTypes: ExtensionNodeType[] = []
+  for (const t of (Array.isArray(c.nodeTypes) ? c.nodeTypes : []) as Array<Record<string, unknown>>) {
+    if (typeof t?.id !== 'string' || !TYPE_ID_RE.test(t.id)) errors.push(`"contributes.nodeTypes": id ${JSON.stringify(t?.id)} is not valid`)
+    else if (nodeTypes.some((x) => x.id === t.id)) errors.push(`"contributes.nodeTypes": duplicate id ${t.id}`)
+    else
+      nodeTypes.push({
+        id: t.id,
+        label: typeof t.label === 'string' && t.label.trim() ? t.label.trim().slice(0, 40) : t.id,
+        ...(typeof t.icon === 'string' && t.icon.trim() ? { icon: [...t.icon.trim()].slice(0, 2).join('') } : {}),
+        ...(typeof t.placeholder === 'string' && t.placeholder.trim() ? { placeholder: t.placeholder.trim().slice(0, 120) } : {})
+      })
+  }
   let check: string | undefined
   if (c.check !== undefined) {
     if (typeof c.check !== 'string' || !commands.some((x) => x.id === c.check)) errors.push('"contributes.check" must name one of its commands')
     else check = c.check
   }
-  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations, views, ...(check ? { check } : {}) }
+  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations, views, nodeTypes, ...(check ? { check } : {}) }
   if (errors.length) throw new Error(`Invalid extension manifest: ${errors.join('; ')}`)
   const displayName = typeof o.displayName === 'string' && o.displayName.trim() ? o.displayName.trim() : name
   return {

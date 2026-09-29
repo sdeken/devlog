@@ -6,6 +6,7 @@ import { renderMarkdown } from '@renderer/markdown'
 import { Composer } from './Composer'
 import { Feed } from './Feed'
 import { Lightbox } from './Lightbox'
+import { canvasIcon, typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 interface Props {
   canvas: CanvasMeta
@@ -114,6 +115,7 @@ export function CanvasView({
   onUnlinkRepo,
   onReorder
 }: Props): React.JSX.Element {
+  const types = useNodeTypes()
   const isJournal = canvas.id === JOURNAL_ID
   const [full, setFull] = useState<Canvas | null>(null)
   const [editing, setEditing] = useState(false)
@@ -322,7 +324,7 @@ export function CanvasView({
         <div className="canvas-children">
           {children
             .filter((c) => !c.archived)
-            .sort((a, b) => Number(a.task) - Number(b.task) || a.title.localeCompare(b.title))
+            .sort((a, b) => Number(Boolean(typeOf(types, a))) - Number(Boolean(typeOf(types, b))) || a.title.localeCompare(b.title))
             .map((c) => (
               <button
                 key={c.id}
@@ -331,7 +333,7 @@ export function CanvasView({
                 onClick={() => onOpenCanvas(c.id)}
                 onContextMenu={menuFor(c.id)}
               >
-                {c.task ? '◉ ' : '▤ '}
+                {canvasIcon(types, c)}{' '}
                 {c.title}
               </button>
             ))}

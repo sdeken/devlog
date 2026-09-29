@@ -4,6 +4,8 @@ import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   describeScope,
+  NODE_TYPE_RE,
+  nodeTypeName,
   extensionId,
   fieldProblem,
   inheritedField,
@@ -90,6 +92,23 @@ describe('extension settings fields', () => {
     expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { settings: [{ key: 'a', type: 'colour' }] } })).toThrow(/unknown type/)
     expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { settings: [{ key: 'a', type: 'select' }] } })).toThrow(/no options/)
     expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { check: 'nope' } })).toThrow(/check/)
+  })
+
+  it('reads node types', () => {
+    const m = parseExtensionManifest({
+      name: 'x',
+      version: '1.0.0',
+      api: '^1.6.0',
+      contributes: { nodeTypes: [{ id: 'task', label: 'Task', icon: '◉ extra', placeholder: 'What now?' }, { id: 'plain' }] }
+    })
+    expect(m.contributes.nodeTypes).toEqual([
+      { id: 'task', label: 'Task', icon: '◉ ', placeholder: 'What now?' },
+      { id: 'plain', label: 'plain' }
+    ])
+    expect(nodeTypeName('builtin.x', 'task')).toBe('builtin.x/task')
+    expect(NODE_TYPE_RE.test(nodeTypeName('sdeken.devlog-time', 'task'))).toBe(true)
+    expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { nodeTypes: [{ id: 'Bad Id' }] } })).toThrow(/nodeTypes/)
+    expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { nodeTypes: [{ id: 'a' }, { id: 'a' }] } })).toThrow(/duplicate/)
   })
 
   it('checks values by type', () => {

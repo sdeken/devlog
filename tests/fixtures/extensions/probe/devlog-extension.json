@@ -53,7 +53,15 @@
         "title": "Probe page",
         "entry": "views/page.html",
         "placement": "page",
-        "icon": "🧪"
+        "icon": "\ud83e\uddea"
+      }
+    ],
+    "nodeTypes": [
+      {
+        "id": "thing",
+        "label": "Probe thing",
+        "icon": "\ud83e\uddea",
+        "placeholder": "Probe it\u2026"
       }
     ]
   },

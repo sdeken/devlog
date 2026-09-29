@@ -92,6 +92,7 @@ describe('extensions in the app', () => {
     await manager.load()
     expect(manager.viewRoot('probe')).toBeNull()
     expect((await manager.list())[0].views).toEqual([])
+    expect((await manager.list())[0].nodeTypes).toEqual([])
     await manager.allow('probe', { read: { all: true }, write: null })
     for (let i = 0; i < 50 && !(await manager.viewCall('probe', 'page', 'greet', ['test']).catch(() => null)); i++) await new Promise((r) => setTimeout(r, 20))
     const [info] = await manager.list()
@@ -100,6 +101,7 @@ describe('extensions in the app', () => {
       ['pop', 'popover', `devlog-ext://${Buffer.from('probe').toString('hex')}/views/pop.html`],
       ['page', 'page', `devlog-ext://${Buffer.from('probe').toString('hex')}/views/page.html`]
     ])
+    expect(info.nodeTypes).toEqual([{ id: 'thing', label: 'Probe thing', icon: '🧪', placeholder: 'Probe it…' }])
     expect(manager.viewRoot('probe')).toBe(path.join(FIXTURES, 'probe'))
     expect(await manager.viewCall('probe', 'page', 'greet', ['test'])).toBe('Howdy, test')
     await expect(manager.viewCall('probe', 'page', 'fail', [])).rejects.toThrow(/asked to fail/)

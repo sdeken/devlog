@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, inheritedField, isWithin } from '@devlog/core'
+import { JOURNAL_ID, TASK_TYPE, buildCanvasTree, canvasLabel, flattenTree, inheritedField, isWithin } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 import { api } from '@renderer/api'
+import { typeOf, useNodeTypes } from '@renderer/nodeTypes'
 import { FieldRow } from './FieldInput'
 import { PagedDialog, type DialogPage } from './PagedDialog'
 
@@ -31,7 +32,8 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
   const [page, setPage] = useState(initialPage ?? 'general')
   const [title, setTitle] = useState(canvas?.title ?? '')
   const [parentId, setParentId] = useState<string>(canvas?.parentId ?? (initialParentId && initialParentId !== JOURNAL_ID ? initialParentId : '') ?? '')
-  const [task, setTask] = useState(canvas?.task ?? initialTask ?? false)
+  const types = useNodeTypes()
+  const [type, setType] = useState<string>(canvas?.type ?? (initialTask ? TASK_TYPE : ''))
   const [repos, setRepos] = useState<string[]>(canvas?.repos ?? [])
   const [importHistory, setImportHistory] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -58,7 +60,7 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
     return patch
   }
   const extDirty = (e: ExtensionInfo): boolean => e.canvasFields.some((f) => (fields[`ext.${e.id}.${f.key}`] ?? '').trim() !== (canvas?.fields?.[`ext.${e.id}.${f.key}`] ?? ''))
-  const generalDirty = title !== (canvas?.title ?? '') || (parentId || null) !== (canvas?.parentId ?? null) || task !== (canvas?.task ?? false)
+  const generalDirty = title !== (canvas?.title ?? '') || (parentId || null) !== (canvas?.parentId ?? null) || type !== (canvas?.type ?? '')
   const reposDirty = JSON.stringify(repos) !== JSON.stringify(canvas?.repos ?? [])
   const dirty = !canvas || generalDirty || reposDirty || withFields.some(extDirty)
 
@@ -72,7 +74,7 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
     setError(null)
     try {
       const patch = fieldPatch()
-      const input = { title, parentId: parentId || null, task, repos, ...(Object.keys(patch).length ? { fields: patch } : {}) }
+      const input = { title, parentId: parentId || null, type: type || null, repos, ...(Object.keys(patch).length ? { fields: patch } : {}) }
       let saved = canvas ? await api.canvases.update(canvas.id, input) : await api.canvases.create(input)
       if (!canvas && input.fields) saved = await api.canvases.update(saved.id, { fields: input.fields })
       if (importHistory) {
@@ -165,17 +167,32 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
                 <option key={c.id} value={c.id}>
                   {'  '.repeat(depth)}
                   {c.title}
-                  {c.task ? ' (task)' : ''}
+                  {typeOf(types, c) ? ` (${typeOf(types, c)?.label.toLowerCase()})` : ''}
                   {c.archived ? ' (archived)' : ''}
                 </option>
               ))}
             </select>
             <p className="hint">Canvases nest: a client holds projects, a project holds tasks. The same project name under two clients is two different projects.</p>
           </div>
-          <label className="check">
-            <input type="checkbox" checked={task} onChange={(ev) => setTask(ev.target.checked)} /> This is a task (time is tracked against it; posting here makes it the
-            active task)
-          </label>
+          <div className="field">
+            <label htmlFor="canvasType">Type</label>
+            <select id="canvasType" value={type} onChange={(ev) => setType(ev.target.value)}>
+              <option value="">Canvas</option>
+              {[...types.values()].map((t) => (
+                <option key={t.type} value={t.type}>
+                  {t.icon} {t.label}
+                </option>
+              ))}
+              {type && !types.has(type) && <option value={type}>{type} (its extension is not here)</option>}
+            </select>
+            <p className="hint">
+              {type === TASK_TYPE
+                ? 'Time is tracked against a task; posting on it makes it the active task.'
+                : type
+                  ? 'What this type does comes from its extension.'
+                  : 'Extensions can add types of canvas (a task, for time tracking).'}
+            </p>
+          </div>
           {canvas && (
             <p className="hint">
               Stored in <code>canvases/{canvas.id}/</code> · {canvasLabel(canvases, canvas.id)}

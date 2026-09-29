@@ -371,6 +371,7 @@ export class ExtensionManager {
         commands: (m?.contributes.commands ?? []).map((c) => ({ ...c, ready: Boolean(rec.host?.commands.includes(c.id)) })),
         destinations: (m?.contributes.destinations ?? []).map((d) => ({ ...d, ready: Boolean(rec.host && rec.destinations.has(d.id)) })),
         views: rec.state === 'running' ? (m?.contributes.views ?? []).map((v) => ({ ...v, url: viewUrl(rec.key, v.entry) })) : [],
+        nodeTypes: rec.grant ? (m?.contributes.nodeTypes ?? []) : [],
         ...(m?.contributes.check ? { check: m.contributes.check } : {}),
         missing: m ? await this.missing(rec) : []
       })
@@ -681,6 +682,7 @@ export class ExtensionManager {
             title: c.title,
             parentId: c.parentId,
             task: c.task,
+            ...(c.type ? { type: c.type } : {}),
             archived: c.archived,
             fields: Object.fromEntries(Object.entries(c.fields ?? {}).flatMap(([k, v]) => (k.startsWith(fieldPrefix) ? [[k.slice(fieldPrefix.length), v]] : [])))
           })

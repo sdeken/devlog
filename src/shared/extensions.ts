@@ -1,5 +1,5 @@
 /** What the renderer knows about the extensions of the open devlog. */
-import type { ExtensionCommand, ExtensionDestination, ExtensionField, ExtensionPermissions, ExtensionView, Grant } from '@devlog/core'
+import type { ExtensionCommand, ExtensionDestination, ExtensionField, ExtensionNodeType, ExtensionPermissions, ExtensionView, Grant } from '@devlog/core'
 
 export type ExtensionState =
   /** Being downloaded or unpacked. */
@@ -39,6 +39,8 @@ export interface ExtensionInfo {
   destinations: Array<ExtensionDestination & { ready: boolean }>
   /** Its views, with where they load from (1.5); only while it runs. */
   views: Array<ExtensionView & { url: string }>
+  /** Its node types (1.6), once allowed. */
+  nodeTypes: ExtensionNodeType[]
   /** The command that tests its settings, if it has one. */
   check?: string
   /** Required settings and secrets that are not set yet (their labels). */
