@@ -246,8 +246,8 @@ describe('devlog-time timesheets', () => {
 
 describe('hour targets', () => {
   const canvas = (id: string, title: string, parentId: string | null, fields: Record<string, string> = {}): CanvasMeta => ({ id, title, parentId, task: false, archived: false, createdAt: '', updatedAt: '', repos: [], hasSurface: false, fields })
-  // 168 h for Drury in September, and 20 h a week for a task under Drury: two separate measures.
-  const canvases = [canvas('drury', 'Drury', null, { target_month: '168' }), canvas('site', 'Site', 'drury'), canvas('fix', 'Fix login', 'site', { target_week: '20' }), canvas('acme', 'Acme', null)]
+  // 168 h for Globex in September, and 20 h a week for a task under Globex: two separate measures.
+  const canvases = [canvas('globex', 'Globex', null, { target_month: '168' }), canvas('site', 'Site', 'globex'), canvas('fix', 'Fix login', 'site', { target_week: '20' }), canvas('acme', 'Acme', null)]
   let n = 0
   const e = (canvasId: string, date: string, minutes: number): TimesheetEntry => ({ id: `e${++n}`, date, start: `${date}T09:00:00.000Z`, minutes, canvasId, worked: minutes, source: 'tracked' })
 
@@ -267,10 +267,10 @@ describe('hour targets', () => {
 
   it('measures each target on its own: its canvas and what is inside, in its own period, not taken on by canvases inside', () => {
     const week = [e('fix', '2026-09-22', 600), e('site', '2026-09-23', 120), e('acme', '2026-09-23', 60)]
-    const earlier = [e('fix', '2026-09-08', 480), e('drury', '2026-08-31', 300)] // 31 Aug is outside September
+    const earlier = [e('fix', '2026-09-08', 480), e('globex', '2026-08-31', 300)] // 31 Aug is outside September
     const rows = targetsFor(canvases, '2026-09-21', week, new Map([['2026-09', [...week, ...earlier]]]))
     expect(rows).toEqual([
-      { canvasId: 'drury', period: 'month', key: '2026-09', target: 168 * 60, actual: 600 + 120 + 480 },
+      { canvasId: 'globex', period: 'month', key: '2026-09', target: 168 * 60, actual: 600 + 120 + 480 },
       { canvasId: 'fix', period: 'week', key: '2026-09-21', target: 20 * 60, actual: 600 }
     ])
   })

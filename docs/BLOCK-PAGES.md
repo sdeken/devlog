@@ -13,14 +13,14 @@ apart; the breadcrumb runs Client / Project / Standup / Sep 28 / …, and you
 can go up a level.
 
 In a stream, a block with blocks inside it no longer shows them inline as a
-thread. It shows a chip ("3 notes") that opens its page.
+thread. It shows a chip ("▸ 3 blocks inside") that opens its page.
 
 Todos become ordinary blocks that can sit anywhere in that tree (phase 2), and
 the todo panel is a view over them.
 
 The standup, for example: in the Standup task, type "Sep 28" and post it with
-Alt+Enter. That starts the task (posting on a task canvas does) and opens the
-new block's page. Notes and action items go inside it. Anything worth keeping
+Alt+Enter. That starts the task (posting on a task canvas does, with the
+time tracking extension, devlog-time) and opens the new block's page. Notes and action items go inside it. Anything worth keeping
 at the top is an edit of the block, the page's surface. The Standup task then
 reads as a list of dated blocks, each one openable.
 
@@ -48,18 +48,20 @@ reads as a list of dated blocks, each one openable.
 3. **Ticking a todo off no longer writes a "✓" block;** the todo shows as
    done where it is, and the timeline shows when it was ticked. Existing
    "✓" blocks stay as history.
-4. **Todo panel order:** grouped by canvas (collapsible sections; a chain
-   of canvases with a single path collapses into one heading), then in the
-   order the todos appear in their streams. Drag to reorder within a group.
-   There is no ranking across groups.
+4. **Todo panel order:** grouped under the canvases and blocks the todos
+   sit in (collapsible sections; a chain with a single path collapses into
+   one heading), then in the order the todos appear in their streams. Drag
+   to reorder among the todos beside it (the same day file, inside the same
+   block). There is no ranking across groups. Ticked todos stay in a Done
+   section for 14 days.
 5. **Opening a page:** double-click a block, click its chip, or its Open
    action. On a page, double-clicking the surface edits it.
-6. **Making a block with blocks inside it a task** moves those blocks into
-   the new task canvas; the block stays where it was as the link to it
-   (phase 3).
-7. **A task is a canvas you can record time against.** Block pages do not
-   track time on their own; a page inside a task canvas belongs to that
-   task, so posting anywhere in it makes the task active.
+6. **Making a block with blocks inside it a task** (**Make task**, from the
+   time extension, through `devlog.promote`) moves those blocks into the new
+   task canvas; the block stays where it was as the link to it (phase 3).
+7. **A task is a canvas you can record time against** (with devlog-time).
+   Block pages do not track time on their own; a page inside a task canvas
+   belongs to that task, so posting anywhere in it makes the task active.
 
 ## Phases
 
@@ -72,7 +74,7 @@ reads as a list of dated blocks, each one openable.
 2. **Todos as blocks.** The conversion (format 4), `[ ]` and pasted
    checklists posting one todo per line, a checkbox in the stream, the todo
    page (checkbox in the header), the panel built from the index (grouped
-   by canvas; Here is the page on screen and everything beneath it),
+   by canvas and block; Here is everything inside the page on screen),
    extension API 1.4 (`parentId` when adding, todo state, a todo query).
 3. **Polish.** Move under another block, making a block with children a
    task (decision 6), recent pages in the quick switcher.
