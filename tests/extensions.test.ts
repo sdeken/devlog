@@ -342,16 +342,15 @@ describe('extensions in the app', () => {
     expect(r.notices.map((n: { type: string; reason?: string }) => [n.type, n.reason])).toEqual([['pause', 'locked']])
   })
 
-  it('asks again when its code changes, and stops when consent is withdrawn', async () => {
+  it('a built-in keeps its grant when the app brings a new build; stops when consent is withdrawn', async () => {
     await manager.load()
     await manager.allow('probe', { read: { all: true }, write: null })
     const consent = new ConsentStore(path.join(userData, 'consent.json'))
     const c = await consent.get(root, 'builtin.probe')
     await consent.set(root, 'builtin.probe', { ...c!, sha256: 'an older build' })
     await manager.restart('probe')
-    expect((await manager.list())[0]).toMatchObject({ state: 'needs-consent', changedSinceConsent: true })
-    await manager.allow('probe', { read: { all: true }, write: null })
-    expect((await manager.list())[0].state).toBe('running')
+    expect((await manager.list())[0]).toMatchObject({ state: 'running', changedSinceConsent: false, grant: { read: { all: true }, write: null } })
+    expect((await consent.get(root, 'builtin.probe'))?.sha256).toBe(c!.sha256)
     await manager.revoke('probe')
     expect((await manager.list())[0]).toMatchObject({ state: 'needs-consent', grant: null })
     await expect(manager.runCommand('probe', 'probe')).rejects.toThrow(/not running/)

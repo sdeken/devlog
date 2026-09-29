@@ -7,7 +7,8 @@ import { typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 export type SwitchTarget =
   | { kind: 'canvas'; canvasId: string }
-  | { kind: 'view'; view: 'review' | 'timeline' | 'summary' | 'timesheet' }
+  | { kind: 'view'; view: 'review' | 'timeline' }
+  | { kind: 'page'; page: string }
   | { kind: 'settings'; page?: string }
   | { kind: 'block'; canvasId: string; date: string; id: string }
   | { kind: 'command'; extension: string; command: string }
@@ -18,8 +19,6 @@ interface Props {
   extensions?: ExtensionInfo[]
   /** Block pages opened lately, newest first. */
   recentPages?: Array<{ canvasId: string; date: string; id: string; title: string }>
-  /** Offer the time views (Summary, Timesheet): an extension tracks time. */
-  timeViews?: boolean
   /** The node type of the canvas on screen: commands for another type are left out. */
   canvasType?: string
   onPick: (target: SwitchTarget) => void
@@ -47,7 +46,7 @@ function score(query: string, label: string): number {
   return i === q.length ? 1 : 0
 }
 
-export function QuickSwitcher({ canvases, extensions = [], recentPages = [], timeViews = true, canvasType, onPick, onClose }: Props): React.JSX.Element {
+export function QuickSwitcher({ canvases, extensions = [], recentPages = [], canvasType, onPick, onClose }: Props): React.JSX.Element {
   const types = useNodeTypes()
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
@@ -55,10 +54,8 @@ export function QuickSwitcher({ canvases, extensions = [], recentPages = [], tim
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [
-      ...(timeViews ? [{ key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } } as Item] : []),
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
       { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } },
-      ...(timeViews ? [{ key: 'view:timesheet', label: 'Timesheet', hint: 'view', target: { kind: 'view', view: 'timesheet' } } as Item] : []),
       { key: 'settings', label: 'Settings', hint: 'settings', target: { kind: 'settings' } },
       { key: 'extensions', label: 'Extensions', hint: 'settings', target: { kind: 'settings', page: 'extensions' } }
     ]
@@ -73,6 +70,8 @@ export function QuickSwitcher({ canvases, extensions = [], recentPages = [], tim
       })
     })
     for (const e of extensions) {
+      // Pages extensions bring (Timesheet, Summary) are views like the app's own.
+      for (const v of e.views) if (v.placement === 'page') out.push({ key: `page:${e.key}/${v.id}`, label: v.title, hint: 'view', target: { kind: 'page', page: `${e.key}/${v.id}` } })
       for (const c of e.commands) {
         // Note-box commands post first; commands for a node type show on canvases of that type.
         if (c.post || (c.nodeType && c.nodeType !== canvasType)) continue
@@ -88,7 +87,7 @@ export function QuickSwitcher({ canvases, extensions = [], recentPages = [], tim
       })
     }
     return out
-  }, [canvases, extensions, recentPages, types, canvasType, timeViews])
+  }, [canvases, extensions, recentPages, types, canvasType])
 
   const results = useMemo(() => {
     return items

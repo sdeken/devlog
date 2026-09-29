@@ -103,4 +103,12 @@ export const devlog = {
   }
 }
 
+// Shortcuts the page does not use (Ctrl+K, Alt+←, …) belong to the app around it.
+window.addEventListener('keydown', (ev) => {
+  if (ev.defaultPrevented) return
+  if (!(ev.ctrlKey || ev.metaKey || ev.altKey || /^F\d+$/.test(ev.key))) return
+  if (['Control', 'Meta', 'Alt', 'Shift'].includes(ev.key)) return
+  send({ type: 'key', key: ev.key, code: ev.code, ctrlKey: ev.ctrlKey, metaKey: ev.metaKey, altKey: ev.altKey, shiftKey: ev.shiftKey })
+})
+
 send({ type: 'ready' })

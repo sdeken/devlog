@@ -3,7 +3,7 @@ import type { AppToView, ViewContext, ViewToApp } from '@devlog/extension-api/vi
 import { api } from '@renderer/api'
 
 /** The app's colour tokens a view gets, read from the live stylesheet so theme changes reach it. */
-const THEME_VARS = ['--bg', '--bg-2', '--bg-3', '--fg', '--fg-muted', '--border', '--accent', '--accent-fg', '--warn', '--danger', '--shadow', '--mono', '--font']
+const THEME_VARS = ['--bg', '--bg-2', '--bg-3', '--fg', '--fg-muted', '--border', '--border-strong', '--accent', '--accent-fg', '--warn', '--danger', '--ok', '--link', '--code-bg', '--shadow', '--mono', '--sans', '--font']
 
 function themeMessage(): AppToView {
   const css = getComputedStyle(document.documentElement)
@@ -83,6 +83,12 @@ export function ExtensionView({ extKey, viewId, url, title, className, onResize,
           break
         case 'open':
           if (typeof msg.canvasId === 'string') h.onOpen?.({ canvasId: msg.canvasId, date: msg.date, blockId: msg.blockId })
+          break
+        case 'key':
+          // A shortcut the page did not use: as if pressed in the app.
+          document.body.dispatchEvent(
+            new KeyboardEvent('keydown', { key: String(msg.key), code: String(msg.code), ctrlKey: Boolean(msg.ctrlKey), metaKey: Boolean(msg.metaKey), altKey: Boolean(msg.altKey), shiftKey: Boolean(msg.shiftKey), bubbles: true, cancelable: true })
+          )
           break
         case 'command':
           void api.extensions.run(extKey, String(msg.command), { source: 'view', ...contextRef.current }).catch(() => undefined)

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { DestinationLine, SendResult } from '@devlog/extension-api'
-import { api } from '@renderer/api'
+import { api, type DestinationRef } from './api'
 
 interface Props {
-  extensionKey: string
-  destination: string
+  to: DestinationRef
   label: string
   week: string
   onClose: () => void
@@ -20,7 +19,7 @@ const when = (l: DestinationLine): string => {
 }
 
 /** Preview what a destination would do with the week's timesheet, then send it. */
-export function SendDialog({ extensionKey, destination, label, week, onClose }: Props): React.JSX.Element {
+export function SendDialog({ to, label, week, onClose }: Props): React.JSX.Element {
   const [lines, setLines] = useState<DestinationLine[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -30,12 +29,12 @@ export function SendDialog({ extensionKey, destination, label, week, onClose }: 
   const load = (): void => {
     setLines(null)
     setError(null)
-    api.extensions
-      .previewSend(extensionKey, destination, week)
+    api
+      .previewSend(to, week)
       .then(setLines)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)))
   }
-  useEffect(load, [extensionKey, destination, week]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(load, [to.extension, to.id, week]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const onKey = (ev: KeyboardEvent): void => {
@@ -49,7 +48,7 @@ export function SendDialog({ extensionKey, destination, label, week, onClose }: 
     setBusy(true)
     setError(null)
     try {
-      setResult(await api.extensions.send(extensionKey, destination, week))
+      setResult(await api.send(to, week))
       load()
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))

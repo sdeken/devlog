@@ -71,8 +71,6 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.extAppState, () => deps.getExtensions()?.appState() ?? { trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [], providesTime: false })
   ipcMain.handle(IPC.extAnswerPick, (_e, id: number, choice: string | null) => deps.answerPick(Number(id), typeof choice === 'string' ? choice : null))
   ipcMain.handle(IPC.extViewCall, (_e, key: string, viewId: string, method: string, args: unknown[]) => ext().viewCall(String(key), String(viewId), String(method), Array.isArray(args) ? args : []))
-  ipcMain.handle(IPC.extDestPreview, (_e, key: string, destId: string, week: string) => ext().destinationPreview(String(key), String(destId), String(week)))
-  ipcMain.handle(IPC.extDestSend, (_e, key: string, destId: string, week: string) => ext().destinationSend(String(key), String(destId), String(week)))
   ipcMain.handle(IPC.extBuiltins, () => deps.builtinExtensions())
   ipcMain.handle(IPC.extGithubToken, async (_e, token?: string | null) => {
     if (token !== undefined) await deps.githubToken.set(typeof token === 'string' && token.trim() ? token.trim() : null)
@@ -176,9 +174,6 @@ export function registerIpc(deps: IpcDeps): void {
     await deps.onEntryAdded(canvasId, result.date, result.entry)
     return result
   })
-  // Timesheets
-  ipcMain.handle(IPC.timesheetGet, (_e, week: string) => requireStore(deps).readTimesheet(String(week)))
-  ipcMain.handle(IPC.timesheetSave, (_e, sheet: unknown) => requireStore(deps).saveTimesheet(sheet))
   // Todos: blocks with kind=todo, anywhere in the streams
   ipcMain.handle(IPC.todosList, (_e, opts?: { doneSince?: string }) => requireStore(deps).listTodos({ doneSince: typeof opts?.doneSince === 'string' ? opts.doneSince : undefined }))
   ipcMain.handle(IPC.todosAdd, (_e, canvasId: string, texts: string[], position?: { date?: string; parentId?: string }) =>

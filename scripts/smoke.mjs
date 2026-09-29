@@ -64,6 +64,7 @@ try {
   const canvasFolder = (id) => path.join(repo, 'canvases', id.slice(0, 2), id)
   // The time extension's status bar item (a view in a sandboxed frame).
   const timeStatus = () => page.frameLocator('[data-ext-view="devlog-time/status"] iframe')
+  const timePage = (id) => page.locator(`.sidebar-ext-pages [data-ext-page="devlog-time/${id}"]`).click()
   const stopClock = async () => {
     await timeStatus().getByRole('button', { name: 'Stop' }).click()
     await timeStatus().getByText('No active task').waitFor({ timeout: 10_000 })
@@ -626,13 +627,15 @@ try {
   check(true, 'clicking a timeline block opens its canvas')
 
   // 3g. Summary: hours per top-level item, rounded to the chosen granularity.
-  await page.locator('.sidebar-views .view-link', { hasText: 'Summary' }).click()
-  await page.waitForSelector('.sum-list', { timeout: 10_000 })
-  const sumLabels = await page.locator('.sum-list > .sum-row > .sum-top > .sum-label').allTextContents()
+  // The Summary is the time extension's page (a view in a sandboxed frame), listed with the app's views.
+  await timePage('summary')
+  const sum = page.frameLocator('iframe.ext-page-view')
+  await sum.locator('.sum-list').waitFor({ timeout: 20_000 })
+  const sumLabels = await sum.locator('.sum-list > .sum-row > .sum-top > .sum-label').allTextContents()
   check(sumLabels[0].trim() === 'Acme Corp' && sumLabels.includes('Total'), `summary lists top-level items (${sumLabels.join(' | ')})`)
-  check(/^\d+(\.\d+)? h$/.test((await page.locator('.sum-list > .sum-row > .sum-top > .sum-hours').first().textContent()).trim()), 'summary shows rounded hours')
-  await page.locator('.sum-toggle').first().click()
-  check((await page.locator('.sum-children .sum-label').first().textContent()).includes('Website'), 'summary rows expand into projects')
+  check(/^\d+(\.\d+)? h$/.test((await sum.locator('.sum-list > .sum-row > .sum-top > .sum-hours').first().textContent()).trim()), 'summary shows rounded hours')
+  await sum.locator('.sum-toggle').first().click()
+  check((await sum.locator('.sum-children .sum-label').first().textContent()).includes('Website'), 'summary rows expand into projects')
   await page.screenshot({ path: path.join(shots, '02f-summary.png') })
 
   // 3g'. Speed: with a busy day of window switching from a second machine, the review and summary still open quickly.
@@ -646,14 +649,25 @@ try {
     busy.push(JSON.stringify(i % 50 ? { t, type: 'focus', app: `app${i % 7}`, title: `window ${i % 23}` } : { t, type: 'heartbeat' }))
   }
   await fs.writeFile(path.join(busyDir, `${ymd}.jsonl`), `${busy.join('\n')}\n`)
-  for (const [label, sel] of [
-    ['Weekly review', '.review-table'],
-    ['Summary', '.sum-list']
+  for (const [label, open] of [
+    [
+      'Weekly review',
+      async () => {
+        await page.locator('.sidebar-views .view-link', { hasText: 'Weekly review' }).click()
+        await page.waitForSelector('.review-table', { timeout: 60_000 })
+      }
+    ],
+    [
+      'Summary',
+      async () => {
+        await timePage('summary')
+        await page.frameLocator('iframe.ext-page-view').locator('.sum-list').waitFor({ timeout: 60_000 })
+      }
+    ]
   ]) {
     await openCanvasNamed('Scratch')
     const t0 = Date.now()
-    await page.locator('.sidebar-views .view-link', { hasText: label }).click()
-    await page.waitForSelector(sel, { timeout: 60_000 })
+    await open()
     const took = Date.now() - t0
     check(took < 3000, `${label} opens quickly with a busy day of activity from two machines (${took} ms)`)
   }
@@ -663,8 +677,8 @@ try {
   await openCanvasNamed('Scratch')
   await page.locator('.sidebar-views .view-link', { hasText: 'Weekly review' }).click()
   await page.waitForSelector('.review-table', { timeout: 10_000 })
-  await page.locator('.sidebar-views .view-link', { hasText: 'Summary' }).click()
-  await page.waitForSelector('.sum-list', { timeout: 10_000 })
+  await timePage('summary')
+  await page.frameLocator('iframe.ext-page-view').locator('.sum-list').waitFor({ timeout: 10_000 })
   await page.keyboard.press('Alt+ArrowLeft')
   await page.waitForSelector('.review-table', { timeout: 10_000 })
   check(true, 'Alt+← goes back to the weekly review')
@@ -1005,39 +1019,41 @@ try {
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow)
     const week = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
 
-    await page.locator('.sidebar-views .view-link', { hasText: 'Timesheet' }).click()
-    await page.waitForSelector('.timesheet .ts-grid', { timeout: 20_000 })
-    check((await page.locator('.ts-state').textContent()).includes('not saved yet'), 'the timesheet opens as a draft from tracked time, not saved yet')
+    // The Timesheet is the time extension's page, in a sandboxed frame.
+    await timePage('timesheet')
+    const ts = page.frameLocator('iframe.ext-page-view')
+    await ts.locator('.timesheet .ts-grid').waitFor({ timeout: 20_000 })
+    const tsFrame = page.frames().find((f) => f.url().endsWith('/timesheet.html'))
+    check((await ts.locator('.ts-state').textContent()).includes('not saved yet'), 'the timesheet opens as a draft from tracked time, not saved yet')
     const minutesOf = (t) => {
       const m = /(\d+):(\d{2})/.exec(t ?? '')
       return m ? Number(m[1]) * 60 + Number(m[2]) : 0
     }
-    const cell = page.locator(`.ts-cell-btn[data-canvas="${websiteId}"][data-date="${seedYmd}"]`)
-    const dayTotal = page.locator(`.ts-total-row .ts-day-total[data-date="${seedYmd}"]`)
+    const cell = ts.locator(`.ts-cell-btn[data-canvas="${websiteId}"][data-date="${seedYmd}"]`)
+    const dayTotal = ts.locator(`.ts-total-row .ts-day-total[data-date="${seedYmd}"]`)
     const cellBefore = minutesOf(await cell.textContent())
     const totalBefore = minutesOf(await dayTotal.textContent())
     check(cellBefore >= 60 && totalBefore >= cellBefore, `the grid shows Website's time that day in its cell, and the day's total (${cellBefore} of ${totalBefore} min)`)
-    check((await page.locator(`.ts-client-row .ts-client-label`, { hasText: 'Acme Corp' }).count()) === 1, 'tasks roll up under their client')
+    check((await ts.locator(`.ts-client-row .ts-client-label`, { hasText: 'Acme Corp' }).count()) === 1, 'tasks roll up under their client')
     await cell.click()
-    await page.waitForSelector('.ts-detail .ts-row', { timeout: 5_000 })
-    const rowId = await page.evaluate(() => [...document.querySelectorAll('.ts-detail .ts-row')].find((r) => r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null)
+    await ts.locator('.ts-detail .ts-row').first().waitFor({ timeout: 5_000 })
+    const rowId = await tsFrame.evaluate(() => [...document.querySelectorAll('.ts-detail .ts-row')].find((r) => r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null)
     check(rowId !== null, 'an hour tracked on Website becomes a 1:00 entry')
     if (rowId) {
-      const row = page.locator(`.ts-row[data-entry="${rowId}"]`)
+      const row = ts.locator(`.ts-row[data-entry="${rowId}"]`)
       check((await row.locator('.ts-hours').textContent()) === '1:00', 'the entry reports 1:00')
       await row.locator('button[aria-label="15 minutes more"]').click()
       check((await row.locator('.ts-hours').textContent()) === '1:15', 'durations change in 15-minute steps')
       check(minutesOf(await cell.textContent()) === cellBefore + 15 && minutesOf(await dayTotal.textContent()) === totalBefore + 15, 'the cell and the day total follow')
-      await page.waitForSelector('.ts-state.state-saved', { timeout: 10_000 })
-      const stored = await page.evaluate((w) => window.devlog.timesheets.get(w), week)
-      check(stored?.entries.some((e) => e.canvasId === websiteId && e.minutes === 75), 'the change is saved')
+      await ts.locator('.ts-state.state-saved').waitFor({ timeout: 10_000 })
       const tsCanvas = (await page.evaluate(() => window.devlog.canvases.list())).find((c) => c.title === 'Timesheets')
       const tsFile = path.join(canvasFolder(tsCanvas.id), 'entries', week.slice(0, 4), week.slice(5, 7), `${week}.md`)
       const tsText = await fs.readFile(tsFile, 'utf8')
-      check(tsText.includes('kind=timesheet') && tsText.includes('| 1:15 |') && tsText.includes('```devlog-timesheet'), 'it is a readable table in the Timesheets canvas, with its data')
-      await page.locator('.ts-actions button', { hasText: 'Mark final' }).click()
-      await page.waitForSelector('.ts-state.is-final', { timeout: 10_000 })
-      check((await page.locator('.ts-add').count()) === 0 && (await row.locator('button[aria-label="15 minutes more"]').isDisabled()), 'a final timesheet is read-only until reopened')
+      check(tsText.includes('kind=timesheet') && tsText.includes('| 1:15 |') && tsText.includes('```devlog-timesheet'), 'the change is saved: a readable table in the Timesheets canvas, with its data')
+      check(tsText.includes('ext=builtin.devlog-time') && (await fs.readFile(path.join(canvasFolder(tsCanvas.id), 'canvas.md'), 'utf8')).includes('devlog.managed: timesheets'), 'the time extension writes it, in the canvas it keeps')
+      await ts.locator('.ts-actions button', { hasText: 'Mark final' }).click()
+      await ts.locator('.ts-state.is-final').waitFor({ timeout: 10_000 })
+      check((await ts.locator('.ts-add').count()) === 0 && (await row.locator('button[aria-label="15 minutes more"]').isDisabled()), 'a final timesheet is read-only until reopened')
       await page.screenshot({ path: path.join(shots, '04c-timesheet.png') })
 
       // Send the final week to Jira (a fake one on localhost) through the built-in extension.
@@ -1058,6 +1074,7 @@ try {
       })
       await new Promise((r) => jira.listen(0, '127.0.0.1', r))
       await page.evaluate((id) => window.devlog.canvases.update(id, { fields: { 'ext.builtin.devlog-jira.issue': 'WEB-42' } }), websiteId)
+      // A shortcut pressed in an extension's page (the Timesheet has the focus) still reaches the app.
       await page.keyboard.press('Control+k')
       await page.waitForSelector('.switcher input', { timeout: 5_000 })
       await page.keyboard.type('extensions')
@@ -1082,17 +1099,20 @@ try {
       check((await jiraItem.locator('.ext-secret-dots').count()) === 1, 'the token is kept on this computer and not shown again')
       await page.screenshot({ path: path.join(shots, '04e-extension-settings.png') })
       await closeSettings()
-      await page.locator('.ts-actions .ts-send', { hasText: 'Send to Jira' }).waitFor({ timeout: 10_000 })
-      await page.locator('.ts-actions .ts-send', { hasText: 'Send to Jira' }).click()
-      await page.waitForSelector('.modal-send .send-counts', { timeout: 20_000 })
-      check((await page.locator('.modal-send .send-line.action-create .send-target').allTextContents()).includes('WEB-42'), 'the send preview lists a new worklog on the issue set on the canvas')
+      await ts.locator('.ts-actions .ts-send', { hasText: 'Send to Jira' }).waitFor({ timeout: 10_000 })
+      check(true, "the time extension offers the Jira extension's destination")
+      await ts.locator('.ts-actions .ts-send', { hasText: 'Send to Jira' }).click()
+      await ts.locator('.modal-send .send-counts').waitFor({ timeout: 20_000 })
+      check((await ts.locator('.modal-send .send-line.action-create .send-target').allTextContents()).includes('WEB-42'), 'the send preview (through the app, from the Jira extension) lists a new worklog on the issue set on the canvas')
       await page.screenshot({ path: path.join(shots, '04d-send-to-jira.png') })
-      await page.locator('.modal-send button', { hasText: /^Send \d/ }).click()
-      await page.waitForSelector('.modal-send .send-result, .modal-send .form-error', { timeout: 30_000 })
-      const sendText = await page.locator('.modal-send .send-result, .modal-send .form-error').first().textContent()
+      await ts.locator('.modal-send button', { hasText: /^Send \d/ }).click()
+      await ts.locator('.modal-send .send-result, .modal-send .form-error').first().waitFor({ timeout: 30_000 })
+      const sendText = await ts.locator('.modal-send .send-result, .modal-send .form-error').first().textContent()
       check(/worklogs? created/.test(sendText) && jiraRequests.some((r) => r.method === 'POST' && r.url === '/rest/api/2/issue/WEB-42/worklog'), `sending creates the worklogs in Jira (${sendText})`)
-      check((await page.locator('.modal-send button', { hasText: 'Nothing to send' }).count()) === 1, 'afterwards there is nothing left to send')
-      await page.locator('.modal-send button', { hasText: 'Close' }).click()
+      await ts.locator('.modal-send button', { hasText: 'Nothing to send' }).waitFor({ timeout: 10_000 })
+      check(true, 'afterwards there is nothing left to send')
+      check((await fs.readFile(tsFile, 'utf8')).includes('Sent to Jira: '), 'what was sent is written inside the week, in the Timesheets canvas')
+      await ts.locator('.modal-send button', { hasText: 'Close' }).click()
       jira.close()
     }
     await fs.rm(path.join(repo, 'activity', 'sheet-machine-0000'), { recursive: true, force: true })

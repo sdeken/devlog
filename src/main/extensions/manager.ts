@@ -15,7 +15,6 @@ import {
   inheritedField,
   MANAGED_FIELD,
   TIMESHEETS_MANAGED,
-  localDate,
   nodeTypeName,
   sanitizeTimesheet,
   parseExtensionEntry,
@@ -227,7 +226,12 @@ export class ExtensionManager {
   private async startIfAllowed(rec: Rec): Promise<void> {
     const ext = rec.installed
     if (!ext) return
-    const consent = await this.deps.consent.get(this.deps.root, ext.id)
+    let consent = await this.deps.consent.get(this.deps.root, ext.id)
+    // A built-in comes with the app you updated: once allowed, a new build keeps its grant (asking to run unrestricted still needs your trust).
+    if (consent && consent.sha256 !== ext.sha256 && ext.source.kind === 'builtin' && !ext.dev) {
+      consent = { ...consent, sha256: ext.sha256, at: new Date().toISOString() }
+      await this.deps.consent.set(this.deps.root, ext.id, consent)
+    }
     if (!consent || consent.sha256 !== ext.sha256 || (ext.manifest.permissions.unrestricted && !consent.grant.trusted)) {
       rec.state = 'needs-consent'
       rec.grant = null

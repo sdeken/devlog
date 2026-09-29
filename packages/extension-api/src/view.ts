@@ -28,6 +28,8 @@ export type ViewToApp =
   | { devlog: 1; type: 'open'; canvasId: string; date?: string; blockId?: string }
   /** Run one of the extension's commands (with the view's context, 1.6). */
   | { devlog: 1; type: 'command'; command: string }
+  /** A shortcut the page did not use (Ctrl, Alt or Cmd with a key; F-keys), for the app's own (1.7). */
+  | { devlog: 1; type: 'key'; key: string; code: string; ctrlKey: boolean; metaKey: boolean; altKey: boolean; shiftKey: boolean }
 
 /** From the app to the page. */
 export type AppToView =

@@ -63,14 +63,7 @@ import {
   descendantCanvasIds,
   isFieldKey,
   isValidCanvasId,
-  canvasLabel,
-  topLevelCanvasId,
   MANAGED_FIELD,
-  TIMESHEETS_MANAGED,
-  parseTimesheet,
-  sanitizeTimesheet,
-  serializeTimesheet,
-  type Timesheet,
   isWithin,
   newCanvasId,
   parseCanvasFile,
@@ -768,13 +761,8 @@ export class DevlogStore extends EventEmitter {
   }
 
   // -------------------------------------------------------------------------
-  // Timesheets: one block per week in a canvas Devlog manages (see docs/TIMESHEETS.md)
+  // Canvases extensions keep (the time extension's Timesheets; see docs/TIMESHEETS.md)
   // -------------------------------------------------------------------------
-
-  /** The canvas timesheets are kept in, marked by a field; created on first use. */
-  async timesheetsCanvas(create = false): Promise<CanvasMeta | null> {
-    return this.managedCanvas(TIMESHEETS_MANAGED, create ? 'Timesheets' : null)
-  }
 
   /**
    * A canvas kept by an extension (or the app), found by the owner named in
@@ -786,50 +774,6 @@ export class DevlogStore extends EventEmitter {
     if (found || !title) return found ?? null
     const c = await this.createCanvas({ title })
     return this.updateCanvas(c.id, { fields: { [MANAGED_FIELD]: owner } })
-  }
-
-  /** The saved timesheet for a week (by its Monday), or null. */
-  async readTimesheet(week: string): Promise<Timesheet | null> {
-    assertDate(week)
-    const c = await this.timesheetsCanvas(false)
-    if (!c) return null
-    const block = (await this.readDay(c.id, week)).entries.find((e) => e.kind === 'timesheet' && e.meta?.week === week)
-    return block ? parseTimesheet(block.markdown) : null
-  }
-
-  /**
-   * Save a week's timesheet: the first save adds its block (on the week's
-   * Monday), later saves are edit records, so the history of the shuffling
-   * is kept.
-   */
-  async saveTimesheet(input: unknown, now: Date = new Date()): Promise<Timesheet> {
-    const sheet = sanitizeTimesheet({ ...(input as object), updatedAt: now.toISOString() })
-    const canvas = (await this.timesheetsCanvas(true))!
-    const all = await this.listCanvases()
-    const markdown = serializeTimesheet(
-      sheet,
-      (id) => canvasLabel(all, id),
-      (id) => topLevelCanvasId(all, id)
-    )
-    await this.mutateDay(canvas.id, sheet.week, (log) => {
-      const existing = log.entries.find((e) => e.kind === 'timesheet' && e.meta?.week === sheet.week)
-      if (existing) return { ops: planEdit(log, existing.id, markdown, stampFor(log, now)), result: null }
-      const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown, kind: 'timesheet', meta: { week: sheet.week } }
-      return { ops: planAdd(log, entry, {}, entry.createdAt), result: null }
-    })
-    return sheet
-  }
-
-  /** A read-only note under a week's timesheet (what was sent where), written for an extension. */
-  async addTimesheetRecord(week: string, extensionId: string, markdown: string, meta: Record<string, string> = {}, now: Date = new Date()): Promise<Entry> {
-    const canvas = await this.timesheetsCanvas(false)
-    if (!canvas) throw new Error('No timesheets yet')
-    return this.mutateDay(canvas.id, week, (log) => {
-      const sheet = log.entries.find((e) => e.kind === 'timesheet' && e.meta?.week === week)
-      if (!sheet) throw new Error(`No timesheet for the week of ${week}`)
-      const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim(), parentId: sheet.id, meta: { ...meta, ext: extensionId } }
-      return { ops: planAdd(log, entry, { parentId: sheet.id }, entry.createdAt), result: entry }
-    })
   }
 
   /** Hide (or reveal) a block. Hidden blocks stay in the file and in search; the stream collapses them. */

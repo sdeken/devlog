@@ -20,8 +20,8 @@ import type {
   UpdateStatus
 } from '../shared/types'
 import type { ExtensionAppState, ExtensionInfo, ExtensionPickRequest, ExtensionUpdateReport } from '../shared/extensions'
-import type { Grant, Timesheet } from '@devlog/core'
-import type { CommandContext, DestinationLine, SendResult } from '@devlog/extension-api'
+import type { Grant } from '@devlog/core'
+import type { CommandContext } from '@devlog/extension-api'
 
 type Unsubscribe = () => void
 
@@ -89,12 +89,6 @@ const api = {
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
-  timesheets: {
-    /** The saved timesheet for the week starting on `week` (a Monday), or null. */
-    get: (week: string): Promise<Timesheet | null> => ipcRenderer.invoke(IPC.timesheetGet, week),
-    /** Save (the first save creates the week's block in the Timesheets canvas). */
-    save: (sheet: Timesheet): Promise<Timesheet> => ipcRenderer.invoke(IPC.timesheetSave, sheet)
-  },
   extensions: {
     /** Extensions of the open devlog, with their state. */
     list: (): Promise<ExtensionInfo[]> => ipcRenderer.invoke(IPC.extList),
@@ -129,10 +123,6 @@ const api = {
     githubToken: (token?: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.extGithubToken, token),
     /** Extensions that ship with Devlog (add one with its name and "builtin"). */
     builtins: (): Promise<Array<{ name: string; displayName: string; description?: string }>> => ipcRenderer.invoke(IPC.extBuiltins),
-    /** What sending the week's saved timesheet to an extension's destination would do. */
-    previewSend: (key: string, destination: string, week: string): Promise<DestinationLine[]> => ipcRenderer.invoke(IPC.extDestPreview, key, destination, week),
-    /** Send a final timesheet; recorded under it in the Timesheets canvas. */
-    send: (key: string, destination: string, week: string): Promise<SendResult> => ipcRenderer.invoke(IPC.extDestSend, key, destination, week),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evExtensionsChanged, cb),
     onNotify: (cb: (text: string) => void): Unsubscribe => on(IPC.evNotify, cb)
   },

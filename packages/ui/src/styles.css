@@ -10,10 +10,14 @@
   --fg: #1d1c1d;
   --fg-muted: #616061;
   --border: #dddddd;
+  --border-strong: #bbbbbb;
   --accent: #1264a3;
   --accent-fg: #ffffff;
   --warn: #b7791f;
   --danger: #c53030;
+  --ok: #2bac76;
+  --link: #1264a3;
+  --code-bg: #f3f3f3;
   --shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
   --font: -apple-system, 'Segoe UI', system-ui, sans-serif;

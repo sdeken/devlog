@@ -1,9 +1,9 @@
 {
   "name": "devlog-time",
   "displayName": "Time tracking",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Tasks you record time against: one active task at a time, paused while the computer is locked, idle or asleep. Brings the Start/Stop item, the task type, posting as a task, and the time behind the timeline, review, summary and timesheet.",
-  "api": "^1.6.0",
+  "api": "^1.7.0",
   "main": "dist/main.js",
   "contributes": {
     "nodeTypes": [
@@ -66,9 +66,28 @@
         "menus": [
           "block"
         ]
+      },
+      {
+        "id": "open-summary",
+        "label": "Open the Summary",
+        "keybinding": "Mod+Shift+H"
       }
     ],
     "views": [
+      {
+        "id": "timesheet",
+        "title": "Timesheet",
+        "entry": "dist/views/timesheet.html",
+        "placement": "page",
+        "icon": "▤"
+      },
+      {
+        "id": "summary",
+        "title": "Summary",
+        "entry": "dist/views/summary.html",
+        "placement": "page",
+        "icon": "Σ"
+      },
       {
         "id": "status",
         "title": "Time tracking",
@@ -92,7 +111,8 @@
   },
   "permissions": {
     "read": true,
-    "write": true
+    "write": true,
+    "send": true
   },
   "appendOnly": [
     "**/*.jsonl"

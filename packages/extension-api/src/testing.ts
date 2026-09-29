@@ -299,14 +299,16 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
         if (!within(opts.write, canvasId)) throw new Error('No write access to that canvas')
         const at = now()
         const date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
-        const day = o?.parentId && o.date ? o.date : date
+        const managed = Boolean(canvases.find((x) => x.id === canvasId)?.fields['devlog.managed'])
+        if (o?.kind && !managed) throw new Error('devlog.addBlock: a kind only on a canvas it keeps')
+        const day = o?.date && (o.parentId || managed) ? o.date : date
         const block: ExtensionBlock = {
           id: `b${h.added.length + 1}`,
           createdAt: at.toISOString(),
           markdown: markdown.trim(),
           meta: { ext: id, ...(o?.meta ?? {}) },
           ...(o?.parentId ? { parentId: o.parentId } : {}),
-          ...(o?.todo ? { kind: 'todo' } : {})
+          ...(o?.todo ? { kind: 'todo' } : o?.kind ? { kind: o.kind } : {})
         }
         const c = canvases.find((x) => x.id === canvasId)
         if (c) (c.days ??= {})[day] = [...(c.days[day] ?? []), block]
@@ -357,7 +359,7 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
         if (!within(opts.write, canvasId)) throw new Error('No write access to that canvas')
         const b = canvas(canvasId).days?.[date]?.find((x) => x.id === blockId)
         if (!b) throw new Error(`Entry ${blockId} not found on ${date}`)
-        if (b.meta?.ext !== id) throw new Error('Only blocks it added')
+        if (b.meta?.ext !== id && !canvas(canvasId).fields['devlog.managed']) throw new Error('Only blocks it added')
         b.markdown = markdown.trim()
         b.updatedAt = now().toISOString()
         return { ...b }

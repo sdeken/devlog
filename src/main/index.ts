@@ -364,7 +364,7 @@ function refreshCommitWatchers(): Promise<void> {
 async function refreshCommitWatchersNow(): Promise<void> {
   if (!store || !commits) return
   if (!settings.get().captureCommits) {
-    const canvases = await store.listCanvases()
+    allCanvases = await store.listCanvases()
     await commits.setRepos([])
     return
   }
@@ -809,7 +809,6 @@ if (!gotLock) {
       search: menuCmd('search'),
       newCanvas: menuCmd('newCanvas'),
       review: menuCmd('review'),
-      summary: menuCmd('summary'),
       switcher: menuCmd('switcher'),
       timeline: menuCmd('timeline'),
       back: menuCmd('back'),

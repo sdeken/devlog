@@ -12,10 +12,8 @@ import { CanvasDialog } from './components/CanvasDialog'
 import { LinkRepoDialog } from './components/LinkRepoDialog'
 import { TodoPanel } from './components/TodoPanel'
 import { Review } from './components/Review'
-import { Summary } from './components/Summary'
 import { ExtensionPick, QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
 import { Timeline } from './components/Timeline'
-import { Timesheet } from './components/Timesheet'
 import { Sidebar, type SidebarSelection } from './components/Sidebar'
 import { TopBar } from './components/TopBar'
 import { StatusBar } from './components/StatusBar'
@@ -37,7 +35,7 @@ import type { ExtensionAppState, ExtensionPickRequest } from '@shared/extensions
 
 const TIMELINE_DAYS = 10
 
-type View = 'canvas' | 'review' | 'summary' | 'timeline' | 'timesheet' | 'ext'
+type View = 'canvas' | 'review' | 'timeline' | 'ext'
 
 /** A block open as a page: its canvas, its day file and its id. */
 interface OpenBlock {
@@ -304,7 +302,6 @@ export function App(): React.JSX.Element {
       if (cmd === 'syncNow') void reported(api.sync.now())
       if (cmd === 'newCanvas') setCanvasDialog({ canvas: null })
       if (cmd === 'review') setView('review')
-      if (cmd === 'summary') setView('summary')
       if (cmd === 'switcher') setSwitcherOpen((v) => !v)
       if (cmd === 'timeline') {
         setTimelineDate(localDate(new Date()))
@@ -391,7 +388,7 @@ export function App(): React.JSX.Element {
 
   // Window title follows the view.
   useEffect(() => {
-    const label = view === 'review' ? 'Weekly review' : view === 'summary' ? 'Summary' : view === 'timeline' ? 'Timeline' : view === 'timesheet' ? 'Timesheet' : canvas ? `${pageTitle ? `${pageTitle} · ` : ''}${canvasLabel(canvases, canvas.id)}` : 'Devlog'
+    const label = view === 'review' ? 'Weekly review' : view === 'timeline' ? 'Timeline' : canvas ? `${pageTitle ? `${pageTitle} · ` : ''}${canvasLabel(canvases, canvas.id)}` : 'Devlog'
     document.title = search ? `Search: ${search} · Devlog` : `${label} · Devlog`
   }, [view, canvases, canvas, search, pageTitle])
 
@@ -649,7 +646,10 @@ export function App(): React.JSX.Element {
         return
       }
       setSearch('')
-      if (target.kind === 'view') {
+      if (target.kind === 'page') {
+        setExtPage(target.page)
+        setView('ext')
+      } else if (target.kind === 'view') {
         if (target.view === 'timeline') setTimelineDate(localDate(new Date()))
         setView(target.view)
       } else openCanvas(target.canvasId)
@@ -777,7 +777,6 @@ export function App(): React.JSX.Element {
           searching={Boolean(search)}
           showJournal={journalHasNotes}
           settingsAttention={extensions.some(needsAttention)}
-          timeViews={Boolean(extState?.providesTime)}
           extPages={extPages}
           onCanvasMenu={openMenu}
           onOpenSettings={() => setSettingsPage('repository')}
@@ -831,7 +830,6 @@ export function App(): React.JSX.Element {
               }}
             />
           )}
-          {view === 'timesheet' && !search && <Timesheet canvases={canvases} today={today} />}
           {view === 'ext' && !search && (openPage ? (
             <ExtensionView
               key={extPage}
@@ -846,7 +844,6 @@ export function App(): React.JSX.Element {
           ) : (
             <p className="feed-empty">That page is not available: its extension is not running.</p>
           ))}
-          {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
           {view === 'timeline' && !search && (
             <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
           )}
@@ -1008,7 +1005,6 @@ export function App(): React.JSX.Element {
             canvases={canvases}
             extensions={extensions}
             recentPages={recentPages}
-            timeViews={Boolean(extState?.providesTime)}
             canvasType={view === 'canvas' ? canvas?.type : undefined}
             onPick={(t) => {
               setSwitcherOpen(false)

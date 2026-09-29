@@ -26,5 +26,5 @@
   },
   "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/index.d.ts", "packages/core/src/index.ts", "packages/core/src/types.ts", "packages/core/src/format/**/*", "packages/core/src/timesheet.ts",
     "packages/core/src/extensions.ts", "packages/extension-api/src/index.ts", "packages/extension-api/src/view.ts",
-    "packages/ui/src/**/*", "builtin-extensions/*/src/views/**/*"]
+    "packages/ui/src/**/*", "builtin-extensions/*/src/views/**/*", "builtin-extensions/*/src/ui/**/*"]
 }

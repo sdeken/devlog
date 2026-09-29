@@ -32,8 +32,6 @@ export const IPC = {
   entryDelete: 'entry:delete',
   entryMove: 'entry:move',
   entryHide: 'entry:hide',
-  timesheetGet: 'timesheet:get',
-  timesheetSave: 'timesheet:save',
   extList: 'ext:list',
   extAdd: 'ext:add',
   extRemove: 'ext:remove',
@@ -46,8 +44,6 @@ export const IPC = {
   extRun: 'ext:run',
   extGithubToken: 'ext:githubToken',
   extBuiltins: 'ext:builtins',
-  extDestPreview: 'ext:destPreview',
-  extDestSend: 'ext:destSend',
   todosList: 'todos:list',
   todosAdd: 'todos:add',
   todoSetDone: 'todo:setDone',
@@ -88,4 +84,4 @@ export const IPC = {
   evExtOpen: 'ev:extOpen'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'back' | 'forward'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'switcher' | 'timeline' | 'back' | 'forward'

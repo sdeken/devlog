@@ -6,6 +6,7 @@ import { createTestContext, type TestCanvas } from '@devlog/extension-api/testin
 import { buildTaskSegments } from '@shared/activity'
 import type { ActivityEvent } from '@shared/types'
 import * as time from '../builtin-extensions/devlog-time/src/main'
+import { Timesheets } from '../builtin-extensions/devlog-time/src/timesheets'
 
 const ID = 'builtin.devlog-time'
 const TASK = `${ID}/task`
@@ -53,7 +54,7 @@ describe('devlog-time', () => {
     await time.activate(t.ctx)
     expect(t.app).toMatchObject({ idleMinutes: 15, keepRunning: true, trayLabel: 'Acme / Fix login', highlight: 'fix' })
     expect(read(t)).toEqual([expect.objectContaining({ type: 'start', canvasId: 'fix' })])
-    expect(t.commands().sort()).toEqual(['maketask', 'posttask', 'start', 'stop', 'switch'])
+    expect(t.commands().sort()).toEqual(['maketask', 'open-summary', 'posttask', 'start', 'stop', 'switch'])
   })
 
   it('drops a saved task that is gone', async () => {
@@ -162,5 +163,81 @@ describe('devlog-time', () => {
     const st = (await t.viewCall('picker', 'newTask', 'Review PRs', 'acme')) as { active: string; label: string }
     expect(st.label).toBe('Acme / Review PRs')
     await expect(t.viewCall('picker', 'newTask', '  ')).rejects.toThrow(/name/)
+  })
+})
+
+describe('devlog-time timesheets', () => {
+  const entry = { id: 'e1', date: '2026-09-22', start: new Date(2026, 8, 22, 9).toISOString(), minutes: 60, canvasId: 'fix', worked: 55, source: 'tracked' as const }
+
+  it('keeps one block per week in its Timesheets canvas; later saves are edits', async () => {
+    const t = setup()
+    const sheets = new Timesheets(t.ctx, () => new Date(2026, 8, 26, 10))
+    expect(await sheets.read('2026-09-21')).toBeNull()
+    const saved = await sheets.save({ week: '2026-09-21', status: 'draft', entries: [entry] })
+    expect(saved.updatedAt).toBe(new Date(2026, 8, 26, 10).toISOString())
+    expect(await sheets.read('2026-09-21')).toEqual(saved)
+    const canvasId = await sheets.canvas()
+    const kept = (await t.ctx.devlog.canvases()).find((c) => c.id === canvasId)
+    expect(kept).toMatchObject({ title: 'Timesheets' })
+    const [block] = await t.ctx.devlog.blocks(canvasId, '2026-09-21')
+    expect(block).toMatchObject({ kind: 'timesheet', meta: { week: '2026-09-21' } })
+    expect(block.markdown).toContain('| 2026-09-22 | 09:00 | 1:00 | Acme / Fix login | Acme |')
+
+    await sheets.save({ ...saved, status: 'final', entries: [{ ...entry, minutes: 45 }] })
+    expect(await sheets.read('2026-09-21')).toMatchObject({ status: 'final', entries: [{ minutes: 45 }] })
+    expect(await t.ctx.devlog.blocks(canvasId, '2026-09-21')).toHaveLength(1)
+    await expect(sheets.save({ week: '2026-09-22', entries: [] })).rejects.toThrow(/Monday/)
+  })
+
+  it('sends the saved week through another extension, and writes what happened inside it', async () => {
+    const sent: unknown[] = []
+    const t = createTestContext({
+      id: ID,
+      canvases: [
+        { id: 'acme', title: 'Acme', parentId: null, task: false, archived: false, fields: {} },
+        { id: 'fix', title: 'Fix login', parentId: 'acme', task: true, type: TASK, archived: false, fields: {} }
+      ],
+      destinations: [
+        {
+          extension: 'devlog-jira',
+          from: 'Jira worklogs',
+          id: 'worklogs',
+          label: 'Jira',
+          destination: {
+            preview: async (sheet) => sheet.entries.map((e) => ({ id: e.id, entryIds: [e.id], date: e.date, minutes: e.minutes, target: e.task, action: 'create' as const })),
+            send: async (sheet) => {
+              sent.push(sheet)
+              return { done: sheet.entries.map((e) => e.id), failed: [], summary: '1 worklog created' }
+            }
+          }
+        }
+      ]
+    })
+    const sheets = new Timesheets(t.ctx)
+    const to = { extension: 'devlog-jira', id: 'worklogs' }
+    await expect(sheets.send(to, '2026-09-21')).rejects.toThrow(/Save the timesheet/)
+    await sheets.save({ week: '2026-09-21', status: 'draft', entries: [entry] })
+    expect((await sheets.preview(to, '2026-09-21'))[0]).toMatchObject({ target: 'Acme / Fix login', action: 'create' })
+    await expect(sheets.send(to, '2026-09-21')).rejects.toThrow(/final/)
+    await sheets.save({ week: '2026-09-21', status: 'final', entries: [entry] })
+    expect(await sheets.send(to, '2026-09-21')).toMatchObject({ done: ['e1'], summary: '1 worklog created' })
+    expect(sent).toHaveLength(1)
+    const blocks = await t.ctx.devlog.blocks(await sheets.canvas(), '2026-09-21')
+    const sheetBlock = blocks.find((b) => b.kind === 'timesheet')!
+    expect(blocks.find((b) => b.parentId === sheetBlock.id)).toMatchObject({ markdown: 'Sent to Jira: 1 worklog created.', meta: { destination: 'worklogs', to: 'devlog-jira' } })
+  })
+
+  it('answers its pages: canvases without its own, what the app recorded, remembered choices', async () => {
+    const activity = [{ t: new Date(2026, 8, 22, 9).toISOString(), type: 'task' as const, canvasId: 'fix', machine: 'm' }]
+    const t = createTestContext({ id: ID, canvases: [{ id: 'fix', title: 'Fix login', parentId: null, task: true, type: TASK, archived: false, fields: {} }], activity })
+    await time.activate(t.ctx)
+    await t.viewCall('timesheet', 'saveTimesheet', { week: '2026-09-21', status: 'draft', entries: [entry] })
+    expect(((await t.viewCall('timesheet', 'canvases')) as Array<{ id: string }>).map((c) => c.id)).toEqual(['fix'])
+    expect(await t.viewCall('summary', 'activity', '2026-09-22', '2026-09-22')).toEqual(activity)
+    expect(await t.viewCall('summary', 'pref', 'summary.granularity')).toBeNull()
+    await t.viewCall('summary', 'setPref', 'summary.granularity', '30')
+    expect(await t.viewCall('summary', 'pref', 'summary.granularity')).toBe('30')
+    await t.run('open-summary')
+    expect(t.openedPages).toEqual(['summary'])
   })
 })

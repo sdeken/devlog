@@ -16,14 +16,15 @@ import {
 import type { CanvasMeta } from '@shared/types'
 import { addDays, weekDates, weekStart, type ReviewNote } from '@shared/review'
 import { draftTimesheet, newEntryId } from '@shared/timesheet'
-import { api } from '@renderer/api'
-import { reported } from '@renderer/toasts'
-import { useExtensions } from './ExtensionPages'
+import type { DestinationInfo } from '@devlog/extension-api'
+import { api } from './api'
 import { SendDialog } from './SendDialog'
 
 interface Props {
   canvases: CanvasMeta[]
   today: string
+  /** Something went wrong in the background (a save): say so. */
+  onError: (message: string) => void
 }
 
 const parseLocal = (d: string): Date => {
@@ -61,7 +62,8 @@ const SOURCE_LABEL: Record<TimesheetEntry['source'], string> = { tracked: 'track
  * trims even out rounding per client and day) and mark final. It is saved
  * as one block per week in the Timesheets canvas.
  */
-export function Timesheet({ canvases, today }: Props): React.JSX.Element {
+export function Timesheet({ canvases, today, onError }: Props): React.JSX.Element {
+  const reported = <T,>(p: Promise<T>): Promise<T | undefined> => p.catch((err: unknown) => void onError(err instanceof Error ? err.message : String(err)))
   const [start, setStart] = useState(() => weekStart(today))
   const [sheet, setSheet] = useState<Sheet | null>(null)
   const [state, setState] = useState<SaveState>('saved')
@@ -70,8 +72,24 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
   const [selected, setSelected] = useState<{ canvasId: string; date: string } | null>(null)
   /** Tasks added to the grid that have no entries yet. */
   const [extraRows, setExtraRows] = useState<string[]>([])
-  const [sending, setSending] = useState<{ key: string; destination: string; label: string } | null>(null)
-  const destinations = useExtensions().flatMap((e) => e.destinations.filter((d) => d.ready).map((d) => ({ key: e.key, destination: d.id, label: d.label })))
+  const [sending, setSending] = useState<DestinationInfo | null>(null)
+  // Destinations come and go as extensions start and stop (and get set up): look again now and then.
+  const [destinations, setDestinations] = useState<DestinationInfo[]>([])
+  useEffect(() => {
+    let alive = true
+    const load = (): void => {
+      api.destinations().then(
+        (list) => alive && setDestinations((cur) => (JSON.stringify(cur) === JSON.stringify(list) ? cur : list)),
+        () => undefined
+      )
+    }
+    load()
+    const t = setInterval(load, 3000)
+    return () => {
+      alive = false
+      clearInterval(t)
+    }
+  }, [])
   const dates = useMemo(() => weekDates(start), [start])
   const end = dates[6]
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -79,10 +97,10 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
 
   const buildDraft = useCallback(async (week: string): Promise<Sheet> => {
     const last = addDays(week, 6)
-    const [chunks, events] = await Promise.all([api.blocks.range(week, last), api.activity.range(week, last)])
+    const [chunks, events] = await Promise.all([api.range(week, last), api.activity(week, last)])
     const notes: ReviewNote[] = []
-    for (const { canvasId, day } of chunks) {
-      for (const entry of day.entries) {
+    for (const { canvasId, blocks } of chunks) {
+      for (const entry of blocks) {
         if (entry.kind === 'timesheet') continue
         const date = localDate(new Date(entry.createdAt))
         if (date >= week && date <= last) notes.push({ canvasId, date, entry })
@@ -99,7 +117,7 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
     setSelected(null)
     setExtraRows([])
     void (async () => {
-      const saved = await api.timesheets.get(start)
+      const saved = await api.timesheet(start)
       const next = saved ?? (await buildDraft(start))
       if (cancelled) return
       latest.current = next
@@ -118,7 +136,7 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
     if (!s) return
     setState('saving')
     try {
-      const saved = await api.timesheets.save(s)
+      const saved = await api.saveTimesheet(s)
       if (latest.current === s) {
         latest.current = saved
         setSheet(saved)
@@ -273,7 +291,7 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
                   Reopen
                 </button>
                 {destinations.map((d) => (
-                  <button key={`${d.key}/${d.destination}`} type="button" className="btn btn-primary btn-xs ts-send" onClick={() => setSending(d)}>
+                  <button key={`${d.extension}/${d.id}`} type="button" className="btn btn-primary btn-xs ts-send" onClick={() => setSending(d)}>
                     Send to {d.label}…
                   </button>
                 ))}
@@ -533,7 +551,7 @@ export function Timesheet({ canvases, today }: Props): React.JSX.Element {
           )}
         </section>
       )}
-      {sending && <SendDialog extensionKey={sending.key} destination={sending.destination} label={sending.label} week={start} onClose={() => setSending(null)} />}
+      {sending && <SendDialog to={sending} label={sending.label} week={start} onClose={() => setSending(null)} />}
     </div>
   )
 }

@@ -11,7 +11,8 @@ import { build } from 'esbuild'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const builtins = path.join(root, 'builtin-extensions')
 const alias = {
-  '@devlog/core': path.join(root, 'packages/core/src/index.ts'),
+  // A folder, so '@devlog/core/types' resolves too.
+  '@devlog/core': path.join(root, 'packages/core/src'),
   '@devlog/ui/styles.css': path.join(root, 'packages/ui/src/styles.css'),
   '@devlog/ui': path.join(root, 'packages/ui/src/index.tsx'),
   '@shared': path.join(root, 'src/shared')

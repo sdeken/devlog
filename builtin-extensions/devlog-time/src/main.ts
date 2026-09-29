@@ -11,6 +11,7 @@
 import type { CommandContext, DevlogContext } from '@devlog/extension-api'
 import { parseDurationMarker } from '@devlog/core'
 import { Clock, TASK_TYPE_ID, type ClockStatus } from './tracker'
+import { Timesheets, asMeta } from './timesheets'
 
 let clock: Clock | null = null
 
@@ -67,6 +68,7 @@ export async function activate(ctx: DevlogContext): Promise<void> {
     if (id === null) return
     await c.setTask(id || null)
   })
+  ctx.commands.register('open-summary', () => ctx.ui.openPage('summary'))
   ctx.commands.register('posttask', makeTask)
   ctx.commands.register('maketask', makeTask)
 
@@ -103,6 +105,47 @@ export async function activate(ctx: DevlogContext): Promise<void> {
     }
   }
   for (const v of ['status', 'header', 'picker']) ctx.views.handle(v, handler)
+
+  // The Timesheet and Summary pages.
+  const sheets = new Timesheets(ctx)
+  const str = (v: unknown): string => {
+    if (typeof v !== 'string') throw new Error('Expected text')
+    return v
+  }
+  const destination = (v: unknown): { extension: string; id: string } => {
+    const d = (v ?? {}) as { extension?: unknown; id?: unknown }
+    return { extension: str(d.extension), id: str(d.id) }
+  }
+  const pages = async (method: string, args: unknown[]): Promise<unknown> => {
+    switch (method) {
+      case 'canvases': {
+        const kept = await sheets.canvas()
+        return asMeta((await ctx.devlog.canvases()).filter((x) => x.id !== kept))
+      }
+      case 'range':
+        return (await ctx.devlog.range(str(args[0]), str(args[1]))).map((d) => ({ canvasId: d.canvasId, date: d.date, blocks: d.blocks }))
+      case 'activity':
+        return ctx.devlog.activity(str(args[0]), str(args[1]))
+      case 'timesheet':
+        return sheets.read(str(args[0]))
+      case 'saveTimesheet':
+        return sheets.save(args[0])
+      case 'destinations':
+        return ctx.destinations.list()
+      case 'previewSend':
+        return sheets.preview(destination(args[0]), str(args[1]))
+      case 'send':
+        return sheets.send(destination(args[0]), str(args[1]))
+      case 'pref':
+        return (await ctx.files.local.readText(`prefs/${str(args[0]).replace(/[^a-z0-9._-]/gi, '')}`)) ?? null
+      case 'setPref':
+        await ctx.files.local.write(`prefs/${str(args[0]).replace(/[^a-z0-9._-]/gi, '')}`, str(args[1]))
+        return null
+      default:
+        throw new Error(`No method ${method}`)
+    }
+  }
+  for (const v of ['timesheet', 'summary']) ctx.views.handle(v, pages)
 
   await c.start()
 }
