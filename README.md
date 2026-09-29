@@ -721,3 +721,4 @@ Code map:
 | `docs/TIMESHEETS.md`              | Timesheets: rounding, trims, destinations, storage             |
 | `docs/TIME-EXTENSION.md`          | How time tracking became the devlog-time extension             |
 | `docs/BLOCK-PAGES.md`             | Block pages and todos as blocks                                |
+| `wiki/`                           | The GitHub wiki's pages: user guide, extension developer docs and API reference (see `wiki/Development.md` to publish) |
