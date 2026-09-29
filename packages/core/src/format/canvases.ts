@@ -8,14 +8,15 @@
  * A canvas is a client, a project, a task, a topic — anything you want to
  * write about. Every canvas has a *surface* (free-form markdown: links,
  * how-tos, credentials, a research scratchpad) and a *stream* of blocks
- * (dated posts). Canvases nest through `parentId`. A canvas flagged `task`
- * is something time is tracked against.
+ * (dated posts). Canvases nest through `parentId`. A canvas can have a
+ * node type from an extension (the time extension's task is one).
  *
- *   canvases/<id>/canvas.md            ← front matter + the surface markdown
- *   canvases/<id>/entries/2026/09/…    ← the stream, one day file per day
- *   canvases/<id>/assets/              ← images pasted into the surface
+ *   canvases/<xx>/<id>/canvas.md          ← front matter + the surface markdown
+ *   canvases/<xx>/<id>/entries/2026/09/…  ← the stream, one day file per day
+ *   canvases/<xx>/<id>/assets/            ← images pasted into the surface
  *
- * The journal is the built-in root canvas whose stream lives at `entries/`.
+ * The journal, the old built-in root canvas whose stream lives at
+ * `entries/`, is retired: read-only, and listed only while it has blocks.
  */
 import type { CanvasMeta } from '../types'
 

@@ -8,8 +8,10 @@ Two entry points:
 
 | Import              | Contents                                                      | Runs in          |
 | ------------------- | ------------------------------------------------------------- | ---------------- |
-| `@devlog/core`      | Types, block and canvas file formats, pure hierarchy helpers  | Anywhere         |
-| `@devlog/core/node` | `DevlogStore`, `RepoIndex`, `SyncManager` (git), `ActivityLog`, `assertSupportedFormat` | Node 22.13+ only |
+| `@devlog/core`      | Types, block and canvas file formats, pure hierarchy helpers, timesheet rules, extension manifests and grants | Anywhere         |
+| `@devlog/core/node` | `DevlogStore`, `RepoIndex`, `SyncManager` (git), `ActivityLog`, `devlog.json` and lock-file helpers, `ExtensionFileStore`, `assertSupportedFormat` | Node 22.13+ only |
+
+(`@devlog/core/types` is the types alone.)
 
 ## Rules
 
@@ -37,7 +39,8 @@ import { DevlogStore, RepoIndex, SyncManager, assertSupportedFormat } from '@dev
 
 const store = new DevlogStore(root)
 await store.initLayout()
-await assertSupportedFormat(root) // format 3 only; throws with a message otherwise
+await store.upgradeStorage() // 3 → 4: todo lists move into the streams
+await assertSupportedFormat(root) // format 4 only; throws with a message otherwise
 const sync = new SyncManager(root, { intervalMinutes: 5, debounceSeconds: 30, autoPush: true, pullOnStart: true })
 const index = RepoIndex.open(dbPath, root) // optional cache; files stay the truth
 store.attachIndex(index)
@@ -61,7 +64,8 @@ format. The index uses
 
 The tests cover the file formats (including a fuzz test of marker escaping),
 every store operation, indexed-vs-scanned equivalence, git sync against local
-bare remotes and the per-machine activity log.
+bare remotes, the per-machine activity log, compaction, extension manifests
+and `devlog.json`, and the timesheet rules.
 
 ```sh
 npx vitest run packages/core

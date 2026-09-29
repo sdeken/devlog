@@ -1,8 +1,9 @@
 /**
- * The repository manifest, `devlog.json`: `{ "format": 3 }`, the storage
- * format the repository is in. This version of Devlog reads and writes
- * format 3 only; older repositories must be opened once with Devlog 0.5,
- * which upgrades them.
+ * The repository manifest, `devlog.json`: `{ "format": 4 }`, the storage
+ * format the repository is in, plus the devlog's extensions and their
+ * settings. This version of Devlog reads and writes format 4 only;
+ * `DevlogStore.upgradeStorage()` brings format 3 up to it, and formats 1
+ * and 2 must be opened once with Devlog 0.5, which upgrades them to 3.
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -20,9 +21,10 @@ export async function readStorageFormat(root: string): Promise<number | null> {
 }
 
 /**
- * Refuse a repository this version cannot safely read or write: one from
- * before format 3, or one written by a newer Devlog. Call after
- * `DevlogStore.initLayout()`, which stamps new, empty repositories.
+ * Refuse a repository this version cannot safely read or write: one in an
+ * older format, or one written by a newer Devlog. Call after
+ * `DevlogStore.initLayout()`, which stamps new, empty repositories, and
+ * `upgradeStorage()`.
  */
 export async function assertSupportedFormat(root: string): Promise<void> {
   const format = await readStorageFormat(root)
