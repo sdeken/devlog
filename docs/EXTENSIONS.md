@@ -345,6 +345,73 @@ interface Destination {
 }
 ```
 
+## Node types, commands, events and app state (built, API 1.6)
+
+What time tracking needed to move out of the app (`TIME-EXTENSION.md`);
+nothing in it is specific to time.
+
+**Node types.** `contributes.nodeTypes` (`id`, `label`, `icon`,
+`placeholder`) declares kinds of canvas. A canvas carries one as
+`type: <extension id>/<id>` in canvas.md (the time extension's task keeps
+the older `task: true`); the app shows its icon and label, offers it under
+**Type** in canvas properties and as **New *label* inside…** on a canvas's
+menu, and adds the placeholder to the note box on such canvases. A type
+whose extension is gone reads as a plain canvas. `canvases()` reports each
+canvas's `type`.
+
+**Commands** take a context: `commands.register(id, (context) => …)` gets
+`{ source, canvasId?, date?, blockId? }` (where it was run from: the quick
+switcher, a keybinding, a menu, the note box, a view or the tray; and the
+canvas on screen or whose menu it was, and the block). Canvases outside the
+grant are left out. In `contributes.commands`:
+
+- `keybinding` (`Mod+Shift+S`; Mod is Ctrl, or Cmd on a Mac; a plain key
+  or Shift+key is refused, F-keys excepted) runs it with the screen's
+  context;
+- `nodeType` offers it only on canvases of that type (its own id, or a full
+  name);
+- `menus`: `canvas` (a canvas's right-click menu), `block` (the actions on
+  a block), `tray`;
+- `post: true` makes it a way to post from the note box: its keybinding (or
+  `#<tag>` on the first line, with `tag`, taken off before posting) posts the
+  note as usual, then runs the command on the new block (`source: 'post'`).
+
+**Writes.** `devlog.createCanvas({ title, parentId, type })` (inside a
+canvas it may write to; top level only with write access everywhere),
+`devlog.updateCanvas(id, { title, parentId, type, archived })` (types: its
+own, and it may clear only its own), `devlog.editBlock(…)` (blocks it
+added), and `devlog.promote(canvasId, date, blockId, { type })`: the block
+becomes the link to a new canvas of that type just inside its canvas, and
+what was written inside the block moves there.
+
+**Events.** `devlog.onBlockAdded(cb)` hears each block posted in the app, on
+canvases it may read. `activity.on(cb)` hears pause (locked, idle, asleep)
+and resume; `activity.idleAfter(minutes)` asks for idle detection (the app
+uses the shortest any extension asks for).
+
+**The app around the window.** `ui.pick(items)` shows a quick pick and
+resolves to the chosen id; `ui.open({ canvasId, date?, blockId? })` shows a
+canvas or a block's page; `ui.highlight(canvasId)` marks its current canvas
+(the running task) in the sidebar, and commits from a linked repository land
+on it when it is inside the linked canvas; `app.setTrayLabel(text)` and
+`app.keepRunning(true)` (close to the tray instead of quitting).
+
+**Time.** `provide.activity((from, to) => TimeEvent[])` hands the app
+`start`, `task`, `stop` and `heartbeat` events (per machine); the timeline,
+review, summary and timesheet replay them with the app's own record of
+locks, idle and sleep, which the app keeps (in `activity/`) while some
+extension provides time. Summary and Timesheet show only then.
+
+**Views** can also sit in a canvas's header (`placement: 'canvasHeader'`,
+26 px high, optionally only for a `nodeType`). Every view gets a `context`
+message with where it is: a header view its canvas, a status bar item the
+canvas (and block page) on screen, a popover the context of the view that
+opened it; a `command` a view runs carries that context. `@devlog/ui` has
+`useViewContext()`.
+
+The `shaper` test fixture (`tests/fixtures/extensions/shaper`) exercises all
+of this through the real host process; `devlog-time` is the real user.
+
 ## Views (built, API 1.5)
 
 An extension can ship pages of its own, declared in `contributes.views`
@@ -429,6 +496,9 @@ button, after a preview; there are no scheduled or automatic exports.
 4. Jira and CMS destinations.
 5. Cards: Adaptive Card blocks, actions and link unfurling; then Outlook as
    the first real card-based extension.
+6. **devlog-time** (done, 0.17.0): time tracking moved out of the core on
+   API 1.6 (node types, commands in menus and the note box, canvas writes,
+   events, app state, time events), with views built on `@devlog/ui`.
 
 ## Decided
 

@@ -1,7 +1,19 @@
 # Time tracking as an extension: design
 
-Status: agreed, not started. Comes after todos as blocks
-(`BLOCK-PAGES.md`, phase 2).
+Status: steps 1–4 done in 0.17.0 (API 1.6, `devlog-time`, its views);
+the timesheet and Summary as the extension's pages, and hour targets, are
+next. What was built follows this plan with these differences:
+
+- The API stayed 1.x (1.6): everything is additive, so extensions written
+  for 1.0–1.5 keep loading.
+- The clock's events live in `extensions/builtin.devlog-time/<machine>/`;
+  the app keeps logging locks, idle and sleep (and git events) in
+  `activity/<machine>/` while an extension provides time, and its views
+  replay both together with the older log.
+- The Timesheet, Summary and review stay in the app for now, drawing their
+  time from `provide.activity`; they hide when nothing provides it.
+- Quick pick is `ui.pick`; the canvas an extension considers current is
+  `ui.highlight` (the sidebar marks it, and commits route to it).
 
 ## The idea
 

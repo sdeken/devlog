@@ -46,12 +46,13 @@ tracked against; any block can become one.
   double-click) turns it into the editor, which saves as you type.
 - **Notes are notes until you say otherwise.** Posting on a client or
   project canvas is just a note. A block becomes a **task** with
-  ⌘⇧Enter, with `#task` anywhere on its first line, or with the **Task**
-  action on hover: Devlog creates a task canvas beneath the current one,
-  titled from the block, links the block to it, and starts the clock. The
-  task canvas has its own surface and stream for everything that follows.
-- **One active task, tracked for you.** Posting on a task canvas, **Start
-  this task** in its header, or **Start** in the status bar makes it the
+  ⌘⇧Enter, with `#task` anywhere on its first line, or with **Make task**
+  on hover: a task canvas appears beneath the current one, titled from the
+  block, the block links to it, and the clock starts. The task canvas has
+  its own surface and stream for everything that follows.
+- **One active task, tracked for you.** Time tracking is the built-in
+  **Time tracking** extension (devlog-time). Posting on a task canvas,
+  **Start** in its header, or **Start** in the status bar makes it the
   active task; it stays active
   until you post on another task, press Stop, lock the machine, go idle or
   sleep. Devlog keeps running in the tray to watch. A block with an explicit
@@ -180,8 +181,8 @@ too, rather than misread.
 
 Click a canvas in the sidebar to open it. The header shows its breadcrumbs,
 the canvases inside it as chips, and actions: **Edit** (rename, move under
-another canvas, mark as a task, repositories), **Archive**, and for tasks
-**Start** / **Stop**.
+another canvas, its type, repositories), **Archive**, and whatever
+extensions add for canvases of their type (**Start** / **Stop** on a task).
 
 The **surface** sits above the stream. It opens rendered: links open in the
 browser, images open full size. **Add surface** / **Edit surface** (or a
@@ -190,26 +191,30 @@ image support as blocks, but no posting: Enter is just a new line and every
 change is saved a moment later (the header says "Saved"); **Done** switches
 back. Surfaces are searched along with blocks.
 
-A **task** is a canvas with the task flag. Three ways to make one from a
-block you are writing or have written:
+A canvas can have a **type** that an extension gives meaning to (its icon
+shows in the sidebar; choose it under **Type** in its **Properties**, or
+**New task inside…** on a canvas's right-click menu). The one that ships is
+the **task**, from the Time tracking extension: a canvas you record time
+against. Three ways to make one from a block you are writing or have
+written:
 
 - press ⌘⇧Enter instead of Enter when posting,
 - put `#task` anywhere on the block's first line (it is stripped on save),
-- hover an existing block and choose **Task**.
+- hover an existing block and choose **Make task**.
 
 Each creates a task canvas beneath the block's canvas, titled from the block's first sentence, marks the block as the link
 to it (a chip opens the task), and makes it the active task. Blocks inside a
-task canvas can be anything: more notes, pasted evidence, further tasks. A
-canvas can also be flagged as a task, or unflagged, in its **Properties**.
+task canvas can be anything: more notes, pasted evidence, further tasks.
+Without the extension a task canvas is a plain canvas; nothing in it is lost.
 
-On a task canvas, **Start this task** in the header starts it (**Switch to
-this task** when another is running, **Stop** once it is the active one).
+On a task canvas, **▶ Start** in the header starts it (**Switch to this
+task** when another is running, **■ Stop** once it is the active one).
 The status bar's **Start** is a split button: while a task canvas is on
 screen its main part reads **▶ Start** *that task* and starts it in one
 click; the ▾ beside it opens the list of every task (the canvas on screen,
-or the tasks inside it, first; type to filter; Enter picks the first match)
-plus **New task…**, which creates a task under the canvas on screen and
-starts it. **Stop** sits next to it while a task is active.
+or the tasks inside it, first; type to filter; Enter picks), and a name that
+matches nothing offers **+ New task**, made under the canvas on screen and
+started. **Stop** sits next to it while a task is active.
 
 **Block pages.** A standup, a call, a bug: post a block for it (Alt+Enter
 opens it), write your notes inside, and later edit the block itself into the
@@ -223,8 +228,8 @@ To put a block inside another, drag it by its grip onto the middle of that
 block (the top and bottom edges still reorder); a block on another day of
 the same canvas works too. **Move → Out of this block** takes one back out,
 beside the block it was in; **Move** to another canvas puts it at that
-canvas's top level. Making a block with notes inside it a task (**Task**,
-⌘⇧Enter) moves those notes into the new task's stream; the block stays
+canvas's top level. Making a block with notes inside it a task (**Make
+task**, ⌘⇧Enter) moves those notes into the new task's stream; the block stays
 behind as the link to it. The quick switcher (⌘K / Go to…) lists the pages
 you opened lately first.
 
@@ -298,8 +303,15 @@ only; **Move** the blocks worth keeping onto a canvas.
 
 ## Time tracking
 
-There is one active task at a time, and a task is a canvas with the task
-flag. The workflow: write a line or two to wrap up what you were doing, then
+Time tracking is the built-in **Time tracking** extension (devlog-time):
+without it Devlog has no tasks, no clock, no Summary and no Timesheet. A
+devlog that tracked time before 0.17 gets it added and allowed on each
+machine that tracked time, with the active task and idle setting carried
+over, so nothing changes. Its settings (Settings → Time tracking) are the
+idle minutes and whether its log is synced with the devlog.
+
+There is one active task at a time, and a task is a canvas of the task
+type. The workflow: write a line or two to wrap up what you were doing, then
 either post on the task you are picking up (that makes it active), pick it
 from **Start ▾** in the status bar, or write the next thing as a new block
 and post it with ⌘⇧Enter so it becomes a task of its own. The status bar shows the active
@@ -308,7 +320,7 @@ menu). Posting on a canvas that is not a task never touches the clock:
 those are just notes.
 
 Time stops accruing while the screen is locked, the machine sleeps, or there
-has been no input for a while (default 10 minutes, adjustable), and resumes on
+has been no input for a while (default 10 minutes, in the extension's settings), and resumes on
 the same task afterwards. Each of those pauses the clock independently, so a
 laptop that wakes in the background while still locked stays paused until
 you unlock it. On Windows and macOS the lock state is also polled every 15
@@ -336,10 +348,13 @@ folded into the window you were actually working in. So a 20-minute Outlook
 session that you alt-tabbed out of and back into five times shows as 20
 minutes of Outlook.
 
-Everything the tracker sees goes to an append-only activity log, one JSON
-file per day and one folder per machine
-(`activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl`, where `<machine>` is the host
-name plus a short id kept in the app's data folder). By default it lives in
+What the clock does (start, task switches, stop, heartbeats) goes to the
+extension's own append-only log, and what the machine does (lock, idle,
+sleep) and git events go to the app's; both are one JSON file per day and one
+folder per machine (`extensions/builtin.devlog-time/<machine>/…` and
+`activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl`, where `<machine>` is the host
+name plus a short id kept in the app's data folder). Older time, from before
+the extension, stays in `activity/` and still counts. By default it lives in
 the devlog repository, so the review and timeline add up time from every
 machine you work on (window titles included, so consider what they contain);
 Settings can keep it on this machine only. Each machine only appends to its
@@ -590,7 +605,7 @@ already on disk.
 
 All settings live under **Settings** (⌘,, or the foot of the sidebar), a
 page per topic: Repository (folder, remote, commit author), Sync,
-Appearance, Activity tracking and Updates, then Extensions: **Manage** to
+Appearance, Activity and Updates, then Extensions: **Manage** to
 add them, and a page for each one this devlog uses (what it may do, its
 settings, its secrets on this computer, its own test). Save lights up only
 once something changed, and each page with unsaved changes is marked in the
@@ -634,8 +649,8 @@ npm run smoke       # builds, then drives the real app with Playwright (needs a 
 npm run screens     # builds, seeds a demo devlog and screenshots every view in light and dark mode
 ```
 
-The window remembers its size and position, closes to the tray while tracking
-is on, and shows the current canvas in its title. Failed background actions
+The window remembers its size and position, closes to the tray while an
+extension asks it to (time tracking does), and shows the current canvas in its title. Failed background actions
 (a move, an archive, a sync) surface as a toast in the corner rather than
 disappearing into the console.
 
@@ -657,7 +672,9 @@ Code map:
 | `src/shared/theme.ts`             | Colour presets and derived theme variables                     |
 | `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
-| `src/main/activity/`              | Tracker (lock/idle/focus), commit watcher                      |
+| `src/main/activity/`              | Commit watcher                                                 |
+| `builtin-extensions/`             | Extensions that ship with Devlog (devlog-time, devlog-focus, Jira, CMS) |
+| `packages/ui/`                    | `@devlog/ui`: React components and the view bridge for extension views |
 | `src/main/updates.ts`             | Silent auto-update via electron-updater and GitHub Releases    |
 | `src/shared/updates.ts`           | Pure "is now a good moment to restart" policy                  |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |
