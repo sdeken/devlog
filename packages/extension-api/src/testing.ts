@@ -63,6 +63,10 @@ export interface TestHarness {
   send(destinationId: string, sheet: DestinationSheet): Promise<SendResult>
   /** Ask the registered focus provider, as the app's views would. */
   focus(fromDate: string, toDate: string): Promise<FocusEvent[]>
+  /** Call a view's handler, as its page would (1.5). */
+  viewCall(viewId: string, method: string, ...args: unknown[]): Promise<unknown>
+  /** Messages sent with views.post, per view. */
+  viewMessages: Map<string, unknown[]>
   commands(): string[]
 }
 
@@ -125,6 +129,7 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
   const commandMap = new Map<string, () => void | Promise<void>>()
   let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
   const destinationMap = new Map<string, Destination>()
+  const viewHandlers = new Map<string, (method: string, args: unknown[]) => unknown>()
   const destination = (id: string): Destination => {
     const d = destinationMap.get(id)
     if (!d) throw new Error(`No destination "${id}"`)
@@ -154,7 +159,13 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     focus: async (from, to) => {
       if (!focusProvider) throw new Error('No focus provider registered')
       return focusProvider(from, to)
-    }
+    },
+    viewCall: async (viewId, method, ...args) => {
+      const handler = viewHandlers.get(viewId)
+      if (!handler) throw new Error(`The view "${viewId}" has no handler`)
+      return handler(method, args)
+    },
+    viewMessages: new Map()
   }
 
   const within = (scope: string[] | 'all' | null | undefined, canvasId: string): boolean => {
@@ -286,6 +297,14 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     destinations: {
       register: (id, d) => {
         destinationMap.set(id, d)
+      }
+    },
+    views: {
+      handle: (viewId, handler) => {
+        viewHandlers.set(viewId, handler)
+      },
+      post: (viewId, message) => {
+        h.viewMessages!.set(viewId, [...(h.viewMessages!.get(viewId) ?? []), message])
       }
     },
     provide: {

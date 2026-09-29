@@ -55,6 +55,8 @@ export interface ManagerDeps {
   onChange: () => void
   /** An extension wrote a block. */
   onBlockAdded: (canvasId: string, date: string) => void
+  /** An extension sent a message to its view (every open copy). */
+  onViewMessage?: (key: string, viewId: string, message: unknown) => void
 }
 
 interface Rec {
@@ -72,11 +74,26 @@ interface Rec {
   providesFocus: boolean
   /** Destinations it registered (of those it declared). */
   destinations: Set<string>
+  /** Views whose calls it answers. */
+  viewHandlers: Set<string>
   files: { repo: ExtensionFileStore; local: ExtensionFileStore } | null
   secretSet: Set<string>
 }
 
 const KEY_RE = /^[a-z][a-z0-9_-]{0,63}$/
+
+/**
+ * Where a view's page is served: devlog-ext://<the devlog.json key, as hex>/<file>
+ * (hex because URL hosts are lower-cased and cannot hold "/").
+ */
+export const VIEW_SCHEME = 'devlog-ext'
+export function viewUrl(key: string, entry: string): string {
+  return `${VIEW_SCHEME}://${Buffer.from(key, 'utf8').toString('hex')}/${entry.split('/').map(encodeURIComponent).join('/')}`
+}
+/** The devlog.json key back from a view URL's host. */
+export function viewKey(host: string): string | null {
+  return /^[0-9a-f]+$/.test(host) && host.length % 2 === 0 ? Buffer.from(host, 'hex').toString('utf8') : null
+}
 
 export class ExtensionManager {
   private readonly recs = new Map<string, Rec>()
@@ -145,6 +162,7 @@ export class ExtensionManager {
       activity: false,
       providesFocus: false,
       destinations: new Set(),
+      viewHandlers: new Set(),
       files: null,
       secretSet: new Set()
     }
@@ -221,6 +239,7 @@ export class ExtensionManager {
     rec.activity = false
     rec.providesFocus = false
     rec.destinations = new Set()
+    rec.viewHandlers = new Set()
     rec.state = 'starting'
     rec.error = null
     this.deps.onChange()
@@ -251,6 +270,7 @@ export class ExtensionManager {
     rec.host = null
     rec.providesFocus = false
     rec.destinations = new Set()
+    rec.viewHandlers = new Set()
     if (host) await host.stop().catch(() => undefined)
   }
 
@@ -350,6 +370,7 @@ export class ExtensionManager {
         secrets: (m?.contributes.secrets ?? []).map((s) => ({ ...s, set: rec.secretSet.has(s.key) })),
         commands: (m?.contributes.commands ?? []).map((c) => ({ ...c, ready: Boolean(rec.host?.commands.includes(c.id)) })),
         destinations: (m?.contributes.destinations ?? []).map((d) => ({ ...d, ready: Boolean(rec.host && rec.destinations.has(d.id)) })),
+        views: rec.state === 'running' ? (m?.contributes.views ?? []).map((v) => ({ ...v, url: viewUrl(rec.key, v.entry) })) : [],
         ...(m?.contributes.check ? { check: m.contributes.check } : {}),
         missing: m ? await this.missing(rec) : []
       })
@@ -548,6 +569,23 @@ export class ExtensionManager {
     const rec = this.need(key)
     if (!rec.host || !rec.destinations.has(destId)) throw new Error(`${rec.installed?.manifest.displayName ?? key} is not ready to send`)
     return { rec, host: rec.host }
+  }
+
+  /**
+   * The folder a running extension's views are served from, or null (not
+   * installed, not allowed, or stopped: its pages do not load).
+   */
+  viewRoot(key: string): string | null {
+    const rec = this.recs.get(key)
+    return rec?.installed && rec.state === 'running' && rec.installed.manifest.contributes.views.length ? rec.installed.dir : null
+  }
+
+  /** A call from a view's page to the extension that owns it. */
+  async viewCall(key: string, viewId: string, method: string, args: unknown[]): Promise<unknown> {
+    const rec = this.recs.get(key)
+    if (!rec?.host || rec.state !== 'running') throw new Error('That extension is not running')
+    if (!rec.viewHandlers.has(viewId)) throw new Error(`The view "${viewId}" has no handler yet`)
+    return rec.host.call('view.call', [viewId, String(method), Array.isArray(args) ? args : []], 60_000)
   }
 
   /** What sending the week's timesheet to a destination would do. */
@@ -760,6 +798,18 @@ export class ExtensionManager {
         if (!ext.manifest.contributes.destinations.some((d) => d.id === destId)) throw new Error(`Destination "${destId}" is not declared in contributes.destinations`)
         rec.destinations.add(destId)
         this.deps.onChange()
+        return null
+      }
+      case 'views.handle': {
+        const viewId = str(0, 'viewId')
+        if (!ext.manifest.contributes.views.some((v) => v.id === viewId)) throw new Error(`View "${viewId}" is not declared in contributes.views`)
+        rec.viewHandlers.add(viewId)
+        return null
+      }
+      case 'views.post': {
+        const viewId = str(0, 'viewId')
+        if (!ext.manifest.contributes.views.some((v) => v.id === viewId)) throw new Error(`View "${viewId}" is not declared in contributes.views`)
+        this.deps.onViewMessage?.(rec.key, viewId, args[1] ?? null)
         return null
       }
       case 'provide.register':

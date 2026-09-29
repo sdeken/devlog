@@ -4,8 +4,13 @@ import { api } from '@renderer/api'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import { formatMinutes } from '@shared/review'
 import { kbd } from '@renderer/keys'
+import { ExtensionView } from './ExtensionView'
 
 interface Props {
+  /** Status bar items extensions contribute (views in a slot of fixed height). */
+  extViews: Array<{ extKey: string; viewId: string; title: string; url: string }>
+  onExtPopover: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }) => void
+  onExtOpen: (target: { canvasId: string; date?: string; blockId?: string }) => void
   status: SyncStatus | null
   tracker: TrackerStatus | null
   taskLabel: string | null
@@ -100,7 +105,25 @@ function inFuture(iso: string | null, now: number): string {
   return `${Math.round(s / 60)} min`
 }
 
-export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
+/** A status bar slot: the view asks for a width and gets it within limits; the height is the bar's. */
+function StatusSlot({ view, onPopover, onOpen }: { view: Props['extViews'][number]; onPopover: Props['onExtPopover']; onOpen: Props['onExtOpen'] }): React.JSX.Element {
+  const [width, setWidth] = useState(120)
+  return (
+    <span className="status-ext" style={{ width }} data-ext-view={`${view.extKey}/${view.viewId}`}>
+      <ExtensionView
+        extKey={view.extKey}
+        viewId={view.viewId}
+        url={view.url}
+        title={view.title}
+        onResize={(s) => s.width && setWidth(Math.round(Math.min(Math.max(s.width, 24), 360)))}
+        onPopover={(id, anchor, size) => onPopover(view.extKey, id, anchor, size)}
+        onOpen={onOpen}
+      />
+    </span>
+  )
+}
+
+export function StatusBar({ extViews, onExtPopover, onExtOpen, status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
   const [startOpen, setStartOpen] = useState(false)
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
@@ -234,6 +257,9 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
           <span className="status-sep" />
         </span>
       )}
+      {extViews.map((v) => (
+        <StatusSlot key={`${v.extKey}/${v.viewId}`} view={v} onPopover={onExtPopover} onOpen={onExtOpen} />
+      ))}
       <span className={`status-dot status-${dot}`} />
       <span className="status-text">{text}</span>
       <span className="status-detail" title={detail}>

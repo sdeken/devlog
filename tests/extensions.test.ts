@@ -75,14 +75,41 @@ describe('extensions in the app', () => {
       notify: (t) => notices.push(t),
       confirm: async () => true,
       onChange: () => undefined,
-      onBlockAdded: () => undefined
+      onBlockAdded: () => undefined,
+      onViewMessage: (key, viewId, message) => viewMessages.push({ key, viewId, message })
     })
+    viewMessages = []
   })
+  let viewMessages: Array<{ key: string; viewId: string; message: unknown }>
 
   afterEach(async () => {
     await manager.stopAll()
     await fs.rm(root, { recursive: true, force: true })
     await fs.rm(userData, { recursive: true, force: true })
+  })
+
+  it('serves views only while the extension runs, and relays their calls and messages', async () => {
+    await manager.load()
+    expect(manager.viewRoot('probe')).toBeNull()
+    expect((await manager.list())[0].views).toEqual([])
+    await manager.allow('probe', { read: { all: true }, write: null })
+    for (let i = 0; i < 50 && !(await manager.viewCall('probe', 'page', 'greet', ['test']).catch(() => null)); i++) await new Promise((r) => setTimeout(r, 20))
+    const [info] = await manager.list()
+    expect(info.views.map((v) => [v.id, v.placement, v.url])).toEqual([
+      ['status', 'statusbar', `devlog-ext://${Buffer.from('probe').toString('hex')}/views/status.html`],
+      ['pop', 'popover', `devlog-ext://${Buffer.from('probe').toString('hex')}/views/pop.html`],
+      ['page', 'page', `devlog-ext://${Buffer.from('probe').toString('hex')}/views/page.html`]
+    ])
+    expect(manager.viewRoot('probe')).toBe(path.join(FIXTURES, 'probe'))
+    expect(await manager.viewCall('probe', 'page', 'greet', ['test'])).toBe('Howdy, test')
+    await expect(manager.viewCall('probe', 'page', 'fail', [])).rejects.toThrow(/asked to fail/)
+    expect((await manager.viewCall('probe', 'pop', 'canvases', [])) as Array<{ title: string }>).toHaveLength(4) // the three canvases and the journal
+    await manager.runCommand('probe', 'hello')
+    expect(viewMessages).toEqual([{ key: 'probe', viewId: 'status', message: { count: 1 } }])
+    expect(await manager.viewCall('probe', 'status', 'count', [])).toBe(1)
+    await manager.revoke('probe')
+    expect(manager.viewRoot('probe')).toBeNull()
+    await expect(manager.viewCall('probe', 'page', 'greet', ['x'])).rejects.toThrow(/not running/)
   })
 
   const probe = async (): Promise<Record<string, any>> => {

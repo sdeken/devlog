@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.4.0'
+export const API_VERSION = '1.5.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -218,6 +218,16 @@ export interface DevlogContext {
   commands: { register(id: string, run: () => void | Promise<void>): void }
   /** Places finished timesheets can be sent (declared in `contributes.destinations`). (1.3) */
   destinations: { register(id: string, destination: Destination): void }
+  /**
+   * Views declared in `contributes.views` (1.5): pages from your package the
+   * app shows in a sandboxed frame. The page talks to this process through
+   * the app: its `call(method, ...args)` arrives at your handler, and `post`
+   * sends a message to every open copy of the view.
+   */
+  views: {
+    handle(viewId: string, handler: (method: string, args: unknown[]) => unknown | Promise<unknown>): void
+    post(viewId: string, message: unknown): void
+  }
   /** Data the app draws in its own views. (1.1) */
   provide: {
     /** Focus changes between two local dates (inclusive), for the timeline, review and summary. */

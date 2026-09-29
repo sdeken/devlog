@@ -80,6 +80,7 @@ The full API, with comments, is `src/index.ts`. In short:
 | `ctx.machine` | this machine's folder name, for per-machine files (1.1) |
 | `ctx.packageDir` | the extension's unpacked folder, for scripts it ships; only when it runs unrestricted, else null (1.2) |
 | `ctx.provide.focus(fn)` | focus events for the app's timeline, review and summary (1.1) |
+| `ctx.views.handle(viewId, (method, args) => …)`, `ctx.views.post(viewId, message)` | answer calls from your views' pages and push messages to them (1.5; see docs/EXTENSIONS.md, Views) |
 | `ctx.destinations.register(id, { preview, send })` | a place finished timesheets can be sent, declared in `contributes.destinations` (1.3) |
 
 `builtin-extensions/devlog-jira` is a complete destination (sandboxed:

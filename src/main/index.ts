@@ -16,7 +16,7 @@ import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { Updater } from './updates'
 import { SyncManager, type SyncOptions } from '@devlog/core/node'
 import { SettingsStore } from './settings'
-import { installAssetHandler, registerAssetScheme } from './protocol'
+import { installAssetHandler, installViewHandler, registerAssetScheme } from './protocol'
 import { buildMenu } from './menu'
 import { registerIpc } from './ipc'
 import { ExtensionManager } from './extensions/manager'
@@ -141,8 +141,8 @@ const MIME_BY_EXT: Record<string, string> = {
   avif: 'image/avif'
 }
 
-function send(channel: string, payload?: unknown): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+function send(channel: string, ...payload: unknown[]): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...payload)
 }
 
 function syncOptionsFrom(s: Settings): SyncOptions {
@@ -276,6 +276,7 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     secrets: svc.secrets,
     hostScript: extensionHostScript,
     notify: (text) => send(IPC.evNotify, text),
+    onViewMessage: (key, viewId, message) => send(IPC.evExtViewMessage, key, viewId, message),
     confirm: async (title, message) => {
       const opts: Electron.MessageBoxOptions = { type: 'question', buttons: ['OK', 'Cancel'], defaultId: 0, cancelId: 1, title, message: title, detail: message }
       const res = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts)
@@ -623,6 +624,7 @@ if (!gotLock) {
     app.setAppUserModelId('com.sdeken.devlog')
     await settings.load()
     installAssetHandler(() => store)
+    installViewHandler((key) => extensions?.viewRoot(key) ?? null)
 
     registerIpc({
       settings,

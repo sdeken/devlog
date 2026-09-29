@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID } from './format/canvases'
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.4.0'
+export const EXTENSION_API_VERSION = '1.5.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'
@@ -64,6 +64,24 @@ export interface ExtensionCommand {
   label: string
 }
 
+/**
+ * A view (1.5): an HTML page from the extension's package, shown by the app
+ * in a sandboxed frame. `page` views are listed in the sidebar and fill the
+ * main area; `statusbar` views sit in a slot of the status bar (fixed
+ * height; they ask for a width); `popover` views open on request, anchored
+ * to the view that asked.
+ */
+export interface ExtensionView {
+  id: string
+  title: string
+  /** The HTML file, relative to the extension folder. */
+  entry: string
+  placement: 'page' | 'statusbar' | 'popover'
+  /** One character or emoji for the sidebar. */
+  icon?: string
+}
+export const VIEW_PLACEMENTS: ExtensionView['placement'][] = ['page', 'statusbar', 'popover']
+
 /** Somewhere a finished timesheet can be sent (Jira worklogs, a CSV file, …). */
 export interface ExtensionDestination {
   id: string
@@ -99,6 +117,7 @@ export interface ExtensionManifest {
     secrets: ExtensionField[]
     commands: ExtensionCommand[]
     destinations: ExtensionDestination[]
+    views: ExtensionView[]
     /** A command that tests the settings (its return value is shown); offered on the settings page. */
     check?: string
   }
@@ -202,12 +221,28 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
     if (typeof d?.id !== 'string' || !KEY_RE.test(d.id)) errors.push(`"contributes.destinations": id ${JSON.stringify(d?.id)} is not valid`)
     else destinations.push({ id: d.id, label: typeof d.label === 'string' && d.label.trim() ? d.label.trim() : d.id })
   }
+  const views: ExtensionView[] = []
+  for (const v of (Array.isArray(c.views) ? c.views : []) as Array<Record<string, unknown>>) {
+    const placement = v?.placement as ExtensionView['placement']
+    if (typeof v?.id !== 'string' || !KEY_RE.test(v.id)) errors.push(`"contributes.views": id ${JSON.stringify(v?.id)} is not valid`)
+    else if (views.some((x) => x.id === v.id)) errors.push(`"contributes.views": duplicate id ${v.id}`)
+    else if (typeof v.entry !== 'string' || !isSafeRelativePath(v.entry) || !/\.html?$/i.test(v.entry)) errors.push(`"contributes.views": ${v.id} needs an "entry" .html file inside the extension`)
+    else if (!VIEW_PLACEMENTS.includes(placement)) errors.push(`"contributes.views": ${v.id} has placement ${JSON.stringify(v.placement)}; use page, statusbar or popover`)
+    else
+      views.push({
+        id: v.id,
+        title: typeof v.title === 'string' && v.title.trim() ? v.title.trim() : v.id,
+        entry: v.entry,
+        placement,
+        ...(typeof v.icon === 'string' && v.icon.trim() ? { icon: [...v.icon.trim()].slice(0, 2).join('') } : {})
+      })
+  }
   let check: string | undefined
   if (c.check !== undefined) {
     if (typeof c.check !== 'string' || !commands.some((x) => x.id === c.check)) errors.push('"contributes.check" must name one of its commands')
     else check = c.check
   }
-  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations, ...(check ? { check } : {}) }
+  const contributes = { canvasFields: fields('canvasFields'), settings: fields('settings'), secrets: fields('secrets'), commands, destinations, views, ...(check ? { check } : {}) }
   if (errors.length) throw new Error(`Invalid extension manifest: ${errors.join('; ')}`)
   const displayName = typeof o.displayName === 'string' && o.displayName.trim() ? o.displayName.trim() : name
   return {

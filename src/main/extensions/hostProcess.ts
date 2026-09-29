@@ -33,6 +33,7 @@ const commands = new Map<string, () => void | Promise<void>>()
 const activityListeners: Array<(n: ActivityNotice) => void> = []
 const settingsListeners: Array<(s: Record<string, string>) => void> = []
 const destinations = new Map<string, Destination>()
+const viewHandlers = new Map<string, (method: string, args: unknown[]) => unknown>()
 let focusProvider: ((from: string, to: string) => Promise<FocusEvent[]>) | null = null
 let settings: Record<string, string> = {}
 let mod: Partial<ExtensionModule> = {}
@@ -109,6 +110,16 @@ function makeContext(init: InitMessage): DevlogContext {
         void call('destination.register', String(id))
       }
     },
+    views: {
+      handle: (viewId, handler) => {
+        if (typeof handler !== 'function') throw new Error('views.handle(viewId, handler): handler must be a function')
+        viewHandlers.set(String(viewId), handler)
+        void call('views.handle', String(viewId))
+      },
+      post: (viewId, message) => {
+        void call('views.post', String(viewId), message)
+      }
+    },
     provide: {
       focus: (fn) => {
         if (typeof fn !== 'function') throw new Error('provide.focus(fn): fn must be a function')
@@ -152,6 +163,10 @@ async function handleCall(msg: CallMessage): Promise<void> {
       if (!d) throw new Error(`No destination "${String(msg.args[0])}"`)
       const sheet = msg.args[1] as DestinationSheet
       value = msg.method === 'destination.preview' ? await d.preview(sheet) : await d.send(sheet)
+    } else if (msg.method === 'view.call') {
+      const h = viewHandlers.get(String(msg.args[0]))
+      if (!h) throw new Error(`The view "${String(msg.args[0])}" has no handler`)
+      value = await h(String(msg.args[1]), Array.isArray(msg.args[2]) ? (msg.args[2] as unknown[]) : [])
     } else if (msg.method === 'provide.focus') {
       if (!focusProvider) throw new Error('No focus provider')
       value = await focusProvider(String(msg.args[0]), String(msg.args[1]))

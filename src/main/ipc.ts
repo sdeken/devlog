@@ -67,6 +67,7 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.extSetSettings, (_e, key: string, values: Record<string, string>) => touched(ext().setSettings(String(key), values && typeof values === 'object' ? values : {})))
   ipcMain.handle(IPC.extSetSecret, (_e, key: string, secretKey: string, value: string | null) => ext().setSecret(String(key), String(secretKey), typeof value === 'string' ? value : null))
   ipcMain.handle(IPC.extRun, (_e, key: string, commandId: string) => ext().runCommand(String(key), String(commandId)))
+  ipcMain.handle(IPC.extViewCall, (_e, key: string, viewId: string, method: string, args: unknown[]) => ext().viewCall(String(key), String(viewId), String(method), Array.isArray(args) ? args : []))
   ipcMain.handle(IPC.extDestPreview, (_e, key: string, destId: string, week: string) => ext().destinationPreview(String(key), String(destId), String(week)))
   ipcMain.handle(IPC.extDestSend, (_e, key: string, destId: string, week: string) => ext().destinationSend(String(key), String(destId), String(week)))
   ipcMain.handle(IPC.extBuiltins, () => deps.builtinExtensions())

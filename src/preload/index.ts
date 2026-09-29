@@ -114,6 +114,14 @@ const api = {
     setSecret: (key: string, secretKey: string, value: string | null): Promise<void> => ipcRenderer.invoke(IPC.extSetSecret, key, secretKey, value),
     /** Run a command; resolves to the text it returns, if any (a check's result). */
     run: (key: string, commandId: string): Promise<string | null> => ipcRenderer.invoke(IPC.extRun, key, commandId),
+    /** A call from an extension view's page to its extension (1.5). */
+    viewCall: (key: string, viewId: string, method: string, args: unknown[]): Promise<unknown> => ipcRenderer.invoke(IPC.extViewCall, key, viewId, method, args),
+    /** Messages an extension posts to its views. */
+    onViewMessage: (cb: (key: string, viewId: string, message: unknown) => void): (() => void) => {
+      const h = (_e: unknown, key: string, viewId: string, message: unknown): void => cb(key, viewId, message)
+      ipcRenderer.on(IPC.evExtViewMessage, h)
+      return () => ipcRenderer.removeListener(IPC.evExtViewMessage, h)
+    },
     /** Whether a GitHub token is stored; pass a token (or null) to set (or clear) it. */
     githubToken: (token?: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.extGithubToken, token),
     /** Extensions that ship with Devlog (add one with its name and "builtin"). */

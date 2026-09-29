@@ -22,6 +22,8 @@ import { StatusBar } from './components/StatusBar'
 import { SettingsDialog } from './components/SettingsDialog'
 import { needsAttention, useExtensions } from './components/ExtensionPages'
 import { ContextMenu, type MenuItem } from './components/ContextMenu'
+import { ExtensionView } from './components/ExtensionView'
+import { ExtensionPopover } from './components/ExtensionPopover'
 import { Welcome } from './components/Welcome'
 import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
@@ -30,7 +32,7 @@ import { kbd } from './keys'
 
 const TIMELINE_DAYS = 10
 
-type View = 'canvas' | 'review' | 'summary' | 'timeline' | 'timesheet'
+type View = 'canvas' | 'review' | 'summary' | 'timeline' | 'timesheet' | 'ext'
 
 /** A block open as a page: its canvas, its day file and its id. */
 interface OpenBlock {
@@ -45,6 +47,8 @@ interface Place {
   canvasId: string
   block: OpenBlock | null
   timelineDate: string
+  /** On the 'ext' view: which extension page. */
+  extPage: string
 }
 
 const blockKey = (b: OpenBlock | null): string => (b ? `${b.canvasId}/${b.date}/${b.id}` : '')
@@ -54,6 +58,7 @@ function samePlace(a: Place, b: Place): boolean {
   if (a.view !== b.view) return false
   if (a.view === 'canvas') return a.canvasId === b.canvasId && blockKey(a.block) === blockKey(b.block)
   if (a.view === 'timeline') return a.timelineDate === b.timelineDate
+  if (a.view === 'ext') return a.extPage === b.extPage
   return true
 }
 
@@ -96,6 +101,10 @@ export function App(): React.JSX.Element {
   // A block open as a page (on the canvas view), and its day file.
   const [block, setBlock] = useState<OpenBlock | null>(null)
   const [pageDay, setPageDay] = useState<Day | null>(null)
+  // An extension page on screen ('ext' view): "<devlog.json key>/<view id>".
+  const [extPage, setExtPage] = useState('')
+  // An extension popover open, anchored to the view that asked for it.
+  const [popover, setPopover] = useState<{ extKey: string; viewId: string; url: string; title: string; anchor: DOMRect; width: number; height: number } | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
   // Where the composer posts. Follows the open canvas but can be pointed elsewhere.
   const [targetCanvasId, setTargetCanvasId] = useState<string>('')
@@ -131,7 +140,7 @@ export function App(): React.JSX.Element {
   // Back / forward (Alt+←/→, the mouse's side buttons): every place visited, like a browser.
   const nav = useRef<{ stack: Place[]; index: number; restoring: Place | null }>({ stack: [], index: -1, restoring: null })
   useEffect(() => {
-    const here: Place = { view, canvasId, block, timelineDate }
+    const here: Place = { view, canvasId, block, timelineDate, extPage }
     const h = nav.current
     if (h.restoring) {
       const target = h.restoring
@@ -141,7 +150,7 @@ export function App(): React.JSX.Element {
     if (h.index >= 0 && samePlace(h.stack[h.index], here)) return
     h.stack = [...h.stack.slice(0, h.index + 1), here].slice(-100)
     h.index = h.stack.length - 1
-  }, [view, canvasId, block, timelineDate])
+  }, [view, canvasId, block, timelineDate, extPage])
   const goRef = useRef<(delta: 1 | -1) => void>(() => undefined)
   goRef.current = (delta) => {
     const h = nav.current
@@ -157,6 +166,7 @@ export function App(): React.JSX.Element {
     setCanvasId(place.canvasId)
     setBlock(place.block)
     setTimelineDate(place.timelineDate)
+    setExtPage(place.extPage)
   }
   useEffect(() => {
     const onMouse = (ev: MouseEvent): void => {
@@ -659,7 +669,21 @@ export function App(): React.JSX.Element {
     )
   }
 
-  const selection: SidebarSelection = view === 'canvas' ? { kind: 'canvas', canvasId } : { kind: view }
+  const [selExt, selView] = [extPage.slice(0, extPage.lastIndexOf('/')), extPage.slice(extPage.lastIndexOf('/') + 1)]
+  const selection: SidebarSelection = view === 'canvas' ? { kind: 'canvas', canvasId } : view === 'ext' ? { kind: 'ext', extKey: selExt, viewId: selView } : { kind: view }
+  const extPages = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'page').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, icon: v.icon, url: v.url })))
+  const statusViews = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'statusbar').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, url: v.url })))
+  const openPage = extPages.find((p) => `${p.extKey}/${p.viewId}` === extPage)
+  const showPopover = (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }): void => {
+    const v = extensions.find((e) => e.key === extKey)?.views.find((x) => x.id === viewId && x.placement === 'popover')
+    if (!v) return
+    setPopover({ extKey, viewId, url: v.url, title: v.title, anchor, width: Math.min(Math.max(size.width ?? 320, 160), 560), height: Math.min(Math.max(size.height ?? 360, 80), 640) })
+  }
+  const openFromView = (t: { canvasId: string; date?: string; blockId?: string }): void => {
+    if (!canvases.some((c) => c.id === t.canvasId)) return
+    if (t.blockId && t.date) openBlock(t.canvasId, t.date, t.blockId)
+    else openCanvas(t.canvasId, t.date)
+  }
 
   return (
     <div className="app">
@@ -671,11 +695,16 @@ export function App(): React.JSX.Element {
         searching={Boolean(search)}
         showJournal={journalHasNotes}
         settingsAttention={extensions.some(needsAttention)}
+        extPages={extPages}
         onCanvasMenu={openMenu}
         onOpenSettings={() => setSettingsPage('repository')}
         onSelect={(sel) => {
           setSearch('')
           if (sel.kind === 'canvas') openCanvas(sel.canvasId)
+          else if (sel.kind === 'ext') {
+            setExtPage(`${sel.extKey}/${sel.viewId}`)
+            setView('ext')
+          }
           else {
             if (sel.kind === 'timeline') setTimelineDate(localDate(new Date()))
             setView(sel.kind)
@@ -720,6 +749,20 @@ export function App(): React.JSX.Element {
           />
         )}
         {view === 'timesheet' && !search && <Timesheet canvases={canvases} today={today} />}
+        {view === 'ext' && !search && (openPage ? (
+          <ExtensionView
+            key={extPage}
+            className="ext-page-view"
+            extKey={openPage.extKey}
+            viewId={openPage.viewId}
+            url={openPage.url}
+            title={openPage.title}
+            onPopover={(id, anchor, size) => showPopover(openPage.extKey, id, anchor, size)}
+            onOpen={openFromView}
+          />
+        ) : (
+          <p className="feed-empty">That page is not available: its extension is not running.</p>
+        ))}
         {view === 'summary' && !search && <Summary canvases={canvases} today={today} focusMinSeconds={settings.focusMinSeconds} onOpenCanvas={openCanvas} />}
         {view === 'timeline' && !search && (
           <Timeline canvases={canvases} today={today} date={timelineDate} focusMinSeconds={settings.focusMinSeconds} onChangeDate={setTimelineDate} onJumpTo={jumpTo} />
@@ -825,7 +868,7 @@ export function App(): React.JSX.Element {
             onReorder={reorderEntry}
           />
         )}
-        {!search && targetCanvas && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
+        {!search && targetCanvas && view !== 'ext' && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
           <div className="composer-dock">
             <Composer
               key={pageBlock ? blockKey(page) : targetCanvasId}
@@ -856,6 +899,9 @@ export function App(): React.JSX.Element {
           </div>
         )}
         <StatusBar
+          extViews={statusViews}
+          onExtPopover={showPopover}
+          onExtOpen={openFromView}
           status={sync}
           tracker={tracker}
           taskLabel={tracker?.activeCanvasId ? canvasLabel(canvases, tracker.activeCanvasId) : null}
@@ -905,6 +951,16 @@ export function App(): React.JSX.Element {
           onSaved={setSettings}
           onRepoChanged={(r) => setRepo(r)}
           onPreview={applyTheme}
+        />
+      )}
+      {popover && (
+        <ExtensionPopover
+          {...popover}
+          onClose={() => setPopover(null)}
+          onOpen={(t) => {
+            setPopover(null)
+            openFromView(t)
+          }}
         />
       )}
       {canvasMenu && <ContextMenu x={canvasMenu.x} y={canvasMenu.y} items={menuItems(canvasMenu.canvasId)} onClose={() => setCanvasMenu(null)} />}

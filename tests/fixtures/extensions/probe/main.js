@@ -17,6 +17,22 @@ exports.activate = async (ctx) => {
     await ctx.files.local.write('count', String(n))
     await ctx.files.repo.append('log/hello.jsonl', JSON.stringify({ n }) + '\n')
     ctx.ui.notify(`${ctx.settings.get('greeting') || 'Hello'} #${n}`)
+    ctx.views.post('status', { count: n })
+  })
+
+  // Views (1.5): the pages ask; this answers.
+  ctx.views.handle('status', async (method) => {
+    if (method === 'count') return Number((await ctx.files.local.readText('count')) || 0)
+    throw new Error(`status: no method ${method}`)
+  })
+  ctx.views.handle('pop', async (method) => {
+    if (method === 'canvases') return (await ctx.devlog.canvases()).map((c) => ({ id: c.id, title: c.title }))
+    throw new Error(`pop: no method ${method}`)
+  })
+  ctx.views.handle('page', async (method, args) => {
+    if (method === 'greet') return `${ctx.settings.get('greeting') || 'Hello'}, ${args[0]}`
+    if (method === 'fail') throw new Error('asked to fail')
+    throw new Error(`page: no method ${method}`)
   })
 
   ctx.commands.register('probe', async () => {

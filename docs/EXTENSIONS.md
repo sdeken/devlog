@@ -345,6 +345,30 @@ interface Destination {
 }
 ```
 
+## Views (built, API 1.5)
+
+An extension can ship pages of its own, declared in `contributes.views`
+(`id`, `title`, `entry`: an .html file in the package, `placement`, `icon`):
+
+- `page`: listed in the sidebar with the app's own views; fills the main area.
+- `statusbar`: a slot in the status bar, 22 px high; the page asks for a
+  width (`resize`) and gets it within 24–360 px.
+- `popover`: opened by another of its views (`popover`), anchored to it;
+  closes on Escape, a click outside, or `close`.
+
+Pages load from `devlog-ext://<the devlog.json key, as hex>/<file>`, only
+from the extension's own folder and only while it runs, in a frame
+sandboxed to scripts (no same origin: no access to the window around it or
+its storage) under a CSP with no network (`connect-src 'none'`), no frames
+and no forms. A view talks to its extension only through the app:
+`postMessage` to the parent (`ready`, `call`, `resize`, `popover`, `close`,
+`open` a canvas or block, run a `command`); the app answers (`reply`),
+relays what the extension `views.post`s (`message`), and sends the app's
+colours as CSS custom properties (`theme`) when the page is ready and
+whenever they change. The extension answers with
+`ctx.views.handle(viewId, (method, args) => …)`. The message types are in
+`@devlog/extension-api/view`.
+
 ## Todos and blocks inside blocks (built, API 1.4)
 
 Todos are blocks (`kind: 'todo'`, `meta.done` once ticked). `devlog.addBlock`

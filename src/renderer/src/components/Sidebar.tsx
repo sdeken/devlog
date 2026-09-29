@@ -3,7 +3,14 @@ import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@devl
 import type { CanvasMeta } from '@shared/types'
 import { kbd } from '@renderer/keys'
 
-export type SidebarSelection = { kind: 'canvas'; canvasId: string } | { kind: 'review' } | { kind: 'summary' } | { kind: 'timeline' } | { kind: 'timesheet' }
+export type SidebarSelection =
+  | { kind: 'canvas'; canvasId: string }
+  | { kind: 'review' }
+  | { kind: 'summary' }
+  | { kind: 'timeline' }
+  | { kind: 'timesheet' }
+  /** A page an extension contributes. */
+  | { kind: 'ext'; extKey: string; viewId: string }
 
 interface Props {
   canvases: CanvasMeta[]
@@ -15,13 +22,15 @@ interface Props {
   showJournal: boolean
   /** An extension needs setting up or allowing. */
   settingsAttention: boolean
+  /** Pages extensions contribute, listed with the views. */
+  extPages: Array<{ extKey: string; viewId: string; title: string; icon?: string }>
   onSelect: (sel: SidebarSelection) => void
   onNewCanvas: () => void
   onCanvasMenu: (canvasId: string, x: number, y: number) => void
   onOpenSettings: () => void
 }
 
-export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
+export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, extPages, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
   const tree = useMemo(() => buildCanvasTree(canvases), [canvases])
   const archived = useMemo(() => canvases.filter((c) => c.archived), [canvases])
   const [showArchived, setShowArchived] = useState(() => {
@@ -126,6 +135,21 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, showJo
             </button>
           </li>
         </ul>
+        {extPages.length > 0 && (
+          <ul className="sidebar-views sidebar-ext-pages">
+            {extPages.map((p) => {
+              const selected = !searching && selection.kind === 'ext' && selection.extKey === p.extKey && selection.viewId === p.viewId
+              return (
+                <li key={`${p.extKey}/${p.viewId}`}>
+                  <button type="button" className={`view-link${selected ? ' is-selected' : ''}`} data-ext-page={`${p.extKey}/${p.viewId}`} onClick={() => onSelect({ kind: 'ext', extKey: p.extKey, viewId: p.viewId })}>
+                    <span className="view-icon">{p.icon ?? '▣'}</span>
+                    <span className="view-name">{p.title}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
         <div className="sidebar-section">
           <span>Canvases</span>
           <button type="button" className="sidebar-add" onClick={onNewCanvas} title={`New canvas (${kbd('mod', 'N')})`}>

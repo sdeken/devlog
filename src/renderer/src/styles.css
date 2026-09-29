@@ -4922,3 +4922,35 @@ body.is-resizing {
   border-radius: 8px;
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
+
+/* ---- Extension views (sandboxed frames) ---- */
+.ext-view {
+  display: block;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color-scheme: normal;
+}
+
+.ext-page-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.statusbar .status-ext {
+  flex: none;
+  height: 22px;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.ext-popover {
+  position: fixed;
+  z-index: 40;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
