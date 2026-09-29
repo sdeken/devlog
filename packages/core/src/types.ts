@@ -61,6 +61,21 @@ export interface EntryPosition {
   beforeId?: string
 }
 
+/**
+ * A todo somewhere in the devlog: a block with `kind: 'todo'`, at any depth,
+ * with the blocks it sits inside (outermost first) so it can be grouped and
+ * opened where it lives.
+ */
+export interface TodoRef {
+  canvasId: string
+  /** The day file it lives in. */
+  date: string
+  entry: Entry
+  trail: Array<{ id: string; title: string; kind?: EntryKind }>
+  /** Blocks written inside it. */
+  inside: number
+}
+
 export interface DaySummary {
   date: string
   count: number

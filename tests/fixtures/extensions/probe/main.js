@@ -41,8 +41,15 @@ exports.activate = async (ctx) => {
     for (const c of canvases) {
       report['field:' + c.title] = await ctx.devlog.field(c.id, 'code')
       report['days:' + c.title] = await attempt(() => ctx.devlog.days(c.id))
-      report['add:' + c.title] = await attempt(async () => (await ctx.devlog.addBlock(c.id, `Probe was here (${c.title})`, { meta: { probe: '1' } })).block.meta)
+      let added = null
+      report['add:' + c.title] = await attempt(async () => {
+        added = await ctx.devlog.addBlock(c.id, `Probe was here (${c.title})`, { meta: { probe: '1' } })
+        return added.block.meta
+      })
+      // API 1.4: a todo inside the block it just wrote.
+      if (added) report['todo:' + c.title] = await attempt(async () => (await ctx.devlog.addBlock(c.id, 'Probe todo', { parentId: added.block.id, date: added.date, todo: true })).block.kind)
     }
+    report.todos = (await ctx.devlog.todos()).map((t) => [t.block.markdown, t.trail.map((b) => b.title)])
     report.search = (await ctx.devlog.search('needle')).blocks.map((b) => b.canvasId)
     await ctx.files.repo.write('probe.json', JSON.stringify(report, null, 2))
   })

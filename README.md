@@ -57,12 +57,12 @@ tracked against; any block can become one.
   sleep. Devlog keeps running in the tray to watch. A block with an explicit
   duration like `[2h]` or `[45m]` overrides tracking for that window when
   you know better.
-- **Todos, always in view.** A panel pinned to the right edge lists the open
-  todos for the canvas on screen and everything inside it (or every todo,
-  with one click). Type one, or paste a list from anywhere and get one todo
-  per line. Each todo takes comments, can be reordered by dragging, and turns
-  into a task with one click. Ticking one off writes a "✓ done" block into
-  the canvas stream, so the log records when things got finished.
+- **Todos are blocks, and always in view.** A todo is a block with a
+  checkbox, written anywhere: on a canvas, inside a block, inside another
+  todo. A panel pinned to the right edge gathers the open ones for the page
+  on screen and everything inside it (or every todo, with one click),
+  grouped under the canvases and blocks they live in. Click one to open it
+  as a page and write your notes about it there.
 - **Archive what you're done with.** Archive a canvas, with everything
   beneath it, to get it out of the sidebar. Archived things stay readable
   and searchable, and one click brings them back.
@@ -133,7 +133,6 @@ canvases/
   k3/                             ← shard: the first two characters of the id
     k3m9x2q7vd/                   ← a canvas (a client, "Acme Corp")
       canvas.md                   ← title, parent, task flag, repos, archived flag + the surface
-      todos.md                    ← its todo list
       assets/                     ← images pasted into the surface
       entries/2026/09/2026-09-19.md ← its stream, same day-file format
   7w/
@@ -238,28 +237,42 @@ repository as sensitive, because it is.
 
 ## Todos
 
+A todo is a block with a checkbox. Post `[ ] Call Dana` (or several
+`[ ] …` lines, or `- [ ]` ones pasted from anywhere) and each line becomes a
+todo, wherever you are writing: on a canvas, on a block's page, on another
+todo's page. Ask for a review, paste the list of findings inside that block,
+and work through them one by one, writing notes inside each as you go; when
+something new comes up, add it right there.
+
 The **To do** panel on the right stays put whatever the stream is doing, and
 collapses to a thin strip showing the open count.
 
-- **Adding.** Type in the box at the top and press Enter. Paste a list (from
-  an email, Slack, a Markdown file) and each line becomes a todo; bullets,
-  numbers and `- [ ]` checkboxes are stripped. New todos go to the canvas on
-  screen, or, from the other views, to the canvas the note box posts to.
-- **Scope.** *Here* shows the canvas on screen and everything inside it,
-  grouped by canvas when there is more than one; *All* shows every open todo.
-  On the review, summary and timeline views it is always everything.
-- **Working a todo.** Click it for its comment thread (the comment box takes
-  the focus, and keeps it after posting; Esc closes the todo), **Edit**,
-  **Delete** and **Make task** (a task canvas beneath this one, clock
-  started). Hover a comment to **Edit**, **Hide** or **Delete** it; hidden
-  comments fold into one line at the end of the thread. Drag to reorder.
-  Opening, closing and ticking todos leave the list where it was.
-- **Done.** Ticking the box moves it to *Done* at the bottom of the panel and
-  writes a read-only "✓ …" block into today's stream on that canvas, marked
-  with the automatic brace. Unticking the same day removes that block again.
+- **Adding.** Type in the box at the top and press Enter, or paste a list
+  (from an email, Slack, a Markdown file) and each line becomes a todo;
+  bullets, numbers and checkboxes are stripped. New todos go into the page
+  on screen: the block you have open, or the canvas.
+- **Scope.** *Here* shows the page on screen and everything inside it; *All*
+  shows every open todo. On the review, summary and timeline views it is
+  always everything.
+- **Grouping.** Todos sit under the canvases and blocks they live in, in the
+  order they appear there. A heading with nothing of its own and a single
+  heading beneath it merges into it ("Acme Corp / Website"). Click a heading
+  to open it, or its arrow to fold it (remembered). Drag a todo to reorder it
+  among the ones beside it.
+- **Working a todo.** Click it to open it as a page: its checkbox is at the
+  top, and what you write goes inside it. The count beside a todo is how
+  much is inside. **Task** on its block turns it into a task canvas and
+  starts the clock.
+- **Done.** Tick the box, in the panel or in the stream. The todo stays where
+  it is, struck through (a run of them folds into one line), and moves to
+  *Done* in the panel for two weeks. The timeline shows when it was ticked.
 
-Todos are blocks, stored per canvas in `canvases/<xx>/<id>/todos.md` in the same format as day files, comments
-included. They are searched along with everything else.
+Todos are ordinary blocks (`kind=todo`, with a `done` time once ticked) in
+the day files, so they are searched, moved and reordered like everything
+else. Devlogs from before 0.15 kept each canvas's todos in its own
+`todos.md`; opening one moves them into the streams (each on the day it was
+written, its comments becoming blocks inside it) and marks the devlog as
+storage format 4.
 
 ## Archiving
 

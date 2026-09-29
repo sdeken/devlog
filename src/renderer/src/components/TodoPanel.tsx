@@ -1,25 +1,38 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, canvasLabel, descendantCanvasIds } from '@devlog/core'
-import { buildTree, splitTodoLines, type EntryNode } from '@devlog/core'
-import type { CanvasMeta, Entry } from '@shared/types'
+import { JOURNAL_ID, ancestorIds, canvasLabel, descendantCanvasIds, splitTodoLines } from '@devlog/core'
+import type { CanvasMeta, TodoRef } from '@shared/types'
 import { api } from '@renderer/api'
 import { renderMarkdown } from '@renderer/markdown'
 import { reported, showToast } from '@renderer/toasts'
-import { Composer } from './Composer'
 
 interface Props {
   canvases: CanvasMeta[]
   /** The canvas on screen; null on the review, summary and timeline views. */
   canvasId: string | null
+  /** The block open as a page, if any: "Here" is then that block and what is inside it. */
+  page: { canvasId: string; date: string; id: string; title: string } | null
   /** Where new todos go when no canvas is on screen (the composer's target). */
   fallbackCanvasId: string | null
   onOpenCanvas: (id: string) => void
-  /** A todo was ticked off or promoted: the stream for that canvas changed today. */
+  onOpenBlock: (canvasId: string, date: string, id: string) => void
+  /** A todo was added or ticked off: that day file changed. */
   onStreamChanged: (canvasId: string, date: string) => void
-  onCanvasesChanged: () => Promise<unknown>
+  /** Bumped whenever a day file changes in this window (blocks posted, moved, deleted…). */
+  version: number
 }
 
-type Lists = Array<{ canvasId: string; entries: Entry[] }>
+/** A heading in the panel: a canvas or a block, holding todos and further headings. */
+interface Group {
+  key: string
+  label: string
+  open: () => void
+  todos: TodoRef[]
+  children: Group[]
+}
+
+/** How long ticked-off todos stay in the Done section. */
+const DONE_DAYS = 14
+const FOLDED_KEY = 'devlog:todos:folded'
 
 const COLLAPSE_KEY = 'devlog:todos:collapsed'
 const WIDTH_KEY = 'devlog:todos:width'
@@ -53,6 +66,53 @@ const SCOPE_KEY = 'devlog:todos:all'
 const DRAG_MIME = 'application/x-devlog-todo'
 const timeFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
+function readFolded(): Set<string> {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(FOLDED_KEY) ?? '[]') as string[])
+  } catch {
+    return new Set()
+  }
+}
+
+/**
+ * Nest todos under the canvases and blocks they live in. A heading with no
+ * todos of its own and a single heading beneath it merges into it
+ * ("Acme / Website"), so a long single path takes one line.
+ */
+export function groupTodos(todos: TodoRef[], canvases: CanvasMeta[], open: { canvas: (id: string) => void; block: (canvasId: string, date: string, id: string) => void }): Group[] {
+  interface Node extends Group {
+    map: Map<string, Node>
+  }
+  const root: Node = { key: '', label: '', open: () => undefined, todos: [], children: [], map: new Map() }
+  const child = (parent: Node, key: string, label: string, onOpen: () => void): Node => {
+    let n = parent.map.get(key)
+    if (!n) {
+      n = { key, label, open: onOpen, todos: [], children: [], map: new Map() }
+      parent.map.set(key, n)
+      parent.children.push(n)
+    }
+    return n
+  }
+  const title = (id: string): string => canvasLabel(canvases, id).split(' / ').pop() ?? id
+  for (const t of todos) {
+    let node = root
+    for (const id of [...ancestorIds(canvases, t.canvasId).reverse(), t.canvasId]) node = child(node, `c:${id}`, id === JOURNAL_ID ? 'Journal' : title(id), () => open.canvas(id))
+    for (const b of t.trail) node = child(node, `b:${t.canvasId}/${b.id}`, b.title, () => open.block(t.canvasId, t.date, b.id))
+    node.todos.push(t)
+  }
+  const squash = (n: Node): Group => {
+    let cur: Group = n
+    let label = n.label
+    while (cur.todos.length === 0 && cur.children.length === 1) {
+      cur = cur.children[0]
+      label = label ? `${label} / ${cur.label}` : cur.label
+    }
+    return { key: cur.key, label, open: cur.open, todos: cur.todos, children: cur.children.map((c) => squash(c as Node)) }
+  }
+  const top = squash(root)
+  return top.key === '' ? top.children : [top]
+}
+
 function readFlag(key: string): boolean {
   try {
     return localStorage.getItem(key) === '1'
@@ -68,275 +128,12 @@ function writeFlag(key: string, v: boolean): void {
   }
 }
 
-/** Comments in a thread, with hidden ones folded into one line at the end. */
-function CommentList({ nodes, canvasId, onChanged }: { nodes: EntryNode[]; canvasId: string; onChanged: () => Promise<void> }): React.JSX.Element | null {
-  const [showHidden, setShowHidden] = useState(false)
-  const hidden = nodes.filter((n) => n.entry.hidden).length
-  const shown = showHidden ? nodes : nodes.filter((n) => !n.entry.hidden)
-  if (nodes.length === 0) return null
-  return (
-    <>
-      {shown.length > 0 && (
-        <ul className="todo-comments">
-          {shown.map((c) => (
-            <Comment key={c.entry.id} node={c} canvasId={canvasId} onChanged={onChanged} />
-          ))}
-        </ul>
-      )}
-      {hidden > 0 && (
-        <button type="button" className={`todo-hidden-toggle${showHidden ? ' is-open' : ''}`} onClick={() => setShowHidden((v) => !v)} aria-expanded={showHidden}>
-          {showHidden ? 'Fold' : `${hidden} hidden comment${hidden === 1 ? '' : 's'}`}
-        </button>
-      )}
-    </>
-  )
-}
-
-/** One comment in a todo's thread, with its own replies and its actions (edit, hide, delete). */
-function Comment({ node, canvasId, onChanged }: { node: EntryNode; canvasId: string; onChanged: () => Promise<void> }): React.JSX.Element {
-  const c = node.entry
-  const [editing, setEditing] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const replies = descendantCount(node)
-  return (
-    <li className={`todo-comment${c.hidden ? ' is-hidden' : ''}`}>
-      <div className="todo-comment-meta">
-        <span>
-          {timeFmt.format(new Date(c.createdAt))}
-          {c.updatedAt ? ' · edited' : ''}
-          {c.hidden ? ' · hidden' : ''}
-        </span>
-        {!editing && (
-          <span className="todo-comment-actions">
-            {confirmDelete ? (
-              <>
-                <button
-                  type="button"
-                  className="todo-comment-action is-danger"
-                  onClick={() => void reported(api.todos.remove(canvasId, c.id).then(() => onChanged()))}
-                >
-                  Delete{replies ? ` with ${replies} repl${replies === 1 ? 'y' : 'ies'}` : ''}
-                </button>
-                <button type="button" className="todo-comment-action" onClick={() => setConfirmDelete(false)}>
-                  Keep
-                </button>
-              </>
-            ) : (
-              <>
-                <button type="button" className="todo-comment-action" onClick={() => setEditing(true)}>
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  className="todo-comment-action"
-                  onClick={() => void reported(api.todos.setHidden(canvasId, c.id, !c.hidden).then(() => onChanged()))}
-                  title={c.hidden ? 'Show it with the other comments again' : 'Fold it away; it stays in the file and in search'}
-                >
-                  {c.hidden ? 'Unhide' : 'Hide'}
-                </button>
-                <button type="button" className="todo-comment-action" onClick={() => setConfirmDelete(true)}>
-                  Delete
-                </button>
-              </>
-            )}
-          </span>
-        )}
-      </div>
-      {editing ? (
-        <div className="todo-comment-edit">
-          <Composer
-            mode="edit"
-            initialMarkdown={c.markdown}
-            assetCanvasId={canvasId}
-            autoFocus
-            onSubmit={async (md) => {
-              await api.todos.update(canvasId, c.id, md)
-              setEditing(false)
-              await onChanged()
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        </div>
-      ) : (
-        <div className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(c.markdown) }} />
-      )}
-      <CommentList nodes={node.children} canvasId={canvasId} onChanged={onChanged} />
-    </li>
-  )
-}
-
-function descendantCount(node: EntryNode): number {
-  return node.children.reduce((n, c) => n + 1 + descendantCount(c), 0)
-}
-
-function TodoItem({
-  node,
-  canvasId,
-  open,
-  onToggleOpen,
-  onChanged,
-  onDone,
-  onPromote,
-  onDrop
-}: {
-  node: EntryNode
-  canvasId: string
-  open: boolean
-  onToggleOpen: () => void
-  onChanged: () => Promise<void>
-  onDone: (done: boolean) => Promise<void>
-  onPromote: () => Promise<void>
-  onDrop: (movingId: string, side: 'before' | 'after') => void
-}): React.JSX.Element {
-  const todo = node.entry
-  const done = Boolean(todo.meta?.done)
-  const [editing, setEditing] = useState(false)
-  const [confirmDelete, setConfirmDelete] = useState(false)
-  const [drop, setDrop] = useState<'before' | 'after' | null>(null)
-  const [replyKey, setReplyKey] = useState(0)
-  // The box ticks at once; the saved state catches up when the list reloads.
-  const [pending, setPending] = useState<boolean | null>(null)
-  useEffect(() => setPending(null), [done])
-  const comments = node.children.filter((c) => !c.entry.hidden).length
-  const threadSize = descendantCount(node)
-
-  return (
-    <li
-      data-todo-id={todo.id}
-      className={`todo${done ? ' is-done' : ''}${open ? ' is-open' : ''}${drop ? ` drop-${drop}` : ''}`}
-      draggable={!done && !editing}
-      onDragStart={(ev) => {
-        ev.dataTransfer.setData(DRAG_MIME, JSON.stringify({ id: todo.id, canvasId }))
-        ev.dataTransfer.effectAllowed = 'move'
-      }}
-      onDragOver={(ev) => {
-        if (done || !ev.dataTransfer.types.includes(DRAG_MIME)) return
-        ev.preventDefault()
-        const r = ev.currentTarget.getBoundingClientRect()
-        setDrop(ev.clientY < r.top + r.height / 2 ? 'before' : 'after')
-      }}
-      onDragLeave={(ev) => {
-        if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setDrop(null)
-      }}
-      onDrop={(ev) => {
-        ev.preventDefault()
-        const side = drop
-        setDrop(null)
-        try {
-          const data = JSON.parse(ev.dataTransfer.getData(DRAG_MIME)) as { id: string; canvasId: string }
-          if (side && data.canvasId === canvasId && data.id !== todo.id) onDrop(data.id, side)
-        } catch {
-          /* not a todo */
-        }
-      }}
-    >
-      <div className="todo-row">
-        <input
-          type="checkbox"
-          className="todo-check"
-          checked={pending ?? done}
-          onChange={(ev) => {
-            const next = ev.target.checked
-            setPending(next)
-            void reported(onDone(next)).then(() => setPending(null))
-          }}
-          title={done ? 'Mark as not done' : 'Done: records it in the stream'}
-          aria-label={done ? 'Mark as not done' : 'Mark as done'}
-        />
-        {editing ? (
-          <div className="todo-edit">
-            <Composer
-              mode="edit"
-              initialMarkdown={todo.markdown}
-              assetCanvasId={canvasId}
-              autoFocus
-              onSubmit={async (md) => {
-                await api.todos.update(canvasId, todo.id, md)
-                setEditing(false)
-                await onChanged()
-              }}
-              onCancel={() => setEditing(false)}
-            />
-          </div>
-        ) : (
-          <button type="button" className="todo-text" onClick={onToggleOpen} title={open ? 'Collapse' : 'Open comments and actions'}>
-            <span className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(todo.markdown) }} />
-            {comments > 0 && <span className="todo-count">{comments}</span>}
-          </button>
-        )}
-      </div>
-      {open && !editing && (
-        <div className="todo-detail">
-          <CommentList nodes={node.children} canvasId={canvasId} onChanged={onChanged} />
-          {!done && (
-            <div className="todo-reply">
-              <Composer
-                key={replyKey}
-                mode="reply"
-                placeholder="Comment…  Enter posts, Esc closes"
-                assetCanvasId={canvasId}
-                autoFocus
-                onCancel={onToggleOpen}
-                onSubmit={async (md) => {
-                  await api.todos.reply(canvasId, todo.id, md)
-                  setReplyKey((k) => k + 1)
-                  await onChanged()
-                }}
-              />
-            </div>
-          )}
-          <div className="todo-actions">
-            {todo.meta?.task ? (
-              <span className="todo-meta">Became a task</span>
-            ) : (
-              !done && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => void reported(onPromote())} title="Make it a task canvas and start the clock">
-                  Make task
-                </button>
-              )
-            )}
-            {!done && (
-              <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)}>
-                Edit
-              </button>
-            )}
-            {confirmDelete ? (
-              <>
-                <button
-                  type="button"
-                  className="btn btn-danger btn-xs"
-                  onClick={() =>
-                    void reported(
-                      api.todos.remove(canvasId, todo.id).then(async () => {
-                        await onChanged()
-                      })
-                    )
-                  }
-                >
-                  Delete{threadSize ? ` with ${threadSize} comment${threadSize === 1 ? '' : 's'}` : ''}
-                </button>
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setConfirmDelete(false)}>
-                  Keep
-                </button>
-              </>
-            ) : (
-              <button type="button" className="btn btn-quiet btn-xs" onClick={() => setConfirmDelete(true)}>
-                Delete
-              </button>
-            )}
-            <span className="todo-meta">{done ? `Done ${timeFmt.format(new Date(todo.meta!.done!))}` : `Added ${timeFmt.format(new Date(todo.createdAt))}`}</span>
-          </div>
-        </div>
-      )}
-    </li>
-  )
-}
-
 /**
- * Todos pinned to the right edge: open items for the canvas on screen and
- * everything beneath it (or everything), always visible whatever scrolls.
+ * Todos pinned to the right edge: every open todo for the page on screen and
+ * everything beneath it (or everything), grouped under the canvases and
+ * blocks they live in. Clicking one opens it as a page.
  */
-export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, onStreamChanged, onCanvasesChanged }: Props): React.JSX.Element {
+export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCanvas, onOpenBlock, onStreamChanged, version }: Props): React.JSX.Element {
   const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSE_KEY))
   const [width, setWidth] = useState(readWidth)
   const widthRef = useRef(width)
@@ -364,96 +161,97 @@ export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, 
     window.addEventListener('pointerup', up)
   }
   const [all, setAll] = useState(() => readFlag(SCOPE_KEY))
-  const [lists, setLists] = useState<Lists | null>(null)
-  const [openId, setOpenId] = useState<string | null>(null)
+  const [todos, setTodos] = useState<TodoRef[] | null>(null)
+  const [folded, setFolded] = useState<Set<string>>(readFolded)
   const [showDone, setShowDone] = useState(false)
   const [draft, setDraft] = useState('')
+  const [pending, setPending] = useState<Map<string, boolean>>(new Map())
+  const [drop, setDrop] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
   const input = useRef<HTMLTextAreaElement>(null)
 
-  // Keep the list still while it changes under the pointer: opening or
-  // closing a todo keeps that todo where it was (another one closing above
-  // it would otherwise pull it up), and ticking one off keeps the scroll
-  // position (the list reloads once the write is done).
+  // Ticking one off keeps the scroll position (the list reloads once the write is done).
   const body = useRef<HTMLDivElement>(null)
-  const hold = useRef<{ id: string; top: number } | { scrollTop: number } | null>(null)
-  const rowTop = (id: string): number | null => {
-    const el = body.current?.querySelector<HTMLElement>(`[data-todo-id="${CSS.escape(id)}"]`)
-    return el && body.current ? el.getBoundingClientRect().top - body.current.getBoundingClientRect().top : null
-  }
-  const holdRow = (id: string): void => {
-    const top = rowTop(id)
-    hold.current = top === null ? null : { id, top }
-  }
-  const holdScroll = (): void => {
-    if (body.current) hold.current = { scrollTop: body.current.scrollTop }
-  }
+  const hold = useRef<number | null>(null)
   useLayoutEffect(() => {
-    const h = hold.current
-    const el = body.current
-    if (!h || !el) return
+    if (hold.current === null || !body.current) return
+    body.current.scrollTop = hold.current
     hold.current = null
-    if ('scrollTop' in h) {
-      el.scrollTop = h.scrollTop
-      return
-    }
-    const top = rowTop(h.id)
-    if (top !== null) el.scrollTop += top - h.top
   })
 
   const home = canvasId && canvasId !== JOURNAL_ID ? canvasId : null
+  const here = page && page.canvasId === home ? page : null
   const wholeLog = all || !home
-  const scopeIds = useMemo(() => {
-    const live = canvases.filter((c) => !c.archived)
-    if (wholeLog) return [JOURNAL_ID, ...live.filter((c) => c.id !== JOURNAL_ID).map((c) => c.id)]
-    return [home!, ...descendantCanvasIds(canvases, home!).filter((id) => live.some((c) => c.id === id))]
-  }, [canvases, wholeLog, home])
-  const scopeKey = scopeIds.join(',')
-  // New todos go to the canvas on screen, or the one the composer posts to.
   const fallback = fallbackCanvasId && canvases.some((c) => c.id === fallbackCanvasId && !c.archived) ? fallbackCanvasId : null
-  const target = home ?? fallback
+  // New todos go into the page on screen, the canvas on screen, or the one the composer posts to.
+  const target = here ? { canvasId: here.canvasId, position: { date: here.date, parentId: here.id }, label: here.title } : (home ?? fallback) ? { canvasId: (home ?? fallback)!, position: {}, label: canvasLabel(canvases, (home ?? fallback)!) } : null
 
   const load = useCallback(async () => {
-    setLists(await api.todos.list(scopeIds))
-  }, [scopeKey]) // eslint-disable-line react-hooks/exhaustive-deps
+    const since = new Date(Date.now() - DONE_DAYS * 86_400_000).toISOString()
+    setTodos(await api.todos.list({ doneSince: since }))
+  }, [])
 
+  useEffect(() => api.blocks.onChanged(() => void load()), [load])
   useEffect(() => {
     void load()
-    return api.blocks.onChanged(() => void load())
-  }, [load])
+  }, [load, version, all])
+
+  const inScope = useMemo(() => {
+    if (wholeLog) return (): boolean => true
+    if (here) return (t: TodoRef): boolean => t.canvasId === here.canvasId && t.date === here.date && t.trail.some((b) => b.id === here.id)
+    const ids = new Set([home!, ...descendantCanvasIds(canvases, home!)])
+    return (t: TodoRef): boolean => ids.has(t.canvasId)
+  }, [wholeLog, here, home, canvases])
+
+  const open = useMemo(() => (todos ?? []).filter((t) => !t.entry.meta?.done && inScope(t)), [todos, inScope])
+  const done = useMemo(
+    () =>
+      (todos ?? [])
+        .filter((t) => t.entry.meta?.done && inScope(t))
+        .sort((a, b) => (b.entry.meta?.done ?? '').localeCompare(a.entry.meta?.done ?? ''))
+        .slice(0, 30),
+    [todos, inScope]
+  )
+  const groups = useMemo(() => groupTodos(open, canvases, { canvas: onOpenCanvas, block: onOpenBlock }), [open, canvases, onOpenCanvas, onOpenBlock])
 
   const add = async (text: string): Promise<void> => {
     const items = splitTodoLines(text)
     if (items.length === 0 || !target) return
-    await api.todos.add(target, items)
+    const res = await api.todos.add(target.canvasId, items, target.position)
     setDraft('')
     if (input.current) input.current.style.height = 'auto'
     await load()
-    if (items.length > 1) showToast(`Added ${items.length} todos to ${canvasLabel(canvases, target)}`)
+    onStreamChanged(target.canvasId, res.date)
+    if (items.length > 1) showToast(`Added ${items.length} todos to ${target.label}`, 'info')
   }
 
-  const groups = useMemo(() => {
-    if (!lists) return []
-    return lists
-      .map(({ canvasId: id, entries }) => {
-        const roots = buildTree(entries).filter((n) => n.entry.kind === 'todo')
-        return {
-          canvasId: id,
-          open: roots.filter((n) => !n.entry.meta?.done),
-          done: roots.filter((n) => n.entry.meta?.done)
-        }
+  const tick = async (t: TodoRef, next: boolean): Promise<void> => {
+    setPending((m) => new Map(m).set(t.entry.id, next))
+    try {
+      await api.todos.setDone(t.canvasId, t.date, t.entry.id, next)
+      if (body.current) hold.current = body.current.scrollTop
+      await load()
+      onStreamChanged(t.canvasId, t.date)
+    } finally {
+      setPending((m) => {
+        const n = new Map(m)
+        n.delete(t.entry.id)
+        return n
       })
-      .filter((g) => g.open.length > 0 || g.done.length > 0)
-  }, [lists])
-  const openCount = groups.reduce((n, g) => n + g.open.length, 0)
-  const doneList = useMemo(
-    () =>
-      groups
-        .flatMap((g) => g.done.map((node) => ({ canvasId: g.canvasId, node })))
-        .sort((a, b) => (b.node.entry.meta?.done ?? '').localeCompare(a.node.entry.meta?.done ?? ''))
-        .slice(0, 30),
-    [groups]
-  )
-  const multi = groups.filter((g) => g.open.length > 0).length > 1 || wholeLog
+    }
+  }
+
+  const toggleFolded = (key: string): void =>
+    setFolded((cur) => {
+      const n = new Set(cur)
+      if (n.has(key)) n.delete(key)
+      else n.add(key)
+      try {
+        localStorage.setItem(FOLDED_KEY, JSON.stringify([...n]))
+      } catch {
+        /* ignore */
+      }
+      return n
+    })
 
   const toggleCollapsed = (): void => {
     setCollapsed((v) => {
@@ -466,42 +264,101 @@ export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, 
     return (
       <aside className="todo-panel is-collapsed">
         <button type="button" className="todo-expand" onClick={toggleCollapsed} title="Show todos">
-          <span className="todo-expand-count">{openCount}</span>
+          <span className="todo-expand-count">{open.length}</span>
           <span className="todo-expand-label">To do</span>
         </button>
       </aside>
     )
   }
 
-  const renderItem = (id: string, node: EntryNode): React.JSX.Element => (
-    <TodoItem
-      key={node.entry.id}
-      node={node}
-      canvasId={id}
-      open={openId === node.entry.id}
-      onToggleOpen={() => {
-        holdRow(node.entry.id)
-        setOpenId((cur) => (cur === node.entry.id ? null : node.entry.id))
-      }}
-      onChanged={load}
-      onDone={async (done) => {
-        const res = await api.todos.setDone(id, node.entry.id, done)
-        holdScroll()
-        await load()
-        onStreamChanged(id, res.date)
-      }}
-      onPromote={async () => {
-        const res = await api.todos.promote(id, node.entry.id)
-        await load()
-        await onCanvasesChanged()
-        onStreamChanged(id, res.entry.createdAt.slice(0, 10))
-        showToast(`Task started: ${res.canvas.title}`)
-      }}
-      onDrop={(movingId, side) =>
-        void reported(api.todos.reorder(id, movingId, side === 'before' ? { beforeId: node.entry.id } : { afterId: node.entry.id }).then(() => load()))
-      }
-    />
-  )
+  // Todos are reordered among the ones beside them: same file, same block.
+  const siblingKey = (t: TodoRef): string => `${t.canvasId}/${t.date}/${t.trail.at(-1)?.id ?? ''}`
+  const renderTodo = (t: TodoRef): React.JSX.Element => {
+    const isDone = pending.get(t.entry.id) ?? Boolean(t.entry.meta?.done)
+    return (
+      <li
+        key={`${t.canvasId}/${t.date}/${t.entry.id}`}
+        data-todo-id={t.entry.id}
+        className={`todo${isDone ? ' is-done' : ''}${drop?.id === t.entry.id ? ` drop-${drop.side}` : ''}`}
+        draggable={!t.entry.meta?.done}
+        onDragStart={(ev) => {
+          ev.dataTransfer.setData(DRAG_MIME, JSON.stringify({ id: t.entry.id, sib: siblingKey(t) }))
+          ev.dataTransfer.effectAllowed = 'move'
+        }}
+        onDragOver={(ev) => {
+          if (t.entry.meta?.done || !ev.dataTransfer.types.includes(DRAG_MIME)) return
+          ev.preventDefault()
+          const r = ev.currentTarget.getBoundingClientRect()
+          const side = ev.clientY < r.top + r.height / 2 ? 'before' : 'after'
+          if (drop?.id !== t.entry.id || drop.side !== side) setDrop({ id: t.entry.id, side })
+        }}
+        onDragLeave={(ev) => {
+          if (!ev.currentTarget.contains(ev.relatedTarget as Node | null)) setDrop(null)
+        }}
+        onDrop={(ev) => {
+          ev.preventDefault()
+          const side = drop?.side
+          setDrop(null)
+          try {
+            const data = JSON.parse(ev.dataTransfer.getData(DRAG_MIME)) as { id: string; sib: string }
+            if (!side || data.id === t.entry.id) return
+            if (data.sib !== siblingKey(t)) {
+              showToast('Todos can be reordered among the ones beside them (same day, same block)', 'info')
+              return
+            }
+            void reported(api.blocks.reorder(t.canvasId, t.date, data.id, side === 'before' ? { beforeId: t.entry.id } : { afterId: t.entry.id }).then(() => load()))
+          } catch {
+            /* not a todo */
+          }
+        }}
+      >
+        <div className="todo-row">
+          <input
+            type="checkbox"
+            className="todo-check"
+            checked={isDone}
+            onChange={(ev) => void reported(tick(t, ev.target.checked))}
+            title={isDone ? 'Mark as not done' : 'Done'}
+            aria-label={isDone ? 'Mark as not done' : 'Mark as done'}
+          />
+          <button type="button" className="todo-text" onClick={() => onOpenBlock(t.canvasId, t.date, t.entry.id)} title="Open this todo">
+            <span className="markdown-body" dangerouslySetInnerHTML={{ __html: renderMarkdown(t.entry.markdown) }} />
+            {t.inside > 0 && <span className="todo-count">{t.inside}</span>}
+          </button>
+        </div>
+        {t.entry.meta?.done && <div className="todo-meta">Done {timeFmt.format(new Date(t.entry.meta.done))}</div>}
+      </li>
+    )
+  }
+
+  const renderGroup = (g: Group, depth: number, showHead: boolean): React.JSX.Element => {
+    const isFolded = folded.has(g.key)
+    const count = (x: Group): number => x.todos.length + x.children.reduce((n, c) => n + count(c), 0)
+    return (
+      <section key={g.key} className={`todo-group depth-${Math.min(depth, 3)}`} data-group={g.key}>
+        {showHead && (
+          <div className="todo-group-head">
+            <button type="button" className="todo-group-caret" onClick={() => toggleFolded(g.key)} aria-expanded={!isFolded} title={isFolded ? 'Show' : 'Fold'}>
+              {isFolded ? '▸' : '▾'}
+            </button>
+            <button type="button" className="todo-group-label" onClick={g.open} title="Open">
+              {g.label}
+            </button>
+            {isFolded && <span className="todo-group-count">{count(g)}</span>}
+          </div>
+        )}
+        {!isFolded && (
+          <>
+            {g.todos.length > 0 && <ul className="todo-list">{g.todos.map(renderTodo)}</ul>}
+            {g.children.map((c) => renderGroup(c, depth + 1, true))}
+          </>
+        )}
+      </section>
+    )
+  }
+
+  // With "Here" and a single heading, that heading is the page on screen: leave it off.
+  const soleHere = !wholeLog && groups.length === 1
 
   return (
     <aside className="todo-panel" style={{ width }}>
@@ -526,7 +383,7 @@ export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, 
       />
       <header className="todo-head">
         <span className="todo-title">To do</span>
-        <span className="todo-open-count">{openCount}</span>
+        <span className="todo-open-count">{open.length}</span>
         <span className="spacer" />
         {home && (
           <button
@@ -538,7 +395,7 @@ export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, 
                 return !v
               })
             }
-            title={all ? `Show only ${canvasLabel(canvases, home)} and what is inside it` : 'Show every open todo'}
+            title={all ? `Show only ${here ? `“${here.title}”` : canvasLabel(canvases, home)} and what is inside it` : 'Show every open todo'}
           >
             {all ? 'All' : 'Here'}
           </button>
@@ -552,9 +409,9 @@ export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, 
           ref={input}
           rows={1}
           value={draft}
-          placeholder={target ? 'Add a todo… or paste a list' : 'Open a canvas to add todos'}
+          placeholder={target ? (here ? 'Add a todo inside this block… or paste a list' : 'Add a todo… or paste a list') : 'Open a canvas to add todos'}
           disabled={!target}
-          title={target ? `New todos go to ${canvasLabel(canvases, target)}` : 'Open a canvas to add todos'}
+          title={target ? `New todos go to ${target.label}` : 'Open a canvas to add todos'}
           onChange={(ev) => {
             setDraft(ev.target.value)
             // Grow with the text instead of scrolling.
@@ -577,26 +434,15 @@ export function TodoPanel({ canvases, canvasId, fallbackCanvasId, onOpenCanvas, 
         />
       </div>
       <div className="todo-body" ref={body}>
-        {lists === null && <p className="todo-empty">Loading…</p>}
-        {lists && openCount === 0 && <p className="todo-empty">Nothing to do{wholeLog ? '' : ' here'}. Type above, or paste a list.</p>}
-        {groups
-          .filter((g) => g.open.length > 0)
-          .map((g) => (
-            <section key={g.canvasId} className="todo-group">
-              {multi && (
-                <button type="button" className="todo-group-label" onClick={() => onOpenCanvas(g.canvasId)} title="Open this canvas">
-                  {canvasLabel(canvases, g.canvasId)}
-                </button>
-              )}
-              <ul className="todo-list">{g.open.map((node) => renderItem(g.canvasId, node))}</ul>
-            </section>
-          ))}
-        {doneList.length > 0 && (
+        {todos === null && <p className="todo-empty">Loading…</p>}
+        {todos && open.length === 0 && <p className="todo-empty">Nothing to do{wholeLog ? '' : ' here'}. Type above, or paste a list.</p>}
+        {groups.map((g) => renderGroup(g, 0, !soleHere))}
+        {done.length > 0 && (
           <section className="todo-done">
             <button type="button" className="todo-done-toggle" onClick={() => setShowDone((v) => !v)}>
-              {showDone ? '▾' : '▸'} Done ({doneList.length})
+              {showDone ? '▾' : '▸'} Done ({done.length})
             </button>
-            {showDone && <ul className="todo-list">{doneList.map(({ canvasId: id, node }) => renderItem(id, node))}</ul>}
+            {showDone && <ul className="todo-list">{done.map(renderTodo)}</ul>}
           </section>
         )}
       </div>

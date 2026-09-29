@@ -27,6 +27,8 @@ interface Props {
   /** Turn this block into a task (a task canvas beneath this one). */
   onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  /** Tick a todo off, or back on. */
+  onSetDone?: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   onOpenCanvas?: (id: string) => void
   /** Open this block as a page (double-click, the Open action, its chip). */
   onOpen?: () => void
@@ -74,6 +76,7 @@ export const EntryView = memo(function EntryView({
   onMove,
   onPromote,
   onSetHidden,
+  onSetDone,
   onOpenCanvas,
   onOpen,
   draggable
@@ -93,6 +96,11 @@ export const EntryView = memo(function EntryView({
   const targets = (canvases ?? []).filter((c) => c.id !== canvasId && !c.archived)
   const readOnly = entry.kind === 'commit' || entry.kind === 'done' || entry.kind === 'timesheet' || Boolean(entry.meta?.ext)
   const isTask = entry.kind === 'task'
+  const isTodo = entry.kind === 'todo'
+  const done = isTodo && Boolean(entry.meta?.done)
+  // The box ticks at once; the saved state catches up when the day reloads.
+  const [pendingDone, setPendingDone] = useState<boolean | null>(null)
+  useEffect(() => setPendingDone(null), [done])
   const taskCanvasId = isTask ? entry.meta?.canvas : undefined
   const taskLabel = taskCanvasId && canvases ? canvasLabel(canvases, taskCanvasId).split(' / ').pop() : undefined
   const duration = readOnly ? null : parseDurationMarker(entry.markdown)
@@ -122,7 +130,7 @@ export const EntryView = memo(function EntryView({
 
   return (
     <article
-      className={`entry${surface ? ' entry-surface' : ''}${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}${confirmDelete || moving ? ' is-busy' : ''}`}
+      className={`entry${surface ? ' entry-surface' : ''}${isTodo ? ` entry-todo${done ? ' is-done' : ''}` : ''}${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}${confirmDelete || moving ? ' is-busy' : ''}`}
       id={`entry-${entry.id}`}
       onDoubleClick={(ev) => {
         // In a stream, double-click opens the block's page; on a page's surface it edits.
@@ -255,7 +263,27 @@ export const EntryView = memo(function EntryView({
           )}
         </div>
       </header>
-      <div className="entry-body markdown-body" onClick={(ev) => handleContentClick(ev, (src, alt) => setLightbox({ src, alt }))} dangerouslySetInnerHTML={{ __html: html }} />
+      {isTodo ? (
+        <div className="entry-todo-row">
+          <input
+            type="checkbox"
+            className="entry-check"
+            checked={pendingDone ?? done}
+            disabled={!onSetDone}
+            onChange={(ev) => {
+              const next = ev.target.checked
+              setPendingDone(next)
+              void onSetDone?.(canvasId, date, entry.id, next).catch(() => setPendingDone(null))
+            }}
+            onDoubleClick={(ev) => ev.stopPropagation()}
+            title={done ? `Done ${new Date(entry.meta!.done!).toLocaleString()}; untick to reopen` : 'Tick off'}
+            aria-label={done ? 'Mark as not done' : 'Mark as done'}
+          />
+          <div className="entry-body markdown-body" onClick={(ev) => handleContentClick(ev, (src, alt) => setLightbox({ src, alt }))} dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+      ) : (
+        <div className="entry-body markdown-body" onClick={(ev) => handleContentClick(ev, (src, alt) => setLightbox({ src, alt }))} dangerouslySetInnerHTML={{ __html: html }} />
+      )}
       {!surface && onOpen && replyCount > 0 && (
         <button type="button" className="entry-inside" onClick={onOpen} title="Open this block to see what is inside it">
           ▸ {replyCount} block{replyCount === 1 ? '' : 's'} inside

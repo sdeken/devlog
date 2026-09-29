@@ -215,11 +215,37 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
         if (!within(opts.write, canvasId)) throw new Error('No write access to that canvas')
         const at = now()
         const date = `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}-${String(at.getDate()).padStart(2, '0')}`
-        const block: ExtensionBlock = { id: `b${h.added.length + 1}`, createdAt: at.toISOString(), markdown: markdown.trim(), meta: { ext: id, ...(o?.meta ?? {}) } }
+        const day = o?.parentId && o.date ? o.date : date
+        const block: ExtensionBlock = {
+          id: `b${h.added.length + 1}`,
+          createdAt: at.toISOString(),
+          markdown: markdown.trim(),
+          meta: { ext: id, ...(o?.meta ?? {}) },
+          ...(o?.parentId ? { parentId: o.parentId } : {}),
+          ...(o?.todo ? { kind: 'todo' } : {})
+        }
         const c = canvases.find((x) => x.id === canvasId)
-        if (c) (c.days ??= {})[date] = [...(c.days[date] ?? []), block]
-        h.added.push({ canvasId, date, block })
-        return { date, block }
+        if (c) (c.days ??= {})[day] = [...(c.days[day] ?? []), block]
+        h.added.push({ canvasId, date: day, block })
+        return { date: day, block }
+      },
+      todos: async (o) => {
+        const out: Array<{ canvasId: string; date: string; block: ExtensionBlock; trail: Array<{ id: string; title: string }> }> = []
+        for (const c of canvases) {
+          if (!within(opts.read, c.id)) continue
+          for (const [date, list] of Object.entries(c.days ?? {})) {
+            for (const b of list) {
+              if (b.kind !== 'todo') continue
+              const done = b.meta?.done
+              if (done && (!o?.doneSince || done < o.doneSince)) continue
+              const trail: Array<{ id: string; title: string }> = []
+              for (let p = b.parentId ? list.find((x) => x.id === b.parentId) : undefined; p; p = p.parentId ? list.find((x) => x.id === p!.parentId) : undefined)
+                trail.unshift({ id: p.id, title: p.markdown.split('\n')[0].slice(0, 60) })
+              out.push({ canvasId: c.id, date, block: b, trail })
+            }
+          }
+        }
+        return out
       }
     },
     settings: {

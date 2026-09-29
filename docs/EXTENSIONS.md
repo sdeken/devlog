@@ -345,6 +345,14 @@ interface Destination {
 }
 ```
 
+## Todos and blocks inside blocks (built, API 1.4)
+
+Todos are blocks (`kind: 'todo'`, `meta.done` once ticked). `devlog.addBlock`
+takes `{ parentId, date }` to add a block inside another (the block's day
+file) and `{ todo: true }` to add a todo; `devlog.todos({ doneSince })` lists
+the open todos (and recently ticked ones) on the canvases the extension may
+read, with the blocks each sits inside.
+
 ## Destinations (built, API 1.3)
 
 An extension declares `contributes.destinations` and registers each with

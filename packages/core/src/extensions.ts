@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID } from './format/canvases'
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.3.0'
+export const EXTENSION_API_VERSION = '1.4.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'

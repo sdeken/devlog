@@ -15,9 +15,9 @@ afterEach(async () => {
 })
 
 describe('the storage format check', () => {
-  it('accepts a new devlog, stamped at format 3', async () => {
+  it('accepts a new devlog, stamped at format 4', async () => {
     await new DevlogStore(root).initLayout()
-    expect(await readStorageFormat(root)).toBe(3)
+    expect(await readStorageFormat(root)).toBe(4)
     await expect(assertSupportedFormat(root)).resolves.toBeUndefined()
   })
 
@@ -32,7 +32,16 @@ describe('the storage format check', () => {
   })
 
   it('refuses a devlog written by a newer Devlog', async () => {
-    await fs.writeFile(path.join(root, 'devlog.json'), '{ "format": 4 }\n')
+    await fs.writeFile(path.join(root, 'devlog.json'), '{ "format": 5 }\n')
     await expect(assertSupportedFormat(root)).rejects.toThrow(/newer/)
+  })
+
+  it('upgrades format 3 when the store opens it, and only then accepts it', async () => {
+    await fs.writeFile(path.join(root, 'devlog.json'), '{ "format": 3 }\n')
+    await expect(assertSupportedFormat(root)).rejects.toThrow(/older storage format \(3\)/)
+    const store = new DevlogStore(root)
+    await store.initLayout()
+    expect(await store.upgradeStorage()).toBe(3)
+    await expect(assertSupportedFormat(root)).resolves.toBeUndefined()
   })
 })

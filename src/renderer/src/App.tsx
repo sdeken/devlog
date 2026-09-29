@@ -225,7 +225,10 @@ export function App(): React.JSX.Element {
     setHasMore(t.hasMore)
   }, [days, canvasId])
 
+  // Every local change to a day file goes through here; the todo panel listens.
+  const [dayVersion, setDayVersion] = useState(0)
   const reloadDay = useCallback(async (id: string, date: string) => {
+    setDayVersion((n) => n + 1)
     const day = await api.blocks.getDay(id, date)
     if (canvasIdRef.current === id) setDays((cur) => mergeDay(cur, day))
     const b = blockRef.current
@@ -500,6 +503,14 @@ export function App(): React.JSX.Element {
     [reloadDay]
   )
 
+  const setTodoDone = useCallback(
+    async (id: string, date: string, entryId: string, done: boolean) => {
+      await api.todos.setDone(id, date, entryId, done)
+      await reloadDay(id, date)
+    },
+    [reloadDay]
+  )
+
   const reorderEntry = useCallback(
     async (id: string, date: string, entryId: string, position: { afterId?: string; beforeId?: string }) => {
       const day = await api.blocks.reorder(id, date, entryId, position)
@@ -702,6 +713,7 @@ export function App(): React.JSX.Element {
             onMove={moveEntry}
             onPromote={promoteEntry}
             onSetHidden={setHidden}
+            onSetDone={setTodoDone}
             onReorder={reorderEntry}
             onOpenCanvas={openCanvas}
             onOpenBlock={openBlock}
@@ -740,6 +752,7 @@ export function App(): React.JSX.Element {
               await refreshCanvases()
             }}
             onSetHidden={setHidden}
+            onSetDone={setTodoDone}
             onLinkRepo={() =>
               void reported(
                 api.repo.chooseDirectory().then(async (dir) => {
@@ -817,10 +830,12 @@ export function App(): React.JSX.Element {
       <TodoPanel
         canvases={canvases}
         canvasId={view === 'canvas' && canvas ? canvasId : null}
+        page={pageBlock && page ? { canvasId: page.canvasId, date: page.date, id: page.id, title: blockTitle(pageBlock, 40) } : null}
         fallbackCanvasId={targetCanvas?.id ?? null}
         onOpenCanvas={openCanvas}
+        onOpenBlock={openBlock}
         onStreamChanged={(id, date) => void reloadDay(id, date)}
-        onCanvasesChanged={refreshCanvases}
+        version={dayVersion}
       />
       <Toasts />
       {switcherOpen && (

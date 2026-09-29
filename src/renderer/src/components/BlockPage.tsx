@@ -25,6 +25,7 @@ interface Props {
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
   onPromote: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  onSetDone: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
   onOpenCanvas: (id: string) => void
   onOpenBlock: (canvasId: string, date: string, id: string) => void
@@ -153,6 +154,7 @@ export function BlockPage(props: Props): React.JSX.Element {
                   }
             }
             onPromote={props.onPromote}
+            onSetDone={props.onSetDone}
             onOpenCanvas={onOpenCanvas}
           />
         </div>
@@ -183,6 +185,7 @@ export function BlockPage(props: Props): React.JSX.Element {
       onMove={props.onMove}
       onPromote={props.onPromote}
       onSetHidden={props.onSetHidden}
+      onSetDone={props.onSetDone}
       onReorder={props.onReorder}
       onJumpTo={(id) => onOpenCanvas(id)}
       onOpenCanvas={onOpenCanvas}

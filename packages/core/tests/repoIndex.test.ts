@@ -42,8 +42,8 @@ async function corpus(): Promise<{ acme: string; web: string; old: string }> {
   await plain.addEntry(web.id, 'quotes "needle" and ab', {}, new Date(2026, 0, 7, 9))
   await plain.addEntry(old.id, 'archived needle', {}, new Date(2025, 5, 2, 9))
   await plain.setCanvasArchived(old.id, true)
-  await plain.addTodos(acme.id, ['Send Dana the needle list', 'Check CDN'], new Date(2026, 0, 8, 9))
-  await plain.addTodos('journal', ['Renew the needle cert'], new Date(2026, 0, 9, 9))
+  await plain.addTodos(acme.id, ['Send Dana the needle list', 'Check CDN'], {}, new Date(2026, 0, 8, 9))
+  await plain.addTodos('journal', ['Renew the needle cert'], {}, new Date(2026, 0, 9, 9))
   return { acme: acme.id, web: web.id, old: old.id }
 }
 
@@ -116,8 +116,9 @@ describe('RepoIndex', () => {
     const day = await indexed.readDay('journal', '2026-01-03')
     await indexed.deleteEntry('journal', '2026-01-03', day.entries[0].id)
     await indexed.moveEntry(acme, '2026-01-05', (await indexed.readDay(acme, '2026-01-05')).entries[0].id, c.id)
-    const [todo] = await indexed.readTodos(acme)
-    await indexed.setTodoDone(acme, todo.id, true, new Date(2026, 1, 3, 9))
+    const [todo] = (await indexed.listTodos()).filter((t) => t.canvasId === acme)
+    await indexed.setTodoDone(acme, todo.date, todo.entry.id, true, new Date(2026, 1, 3, 9))
+    expect(await indexed.listTodos()).toEqual(await plain.listTodos())
     await indexed.deleteCanvas(old)
     await expectSameAnswers()
     expect(await index.refresh()).toMatchObject({ indexed: 0, removed: 0 })

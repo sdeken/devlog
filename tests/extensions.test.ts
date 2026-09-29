@@ -55,6 +55,7 @@ describe('extensions in the app', () => {
     const globex = await store.createCanvas({ title: 'Globex' })
     await store.updateCanvas(acme.id, { fields: { 'ext.builtin.probe.code': 'ACME-1' } })
     for (const c of [acme, web, globex]) await store.addEntry(c.id, `needle in ${c.title}`)
+    await store.addTodos(globex.id, ['a Globex todo the probe may not see'])
     await store.addEntry('journal', 'needle in the journal')
     ids = { acme: acme.id, web: web.id, globex: globex.id }
     await updateManifest(root, (m) => {
@@ -128,11 +129,16 @@ describe('extensions in the app', () => {
     expect(r['days:Acme'].ok).toBe(true)
     expect(r['add:Acme']).toEqual({ ok: false, error: 'No write access to that canvas' })
     expect(r['add:Web']).toEqual({ ok: true, value: { ext: 'builtin.probe', probe: '1' } })
+    // 1.4: a todo inside a block; the todo list covers only what it may read.
+    expect(r['todo:Web']).toEqual({ ok: true, value: 'todo' })
+    expect(r.todos).toEqual([['Probe todo', ['Probe was here (Web)']]])
     expect(r['field:Globex']).toBeUndefined()
     expect(r.search.sort()).toEqual([ids.acme, ids.web].sort())
     // The block it wrote is in the day file, marked as its own.
     const today = (await store.listDays(ids.web)).at(-1)!.date
-    expect((await store.readDay(ids.web, today)).entries.at(-1)).toMatchObject({ markdown: 'Probe was here (Web)', meta: { ext: 'builtin.probe', probe: '1' } })
+    const written = (await store.readDay(ids.web, today)).entries.filter((e) => e.meta?.ext === 'builtin.probe')
+    expect(written[0]).toMatchObject({ markdown: 'Probe was here (Web)', meta: { ext: 'builtin.probe', probe: '1' } })
+    expect(written[1]).toMatchObject({ markdown: 'Probe todo', kind: 'todo', parentId: written[0].id })
     await expect(store.updateEntry(ids.web, today, (await store.readDay(ids.web, today)).entries.at(-1)!.id, 'x')).rejects.toThrow(/read-only/)
   })
 

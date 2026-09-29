@@ -92,6 +92,13 @@ export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate,
       fileDates.current.clear()
       for (const { canvasId, day } of chunks) {
         for (const entry of day.entries) {
+          // A todo ticked off shows at the time it was ticked, as "✓ …".
+          const done = entry.kind === 'todo' ? entry.meta?.done : undefined
+          if (done && localDate(new Date(done)) === date) {
+            const tick: Entry = { ...entry, kind: 'done', createdAt: done, markdown: `✓ ${previewText(entry.markdown, 120)}` }
+            flat.push({ canvasId, entry: tick })
+            fileDates.current.set(`${canvasId}/${tick.id}/${tick.createdAt}`, day.date)
+          }
           if (localDate(new Date(entry.createdAt)) !== date) continue
           flat.push({ canvasId, entry })
           fileDates.current.set(`${canvasId}/${entry.id}/${entry.createdAt}`, day.date)
@@ -186,7 +193,7 @@ export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate,
         {b.notes.length > 0 && (
           <ul className="tlb-notes">
             {b.notes.map((n) => (
-              <li key={n.entry.id}>
+              <li key={`${n.entry.id}/${n.entry.createdAt}`}>
                 <button type="button" className={`tl-link${n.entry.kind === 'commit' ? ' tlb-commit' : ''}`} onClick={() => onJumpTo(n.canvasId, fileDates.current.get(`${n.canvasId}/${n.entry.id}/${n.entry.createdAt}`) ?? date, n.entry)}>
                   <time>{timeFmt.format(new Date(n.entry.createdAt))}</time>
                   <span className="tl-page">{pageLabel(n.canvasId)}</span>

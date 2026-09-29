@@ -29,7 +29,7 @@ import {
 import type { CanvasMeta, Entry } from '../types'
 
 /** Bump when the schema or what gets indexed changes: the index is then rebuilt. */
-export const INDEX_SCHEMA = 4
+export const INDEX_SCHEMA = 5
 const TODO_FILE = 'todos.md'
 
 /** What a repository file means to the index. */
@@ -134,11 +134,13 @@ export class RepoIndex {
       CREATE TABLE IF NOT EXISTS blocks (
         rowid INTEGER PRIMARY KEY, path TEXT NOT NULL, canvas TEXT NOT NULL, date TEXT NOT NULL,
         todo INTEGER NOT NULL, created TEXT NOT NULL, seq INTEGER NOT NULL, entry TEXT NOT NULL,
-        folded TEXT NOT NULL
+        folded TEXT NOT NULL, kind TEXT NOT NULL DEFAULT '', done TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS blocks_path ON blocks (path);
       CREATE INDEX IF NOT EXISTS blocks_date ON blocks (date, created);
       CREATE INDEX IF NOT EXISTS blocks_created ON blocks (created);
+      CREATE INDEX IF NOT EXISTS blocks_kind ON blocks (kind);
+      CREATE INDEX IF NOT EXISTS blocks_done ON blocks (done);
       CREATE VIRTUAL TABLE IF NOT EXISTS blocks_fts USING fts5 (markdown, content='', contentless_delete=1, tokenize='trigram');
     `)
     this.db.exec(`PRAGMA user_version = ${INDEX_SCHEMA}`)
@@ -267,13 +269,13 @@ export class RepoIndex {
     }
     // A canvas with blocks but no canvas.md yet still exists.
     if (what.canvasId !== JOURNAL_ID) this.ensureBareCanvas(what.canvasId)
-    const insert = this.db.prepare('INSERT INTO blocks (path, canvas, date, todo, created, seq, entry, folded) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO blocks (path, canvas, date, todo, created, seq, entry, folded, kind, done) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const fts = this.db.prepare('INSERT INTO blocks_fts (rowid, markdown) VALUES (?, ?)')
     entries.forEach((e, seq) => {
       const date = what.kind === 'day' ? what.date : localDate(new Date(e.createdAt))
       // Searched lower-cased the way JavaScript does it, so results match a plain file scan.
       const folded = e.markdown.toLowerCase()
-      const res = insert.run(rel, what.canvasId, date, what.kind === 'todos' ? 1 : 0, e.createdAt, seq, JSON.stringify(e), folded)
+      const res = insert.run(rel, what.canvasId, date, what.kind === 'todos' ? 1 : 0, e.createdAt, seq, JSON.stringify(e), folded, e.kind ?? '', e.meta?.done ?? '')
       fts.run(res.lastInsertRowid, folded)
     })
   }
@@ -336,14 +338,24 @@ export class RepoIndex {
 
   /** Blocks (stream and todos) containing `query`, case-insensitively; newest first. */
   /**
-   * Day files (not todo lists) holding a block created in [fromIso, toIso):
+   * Day files (not todo lists) holding a block created, or a todo ticked
+   * off, in [fromIso, toIso):
    * blocks written inside another block live in that block's day file,
    * which can be older than the range.
    */
   daysWrittenIn(fromIso: string, toIso: string): Array<{ canvasId: string; date: string }> {
     return (
-      this.db.prepare('SELECT DISTINCT canvas, date FROM blocks WHERE todo = 0 AND created >= ? AND created < ?').all(fromIso, toIso) as Array<{ canvas: string; date: string }>
+      this.db
+        .prepare('SELECT DISTINCT canvas, date FROM blocks WHERE todo = 0 AND ((created >= ? AND created < ?) OR (done >= ? AND done < ?))')
+        .all(fromIso, toIso, fromIso, toIso) as Array<{ canvas: string; date: string }>
     ).map((r) => ({ canvasId: r.canvas, date: r.date }))
+  }
+
+  /** Day files holding a todo. */
+  todoDays(): Array<{ canvasId: string; date: string }> {
+    return (this.db.prepare("SELECT DISTINCT canvas, date FROM blocks WHERE todo = 0 AND kind = 'todo' ORDER BY date").all() as Array<{ canvas: string; date: string }>).map(
+      (r) => ({ canvasId: r.canvas, date: r.date })
+    )
   }
 
   searchBlocks(query: string, limit: number): IndexedHit[] {

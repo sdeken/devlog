@@ -11,6 +11,7 @@ import type {
   Entry,
   EntryPosition,
   PromoteResult,
+  TodoRef,
   RepoInfo,
   SavedAsset,
   SearchResult,
@@ -120,20 +121,12 @@ const api = {
     onNotify: (cb: (text: string) => void): Unsubscribe => on(IPC.evNotify, cb)
   },
   todos: {
-    /** Todo lists (todos and their comment threads) for each canvas, in file order. */
-    list: (canvasIds: string[]): Promise<Array<{ canvasId: string; entries: Entry[] }>> => ipcRenderer.invoke(IPC.todosList, canvasIds),
-    add: (canvasId: string, texts: string[]): Promise<Entry[]> => ipcRenderer.invoke(IPC.todosAdd, canvasId, texts),
-    reply: (canvasId: string, parentId: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoReply, canvasId, parentId, markdown),
-    update: (canvasId: string, id: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoUpdate, canvasId, id, markdown),
-    remove: (canvasId: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.todoDelete, canvasId, id),
-    /** Hide (or reveal) a todo comment. */
-    setHidden: (canvasId: string, id: string, hidden: boolean): Promise<Entry> => ipcRenderer.invoke(IPC.todoHide, canvasId, id, hidden),
-    reorder: (canvasId: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Entry[]> =>
-      ipcRenderer.invoke(IPC.todoReorder, canvasId, id, position),
-    /** Tick off (writes a done block into today's stream) or tick back on (removes today's). */
-    setDone: (canvasId: string, id: string, done: boolean): Promise<{ todo: Entry; date: string }> => ipcRenderer.invoke(IPC.todoSetDone, canvasId, id, done),
-    /** Turn a todo into a task canvas and start the clock. */
-    promote: (canvasId: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.todoPromote, canvasId, id)
+    /** Every open todo (and those ticked off since `doneSince`), with where each lives. */
+    list: (opts?: { doneSince?: string }): Promise<TodoRef[]> => ipcRenderer.invoke(IPC.todosList, opts ?? {}),
+    /** One todo block per line: at the end of today on the canvas, or inside a block. */
+    add: (canvasId: string, texts: string[], position?: { date?: string; parentId?: string }): Promise<{ date: string; entries: Entry[] }> =>
+      ipcRenderer.invoke(IPC.todosAdd, canvasId, texts, position ?? {}),
+    setDone: (canvasId: string, date: string, id: string, done: boolean): Promise<Entry> => ipcRenderer.invoke(IPC.todoSetDone, canvasId, date, id, done)
   },
   assets: {
     save: (canvasId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>

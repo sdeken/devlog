@@ -70,7 +70,7 @@ The full API, with comments, is `src/index.ts`. In short:
 
 | | |
 |---|---|
-| `ctx.devlog` | `canvases()`, `field(canvasId, key)`, `days(canvasId)`, `blocks(canvasId, date)`, `search(q)`, `addBlock(canvasId, markdown, { meta })`: all limited to what the user granted |
+| `ctx.devlog` | `canvases()`, `field(canvasId, key)`, `days(canvasId)`, `blocks(canvasId, date)`, `search(q)`, `addBlock(canvasId, markdown, { meta, parentId, date, todo })`, `todos({ doneSince })`: all limited to what the user granted. Adding inside a block, adding todos and `todos()` are 1.4 |
 | `ctx.files.repo` / `ctx.files.local` | private folders (synced with the devlog / this machine only): `read`, `readText`, `write`, `append`, `list`, `stat`, `remove`, relative paths only |
 | `ctx.settings` | `get(key)`, `onChange(cb)` |
 | `ctx.secrets` | `get`, `set`, `delete` |

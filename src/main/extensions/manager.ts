@@ -676,11 +676,26 @@ export class ExtensionManager {
       case 'devlog.addBlock': {
         const canvasId = str(0, 'canvasId')
         const markdown = str(1, 'markdown')
-        const opts = (args[2] ?? {}) as { meta?: Record<string, string> }
+        const opts = (args[2] ?? {}) as { meta?: Record<string, string>; parentId?: unknown; date?: unknown; todo?: unknown }
         if (!(await canWrite(canvasId))) throw new Error('No write access to that canvas')
-        const { date, entry } = await this.deps.store.addExtensionBlock(canvasId, ext.id, markdown, opts.meta ?? {})
+        const parentId = typeof opts.parentId === 'string' ? opts.parentId : undefined
+        const at = typeof opts.date === 'string' ? opts.date : undefined
+        if (parentId && !at) throw new Error('devlog.addBlock: a block added inside another needs that block\'s date')
+        const { date, entry } = await this.deps.store.addExtensionBlock(canvasId, ext.id, markdown, opts.meta ?? {}, new Date(), {
+          ...(parentId ? { parentId, date: at } : {}),
+          todo: opts.todo === true
+        })
         this.deps.onBlockAdded(canvasId, date)
         return { date, block: toBlock(entry) }
+      }
+      case 'devlog.todos': {
+        if (!grant.read) return []
+        const opts = (args[0] ?? {}) as { doneSince?: unknown }
+        const readable = scopeCanvasIds(await canvases(), grant.read)
+        const todos = await this.deps.store.listTodos({ doneSince: typeof opts.doneSince === 'string' ? opts.doneSince : undefined })
+        return todos
+          .filter((t) => readable.has(t.canvasId))
+          .map((t) => ({ canvasId: t.canvasId, date: t.date, block: toBlock(t.entry), trail: t.trail.map(({ id, title }) => ({ id, title })) }))
       }
       case 'secrets.get':
         return this.deps.secrets.get(ext.id, checkKey(str(0, 'key')))

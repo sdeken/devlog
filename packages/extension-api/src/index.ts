@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.3.0'
+export const API_VERSION = '1.4.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -39,6 +39,26 @@ export interface ExtensionBlock {
   kind?: string
   hidden?: boolean
   meta?: Record<string, string>
+}
+
+/** A todo (a block with `kind: 'todo'`; `meta.done` is set once ticked off) and where it lives. */
+export interface ExtensionTodo {
+  canvasId: string
+  /** The day file it lives in. */
+  date: string
+  block: ExtensionBlock
+  /** The blocks it sits inside, outermost first. */
+  trail: Array<{ id: string; title: string }>
+}
+
+/** Where a new block goes (1.4): the end of today by default, or inside a block (its day file's date and id). */
+export interface AddBlockOptions {
+  meta?: Record<string, string>
+  /** Add it inside this block (1.4). Needs `date`: the day file the block lives in. */
+  parentId?: string
+  date?: string
+  /** Add it as a todo (1.4). */
+  todo?: boolean
 }
 
 export interface ExtensionSearchResult {
@@ -165,8 +185,15 @@ export interface DevlogContext {
     blocks(canvasId: string, date: string): Promise<ExtensionBlock[]>
     /** Full-text search, limited to what it can read. */
     search(query: string): Promise<ExtensionSearchResult>
-    /** Add a block to today's stream on a canvas (needs write access). It is marked as this extension's and read-only. */
-    addBlock(canvasId: string, markdown: string, opts?: { meta?: Record<string, string> }): Promise<{ date: string; block: ExtensionBlock }>
+    /**
+     * Add a block to a canvas (needs write access): at the end of today, or
+     * inside a block (1.4); optionally as a todo (1.4). It is marked as this
+     * extension's and its text is read-only in the app (a todo can still be
+     * ticked off).
+     */
+    addBlock(canvasId: string, markdown: string, opts?: AddBlockOptions): Promise<{ date: string; block: ExtensionBlock }>
+    /** Open todos (and those ticked off since `doneSince`) on the canvases it may read (1.4). */
+    todos(opts?: { doneSince?: string }): Promise<ExtensionTodo[]>
   }
   /** Devlog-wide settings from devlog.json (as declared in `contributes.settings`). */
   settings: {

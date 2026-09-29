@@ -206,17 +206,15 @@ the anchor's thread. Timestamps are untouched, which is the answer to the
 written and its position is where it is kept; the file already separated the
 two. Dropping is refused across days because a day is a file.
 
-**Todos** are blocks of kind `todo` in a per-canvas block file, `todos.md`,
-not in the dated stream: they outlive the day they were written, and their
-order is priority, not time. The file uses the same block format as a day
-file (`parseBlockFile` / `serializeBlockFile`, which day files now go
-through as well), so comments are ordinary replies and reordering is the same
-`moveSubtree`. `meta.done` is when a todo was ticked off; ticking also
-writes a `done` block into today's stream (`meta.todo` links back), which is
-how completions reach the log, the timeline and the review. Unticking the
-same day removes that block; on a later day it is left as history. The panel
-reads one small file per canvas in scope, so it stays cheap regardless of
-how long the log gets.
+**Todos** are blocks of kind `todo` in the day files, at any depth (storage
+format 4; see `BLOCK-PAGES.md`). `meta.done` is when one was ticked off; the
+date range query finds day files by that time too, so the timeline shows
+ticks on the day they happened. The panel asks the index for the day files
+holding a todo (`todoDays`), reads those, and groups the open todos under the
+canvases and blocks above them. Format 3 kept a per-canvas `todos.md`;
+`upgradeStorage` moves each old todo (with its comments) into the day file
+of the day it was written. "✓" blocks written by earlier versions when a
+todo was ticked stay as history.
 
 **Moving** a block (with its thread) to another canvas rewrites nothing but
 the file it lives in: assets stay put and the serialised link becomes

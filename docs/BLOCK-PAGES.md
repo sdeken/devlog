@@ -1,6 +1,7 @@
 # Block pages and todos as blocks: design
 
-Status: agreed. Phase 1 (block pages) in 0.14.0; phases 2 and 3 to follow.
+Status: phase 1 (block pages) in 0.14.0, phase 2 (todos as blocks) in
+0.15.0; phase 3 to follow.
 
 ## The idea
 

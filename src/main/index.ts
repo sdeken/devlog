@@ -228,6 +228,9 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     throw new Error('That folder is not a git repository. Use "Create a new devlog" to initialise one.')
   }
   await nextStore.initLayout()
+  // Format 3 → 4: todo lists move into the streams (a one-time rewrite, committed by the next sync).
+  const upgraded = await nextStore.upgradeStorage()
+  if (upgraded) console.log(`devlog: upgraded storage format ${upgraded} → current`)
   await assertSupportedFormat(root)
   if (!isRepo || create) await SyncManager.initRepo(root, syncOptionsFrom(s))
 

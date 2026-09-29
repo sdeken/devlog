@@ -4852,3 +4852,65 @@ body.is-resizing {
   color: var(--accent);
   border-color: var(--accent);
 }
+
+/* ---- Todo panel headings: canvases and blocks, foldable ---- */
+.todo-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.todo-group-head .todo-group-label {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  padding-left: 2px;
+}
+
+.todo-group-caret {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 10px;
+  width: 16px;
+  padding: 6px 0 2px;
+  flex: none;
+}
+
+.todo-group-count {
+  font-size: 11px;
+  color: var(--fg-muted);
+  padding: 4px 6px 0;
+}
+
+.todo-group .todo-group {
+  margin-left: 10px;
+  margin-bottom: 4px;
+}
+
+/* ---- Todos in the stream ---- */
+.entry-todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.entry-check {
+  margin-top: 4px;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+
+.entry-todo-row > .entry-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-todo.is-done .entry-todo-row > .entry-body {
+  color: var(--fg-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-muted);
+}

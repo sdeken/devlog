@@ -459,3 +459,20 @@ export function splitTodoLines(text: string): string[] {
   }
   return out
 }
+
+/**
+ * A block written as a checklist: every non-blank line a checkbox item
+ * (`[ ] …`, `- [ ] …`, `1. [x] …`; the editor may escape the brackets).
+ * Returns the items, or null when the text is anything else.
+ */
+export function checklistItems(markdown: string): Array<{ text: string; done: boolean }> | null {
+  const ITEM = /^\s*(?:(?:[-*+]|\d+[.)])\s+)?\\?\[([ xX]?)\\?\]\s+(.+)$/
+  const out: Array<{ text: string; done: boolean }> = []
+  for (const line of markdown.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!line.trim()) continue
+    const m = ITEM.exec(line)
+    if (!m) return null
+    out.push({ text: m[2].trim(), done: m[1].toLowerCase() === 'x' })
+  }
+  return out.length ? out : null
+}

@@ -33,6 +33,7 @@ interface Props {
   onNewCanvasHere: (task: boolean) => void
   onArchive: (archived: boolean) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  onSetDone: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   /** Link another working copy to this canvas (folder picker, then update). */
   onLinkRepo: () => void
   onUnlinkRepo: (path: string) => void
@@ -106,6 +107,7 @@ export function CanvasView({
   onNewCanvasHere,
   onArchive,
   onSetHidden,
+  onSetDone,
   onLinkRepo,
   onUnlinkRepo,
   onReorder
@@ -361,6 +363,7 @@ export function CanvasView({
       onMove={onMove}
       onPromote={onPromote}
       onSetHidden={onSetHidden}
+      onSetDone={onSetDone}
       onReorder={onReorder}
       onJumpTo={(id) => onOpenCanvas(id)}
       onOpenCanvas={onOpenCanvas}

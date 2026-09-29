@@ -31,7 +31,7 @@ export async function assertSupportedFormat(root: string): Promise<void> {
     throw new Error(`This devlog uses storage format ${format}, which is newer than this version of Devlog understands (${STORAGE_FORMAT}). Update Devlog, then open it again.`)
   }
   throw new Error(
-    `This devlog uses an older storage format (${format ?? 'no devlog.json'}). Devlog 0.5 upgrades it: open it once with Devlog 0.5, then again with this version.`
+    `This devlog uses an older storage format (${format ?? 'no devlog.json'}). Devlog 0.5 upgrades formats 1 and 2: open it once with Devlog 0.5, then again with this version.`
   )
 }
 

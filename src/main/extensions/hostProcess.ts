@@ -65,7 +65,8 @@ function makeContext(init: InitMessage): DevlogContext {
       days: (canvasId) => call('devlog.days', canvasId) as Promise<string[]>,
       blocks: (canvasId, date) => call('devlog.blocks', canvasId, date) as ReturnType<DevlogContext['devlog']['blocks']>,
       search: (query) => call('devlog.search', query) as ReturnType<DevlogContext['devlog']['search']>,
-      addBlock: (canvasId, markdown, opts) => call('devlog.addBlock', canvasId, markdown, opts ?? {}) as ReturnType<DevlogContext['devlog']['addBlock']>
+      addBlock: (canvasId, markdown, opts) => call('devlog.addBlock', canvasId, markdown, opts ?? {}) as ReturnType<DevlogContext['devlog']['addBlock']>,
+      todos: (opts) => call('devlog.todos', opts ?? {}) as ReturnType<DevlogContext['devlog']['todos']>
     },
     settings: {
       get: (key) => settings[key],

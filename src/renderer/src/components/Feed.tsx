@@ -25,6 +25,7 @@ interface Props {
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
   onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  onSetDone?: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   /** Drag-and-drop reordering of a top-level block within its day. */
   onReorder?: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
   onJumpTo: (canvasId: string, date: string) => void
@@ -95,6 +96,7 @@ interface NodeProps {
   onMove: Props['onMove']
   onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
+  onSetDone?: Props['onSetDone']
   onOpenCanvas: Props['onOpenCanvas']
   onOpenBlock?: Props['onOpenBlock']
   /** Blocks get a drag grip when reordering is available. */
@@ -102,7 +104,7 @@ interface NodeProps {
 }
 
 /** A block in a stream. What is written inside it lives on its own page, behind a chip. */
-function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onPromote, onSetHidden, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
+function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onPromote, onSetHidden, onSetDone, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
   return (
     <div className="note">
       <EntryView
@@ -117,6 +119,7 @@ function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDel
         onMove={onMove}
         onPromote={onPromote}
         onSetHidden={onSetHidden}
+        onSetDone={onSetDone}
         onOpenCanvas={onOpenCanvas}
         onOpen={onOpenBlock ? () => onOpenBlock(canvasId, date, node.entry.id) : undefined}
         draggable={draggable}
@@ -155,8 +158,9 @@ function DoneGroup({ nodes, open, onToggle }: { nodes: EntryNode[]; open: boolea
   )
 }
 
-/** A completed-todo block with nothing hanging off it: these fold together when they come in a row. */
-const isFoldableDone = (node: EntryNode): boolean => node.entry.kind === 'done' && !node.entry.hidden && node.children.length === 0
+/** A ticked-off todo (or an old "✓" block) with nothing inside it: these fold together when they come in a row. */
+const isFoldableDone = (node: EntryNode): boolean =>
+  (node.entry.kind === 'done' || (node.entry.kind === 'todo' && Boolean(node.entry.meta?.done))) && !node.entry.hidden && node.children.length === 0
 
 function DayGroup({
   day,
@@ -172,6 +176,7 @@ function DayGroup({
   onPromote,
   onSetHidden,
   onReorder,
+  onSetDone,
   onOpenCanvas,
   onOpenBlock
 }: {
@@ -189,6 +194,7 @@ function DayGroup({
   onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
   onReorder?: Props['onReorder']
+  onSetDone?: Props['onSetDone']
   onOpenCanvas: Props['onOpenCanvas']
   onOpenBlock?: Props['onOpenBlock']
 }): React.JSX.Element {
@@ -280,6 +286,7 @@ function DayGroup({
         onMove={onMove}
         onPromote={onPromote}
         onSetHidden={onSetHidden}
+        onSetDone={onSetDone}
         onOpenCanvas={onOpenCanvas}
         onOpenBlock={onOpenBlock}
         draggable={Boolean(onReorder)}
@@ -342,6 +349,7 @@ export function Feed({
   onPromote,
   onSetHidden,
   onReorder,
+  onSetDone,
   onJumpTo,
   onOpenCanvas,
   onOpenBlock,
@@ -509,6 +517,7 @@ export function Feed({
           onPromote={onPromote}
           onSetHidden={onSetHidden}
           onReorder={onReorder}
+          onSetDone={onSetDone}
           onOpenCanvas={onOpenCanvas}
           onOpenBlock={onOpenBlock}
         />
