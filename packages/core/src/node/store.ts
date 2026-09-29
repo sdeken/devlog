@@ -35,6 +35,7 @@ import {
   planDelete,
   planEdit,
   planMove,
+  planNest,
   planSet,
   previewText,
   readBlockLog,
@@ -352,6 +353,8 @@ export class DevlogStore extends EventEmitter {
     }
     const canvas = await this.createCanvas({ title: titleFromMarkdown(entry.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, task: true }, now)
     await this.mutateDay(canvasId, date, (log) => ({ ops: planSet(log, entryId, { kind: 'task', canvas: canvas.id }, stampFor(log, now)), result: null }))
+    // What was written inside the block moves into the task's own stream; the block stays as the link to it.
+    for (const child of day.entries.filter((e) => e.parentId === entryId)) await this.moveBlock({ canvasId, date, id: child.id }, { canvasId: canvas.id, date }, now)
     entry.kind = 'task'
     entry.meta = { ...(entry.meta ?? {}), canvas: canvas.id }
     return { canvas, entry }
@@ -824,34 +827,79 @@ export class DevlogStore extends EventEmitter {
    * stay where they are; links are rewritten relative to the new file.
    */
   async moveEntry(fromCanvasId: string, date: string, id: string, toCanvasId: string, now: Date = new Date()): Promise<{ date: string; entry: Entry }> {
-    assertCanvasId(toCanvasId)
     if (fromCanvasId === toCanvasId) throw new Error('Block is already on that canvas')
-    await this.readCanvas(toCanvasId)
-    const source = await this.readDay(fromCanvasId, date)
-    if (!source.entries.some((e) => e.id === id)) throw new Error(`Entry ${id} not found on ${date}`)
-    const thread = new Set([id, ...descendantIds(source.entries, id)])
+    return this.moveBlock({ canvasId: fromCanvasId, date, id }, { canvasId: toCanvasId }, now)
+  }
+
+  /**
+   * Move a block, with everything inside it: to the top level of a canvas
+   * (on the block's own date), inside another block (`parentId`, with that
+   * block's day file as `date`), or out beside a block (`afterId`, same file).
+   * Within one file this is a single `set` record; across files the blocks
+   * are added to the target (re-id'd where the target already uses an id,
+   * images still linked where they are) and then deleted from the source.
+   */
+  async moveBlock(
+    from: { canvasId: string; date: string; id: string },
+    to: { canvasId: string; date?: string; parentId?: string; afterId?: string },
+    now: Date = new Date()
+  ): Promise<{ date: string; entry: Entry }> {
+    assertCanvasId(to.canvasId)
+    if (to.canvasId !== JOURNAL_ID) await this.readCanvas(to.canvasId)
+    if ((to.parentId || to.afterId) && !to.date) throw new Error('Moving inside or beside a block needs its date')
+    const date = to.date ?? from.date
+    if (to.canvasId === from.canvasId && date === from.date) {
+      return this.mutateDay(from.canvasId, date, (log) => {
+        const at = stampFor(log, now)
+        const ops = to.parentId
+          ? planNest(log, from.id, { parentId: to.parentId }, at)
+          : to.afterId
+            ? planNest(log, from.id, { afterId: to.afterId }, at)
+            : (() => {
+                const e = log.entries.find((x) => x.id === from.id)
+                if (!e) throw new Error(`Entry ${from.id} not found on ${date}`)
+                if (!e.parentId) throw new Error('Block is already there')
+                // Out to the top level, right after the top-level block it was inside.
+                let top = e
+                while (top.parentId) top = log.entries.find((x) => x.id === top.parentId) ?? { ...top, parentId: undefined }
+                return planNest(log, from.id, { afterId: top.id }, at)
+              })()
+        const moved = log.entries.find((x) => x.id === from.id)!
+        const entry: Entry = { ...moved }
+        const parent = ops.at(-1)?.attrs.parent
+        if (parent) entry.parentId = parent
+        else delete entry.parentId
+        return { ops, result: { date, entry } }
+      })
+    }
+    if (to.afterId) throw new Error('A block moves beside another only within the same day')
+    const source = await this.readDay(from.canvasId, from.date)
+    if (!source.entries.some((e) => e.id === from.id)) throw new Error(`Entry ${from.id} not found on ${from.date}`)
+    const thread = new Set([from.id, ...descendantIds(source.entries, from.id)])
     const moving = source.entries.filter((e) => thread.has(e.id)).map((e) => ({ ...e }))
 
     // Added to the target first (re-id'd where the target already used an id), then deleted from the source.
-    const movedRoot = await this.mutateDay(toCanvasId, date, (log) => {
+    const movedRoot = await this.mutateDay(to.canvasId, date, (log) => {
+      if (to.parentId && !log.entries.some((e) => e.id === to.parentId)) throw new Error(`Entry ${to.parentId} not found on ${date}`)
       const rename = new Map<string, string>()
       const ops: Op[] = []
       let cur = log
       for (const e of moving) {
         const newId = cur.ids.has(e.id) ? uniqueId(cur.ids) : e.id
         rename.set(e.id, newId)
-        const parent = e.id === id ? undefined : rename.get(e.parentId ?? '')
+        const parent = e.id === from.id ? to.parentId : rename.get(e.parentId ?? '')
         const entry: Entry = { ...e, id: newId }
         delete entry.parentId
         const planned = planAdd(cur, entry, parent ? { parentId: parent } : {}, entry.createdAt)
         ops.push(...planned)
         cur = advance(cur, planned)
       }
-      const root = { ...moving[0], id: rename.get(id)! }
-      delete root.parentId
+      const root: Entry = { ...moving[0], id: rename.get(from.id)! }
+      if (to.parentId) root.parentId = to.parentId
+      else delete root.parentId
       return { ops, result: root }
     })
-    await this.mutateDay(fromCanvasId, date, (log) => ({ ops: planDelete(log, id, stampFor(log, now)), result: null }))
+    await this.mutateDay(from.canvasId, from.date, (log) => ({ ops: planDelete(log, from.id, stampFor(log, now)), result: null }))
     return { date, entry: movedRoot }
   }
 

@@ -447,6 +447,35 @@ export function planMove(log: BlockLog, id: string, position: { afterId?: string
   return [...renumber, { op: 'set', id, at, attrs }]
 }
 
+/**
+ * Records that put a block (everything inside it follows) inside another
+ * block of the same file, at the end of what is already there
+ * (`{ parentId }`), or beside a block, right after it (`{ afterId }`, which
+ * is how a block moves out of the one it is in). Refuses to put a block
+ * inside itself or anything inside it.
+ */
+export function planNest(log: BlockLog, id: string, target: { parentId: string } | { afterId: string }, at: string): Op[] {
+  liveEntry(log, id)
+  const moving = new Set(threadIds(log, id))
+  let parent: string | null
+  let index: number
+  if ('parentId' in target) {
+    liveEntry(log, target.parentId)
+    if (moving.has(target.parentId)) throw new Error('A block cannot go inside itself')
+    parent = target.parentId
+    index = siblingIds(log, parent, moving).length
+  } else {
+    const anchor = liveEntry(log, target.afterId)
+    if (moving.has(anchor.id)) throw new Error('A block cannot go inside itself')
+    parent = anchor.parentId ?? null
+    index = siblingIds(log, parent, moving).indexOf(anchor.id) + 1
+  }
+  const { pos, renumber } = place(log, parent, index, at, moving)
+  const attrs: Record<string, string> = { pos }
+  if (parent) attrs.parent = parent
+  return [...renumber, { op: 'set', id, at, attrs }]
+}
+
 /** Records that delete a block and its whole thread. */
 export function planDelete(log: BlockLog, id: string, at: string): Op[] {
   liveEntry(log, id)

@@ -7,12 +7,15 @@ export type SwitchTarget =
   | { kind: 'canvas'; canvasId: string }
   | { kind: 'view'; view: 'review' | 'timeline' | 'summary' | 'timesheet' }
   | { kind: 'settings'; page?: string }
+  | { kind: 'block'; canvasId: string; date: string; id: string }
   | { kind: 'command'; extension: string; command: string }
 
 interface Props {
   canvases: CanvasMeta[]
   /** Running extensions contribute their commands. */
   extensions?: ExtensionInfo[]
+  /** Block pages opened lately, newest first. */
+  recentPages?: Array<{ canvasId: string; date: string; id: string; title: string }>
   onPick: (target: SwitchTarget) => void
   onClose: () => void
 }
@@ -22,6 +25,8 @@ interface Item {
   label: string
   hint: string
   target: SwitchTarget
+  /** Listed first when nothing is typed yet (recent pages, newest first). */
+  recent?: number
 }
 
 function score(query: string, label: string): number {
@@ -36,7 +41,7 @@ function score(query: string, label: string): number {
   return i === q.length ? 1 : 0
 }
 
-export function QuickSwitcher({ canvases, extensions = [], onPick, onClose }: Props): React.JSX.Element {
+export function QuickSwitcher({ canvases, extensions = [], recentPages = [], onPick, onClose }: Props): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const input = useRef<HTMLInputElement>(null)
@@ -50,6 +55,16 @@ export function QuickSwitcher({ canvases, extensions = [], onPick, onClose }: Pr
       { key: 'settings', label: 'Settings', hint: 'settings', target: { kind: 'settings' } },
       { key: 'extensions', label: 'Extensions', hint: 'settings', target: { kind: 'settings', page: 'extensions' } }
     ]
+    recentPages.forEach((p, i) => {
+      if (!canvases.some((c) => c.id === p.canvasId)) return
+      out.push({
+        key: `page:${p.canvasId}/${p.date}/${p.id}`,
+        label: `${canvasLabel(canvases, p.canvasId)} / ${p.title}`,
+        hint: 'page',
+        target: { kind: 'block', canvasId: p.canvasId, date: p.date, id: p.id },
+        recent: recentPages.length - i
+      })
+    })
     for (const e of extensions) {
       for (const c of e.commands) {
         if (e.state === 'running' && c.ready) out.push({ key: `cmd:${e.key}:${c.id}`, label: `${e.displayName}: ${c.label}`, hint: 'command', target: { kind: 'command', extension: e.key, command: c.id } })
@@ -64,13 +79,13 @@ export function QuickSwitcher({ canvases, extensions = [], onPick, onClose }: Pr
       })
     }
     return out
-  }, [canvases, extensions])
+  }, [canvases, extensions, recentPages])
 
   const results = useMemo(() => {
     return items
       .map((it) => ({ it, s: score(query, it.label) }))
       .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s || a.it.label.localeCompare(b.it.label))
+      .sort((a, b) => (query ? 0 : (b.it.recent ?? 0) - (a.it.recent ?? 0)) || b.s - a.s || a.it.label.localeCompare(b.it.label))
       .slice(0, 12)
       .map((x) => x.it)
   }, [items, query])

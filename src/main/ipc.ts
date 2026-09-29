@@ -212,8 +212,11 @@ export function registerIpc(deps: IpcDeps): void {
     requireStore(deps).updateEntry(canvasId, date, id, markdown)
   )
   ipcMain.handle(IPC.entryDelete, (_e, canvasId: string, date: string, id: string) => requireStore(deps).deleteEntry(canvasId, date, id))
-  ipcMain.handle(IPC.entryMove, (_e, fromCanvasId: string, date: string, id: string, toCanvasId: string) =>
-    requireStore(deps).moveEntry(fromCanvasId, date, id, toCanvasId)
+  // To another canvas (a canvas id), or inside / beside a block ({ canvasId, date, parentId | afterId }).
+  ipcMain.handle(IPC.entryMove, (_e, fromCanvasId: string, date: string, id: string, to: string | { canvasId: string; date?: string; parentId?: string; afterId?: string }) =>
+    typeof to === 'string'
+      ? requireStore(deps).moveEntry(fromCanvasId, date, id, to)
+      : requireStore(deps).moveBlock({ canvasId: fromCanvasId, date, id }, { canvasId: String(to.canvasId), date: to.date, parentId: to.parentId, afterId: to.afterId })
   )
   ipcMain.handle(IPC.entrySearch, (_e, query: string) => requireStore(deps).search(query))
   ipcMain.handle(

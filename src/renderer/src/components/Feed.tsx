@@ -23,6 +23,8 @@ interface Props {
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
+  /** Move a block within its canvas: inside another (drop it on the middle of one), or out of the one it is in. */
+  onNest?: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
   onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onSetDone?: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
@@ -44,6 +46,9 @@ interface Props {
 }
 
 const DRAG_MIME = 'application/x-devlog-block'
+
+/** The block being dragged, if any (drops can land in another day's group). */
+let dragged: { id: string; date: string; canvasId: string } | null = null
 
 const headingFmt = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -94,6 +99,7 @@ interface NodeProps {
   onUpdate: Props['onUpdate']
   onDelete: Props['onDelete']
   onMove: Props['onMove']
+  onNest?: Props['onNest']
   onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
   onSetDone?: Props['onSetDone']
@@ -104,7 +110,7 @@ interface NodeProps {
 }
 
 /** A block in a stream. What is written inside it lives on its own page, behind a chip. */
-function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onPromote, onSetHidden, onSetDone, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
+function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onNest, onPromote, onSetHidden, onSetDone, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
   return (
     <div className="note">
       <EntryView
@@ -117,6 +123,7 @@ function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDel
         onUpdate={onUpdate}
         onDelete={onDelete}
         onMove={onMove}
+        onNest={onNest}
         onPromote={onPromote}
         onSetHidden={onSetHidden}
         onSetDone={onSetDone}
@@ -173,6 +180,7 @@ function DayGroup({
   onUpdate,
   onDelete,
   onMove,
+  onNest,
   onPromote,
   onSetHidden,
   onReorder,
@@ -191,6 +199,7 @@ function DayGroup({
   onUpdate: Props['onUpdate']
   onDelete: Props['onDelete']
   onMove: Props['onMove']
+  onNest?: Props['onNest']
   onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
   onReorder?: Props['onReorder']
@@ -201,8 +210,7 @@ function DayGroup({
   const roots = buildTree(day.entries)
   const opDate = fileDate ?? day.date
   const [revealed, setRevealed] = useState<Set<string>>(new Set())
-  const [drop, setDrop] = useState<{ id: string; side: 'before' | 'after' } | null>(null)
-  const dragging = useRef<string | null>(null)
+  const [drop, setDrop] = useState<{ id: string; side: 'before' | 'after' | 'inside' } | null>(null)
 
   // Consecutive hidden roots collapse into one stub, and so do consecutive completed todos;
   // each run is keyed by its first id.
@@ -229,29 +237,29 @@ function DayGroup({
       return n
     })
 
+  // The top and bottom of a block reorder (same day only); its middle puts the dragged block inside it.
   const onDragOver = (ev: React.DragEvent<HTMLDivElement>, id: string): void => {
-    if (!onReorder || !dragging.current || dragging.current === id) return
+    const d = dragged
+    if (!onReorder || !d || d.id === id || d.canvasId !== canvasId) return
     if (!ev.dataTransfer.types.includes(DRAG_MIME)) return
+    const r = ev.currentTarget.getBoundingClientRect()
+    const y = (ev.clientY - r.top) / Math.max(1, r.height)
+    const sameDay = d.date === opDate
+    const side: 'before' | 'after' | 'inside' | null = onNest && (y > 0.3 && y < 0.7) ? 'inside' : sameDay ? (y < 0.5 ? 'before' : 'after') : onNest ? 'inside' : null
+    if (!side) return
     ev.preventDefault()
     ev.dataTransfer.dropEffect = 'move'
-    const r = ev.currentTarget.getBoundingClientRect()
-    const side = ev.clientY < r.top + r.height / 2 ? 'before' : 'after'
     if (!drop || drop.id !== id || drop.side !== side) setDrop({ id, side })
   }
   const onDrop = (ev: React.DragEvent<HTMLDivElement>, id: string): void => {
     ev.preventDefault()
-    const raw = ev.dataTransfer.getData(DRAG_MIME)
     const target = drop
+    const d = dragged
     setDrop(null)
-    dragging.current = null
-    if (!onReorder || !raw || !target || target.id !== id) return
-    try {
-      const { id: movingId, date: fromDate, canvasId: fromCanvas } = JSON.parse(raw) as { id: string; date: string; canvasId: string }
-      if (fromDate !== opDate || fromCanvas !== canvasId || movingId === id) return
-      void onReorder(canvasId, opDate, movingId, target.side === 'before' ? { beforeId: id } : { afterId: id })
-    } catch {
-      /* not ours */
-    }
+    dragged = null
+    if (!onReorder || !d || !target || target.id !== id || d.canvasId !== canvasId || d.id === id) return
+    if (target.side === 'inside') void onNest?.(canvasId, d.date, d.id, { date: opDate, parentId: id })
+    else if (d.date === opDate) void onReorder(canvasId, opDate, d.id, target.side === 'before' ? { beforeId: id } : { afterId: id })
   }
 
   const renderNode = (node: EntryNode, i: number, extraClass = ''): React.JSX.Element => (
@@ -260,12 +268,12 @@ function DayGroup({
       className={`note-slot${extraClass}${drop?.id === node.entry.id ? ` drop-${drop.side}` : ''}`}
       onDragStart={(ev) => {
         if (!onReorder) return
-        dragging.current = node.entry.id
-        ev.dataTransfer.setData(DRAG_MIME, JSON.stringify({ id: node.entry.id, date: opDate, canvasId }))
+        dragged = { id: node.entry.id, date: opDate, canvasId }
+        ev.dataTransfer.setData(DRAG_MIME, JSON.stringify(dragged))
         ev.dataTransfer.effectAllowed = 'move'
       }}
       onDragEnd={() => {
-        dragging.current = null
+        dragged = null
         setDrop(null)
       }}
       onDragOver={(ev) => onDragOver(ev, node.entry.id)}
@@ -284,6 +292,7 @@ function DayGroup({
         onUpdate={onUpdate}
         onDelete={onDelete}
         onMove={onMove}
+        onNest={onNest}
         onPromote={onPromote}
         onSetHidden={onSetHidden}
         onSetDone={onSetDone}
@@ -346,6 +355,7 @@ export function Feed({
   onUpdate,
   onDelete,
   onMove,
+  onNest,
   onPromote,
   onSetHidden,
   onReorder,
@@ -514,6 +524,7 @@ export function Feed({
           onUpdate={onUpdate}
           onDelete={onDelete}
           onMove={onMove}
+          onNest={onNest}
           onPromote={onPromote}
           onSetHidden={onSetHidden}
           onReorder={onReorder}

@@ -200,6 +200,39 @@ try {
   check((await page.locator('.thread').count()) === 0 && (await page.locator('.entry', { hasText: 'a note inside the block' }).count()) === 0, 'the canvas stream shows no inline threads')
   check((await first.locator('.entry-inside').textContent()).includes('2 blocks inside'), 'the chip counts everything inside the block')
 
+  // Pages opened lately head the quick switcher.
+  await page.locator('.topbar-go').click()
+  await page.waitForSelector('.switcher input', { timeout: 5_000 })
+  const firstSwitch = await page.locator('.switcher-item .switcher-label').first().textContent()
+  check(firstSwitch.startsWith('Scratch / Started the git sync'), `the quick switcher lists recent pages first (${firstSwitch})`)
+  await page.keyboard.type('deeper')
+  await page.keyboard.press('Enter')
+  await page.waitForFunction(() => document.querySelector('.block-page-head .crumb.is-current')?.textContent === 'deeper still', null, { timeout: 10_000 })
+  check(true, 'and opens them')
+  // Move a block out of the one it is in, then back inside (through the same API the drag uses).
+  await page.keyboard.press('Alt+ArrowUp')
+  await page.waitForFunction(() => document.querySelector('.block-page-head .crumb.is-current')?.textContent?.startsWith('Started the git sync'), null, { timeout: 10_000 })
+  const deeper = page.locator('.note-slot .entry', { hasText: 'deeper still' })
+  await deeper.hover()
+  await deeper.locator('button', { hasText: 'Move' }).click()
+  await page.locator('.move-select').selectOption('__out')
+  await page.waitForFunction(() => document.querySelectorAll('.note-slot .entry').length === 1, null, { timeout: 10_000 })
+  await page.locator('.block-up').click()
+  await page.waitForSelector('.page-head:not(.block-page-head) .crumb.is-current:has-text("Scratch")', { timeout: 10_000 })
+  await page.waitForFunction(() => [...document.querySelectorAll('.note-slot > .note > .entry .entry-body')].some((e) => e.textContent.trim() === 'deeper still'), null, { timeout: 10_000 })
+  check(true, 'Move → "Out of this block" puts it beside the block it was in')
+  const scratchDay = await page.evaluate(([id, d]) => window.devlog.blocks.getDay(id, d), [scratchId, ymd])
+  const startedId = scratchDay.entries.find((e) => e.markdown.startsWith('Started the')).id
+  const deeperId = scratchDay.entries.find((e) => e.markdown === 'deeper still').id
+  await page.evaluate(([c, d, id, parent]) => window.devlog.blocks.move(c, d, id, { canvasId: c, date: d, parentId: parent }), [scratchId, ymd, deeperId, startedId])
+  const nested = await page.evaluate(([id, d]) => window.devlog.blocks.getDay(id, d), [scratchId, ymd])
+  check(nested.entries.find((e) => e.id === deeperId)?.parentId === startedId, 'a block can be moved inside another')
+  // Moved behind the app's back: leave the canvas and come back to see it.
+  await page.locator('.sidebar-views .view-link', { hasText: 'Timeline' }).click()
+  await page.waitForSelector('.tlb, .feed-empty', { timeout: 10_000 })
+  await openCanvasNamed('Scratch')
+  await page.waitForFunction(() => document.querySelectorAll('.note-slot > .note > .entry').length === 2, null, { timeout: 10_000 })
+
   const gaps = page.locator('.note-slot .gap')
   await gaps.nth(1).hover()
   await gaps.nth(1).locator('.gap-add').click()

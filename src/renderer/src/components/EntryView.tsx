@@ -24,6 +24,8 @@ interface Props {
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove?: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
+  /** Move it within its canvas: inside a block, or out of the one it is in (one level up). */
+  onNest?: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
   /** Turn this block into a task (a task canvas beneath this one). */
   onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
@@ -74,6 +76,7 @@ export const EntryView = memo(function EntryView({
   onUpdate,
   onDelete,
   onMove,
+  onNest,
   onPromote,
   onSetHidden,
   onSetDone,
@@ -202,13 +205,15 @@ export const EntryView = memo(function EntryView({
                 onChange={(ev) => {
                   const to = ev.target.value
                   setMoving(false)
-                  if (to && onMove) void onMove(canvasId, date, entry.id, to)
+                  if (to === '__out' && entry.parentId) void onNest?.(canvasId, date, entry.id, { date, afterId: entry.parentId })
+                  else if (to && onMove) void onMove(canvasId, date, entry.id, to)
                 }}
                 onBlur={() => setMoving(false)}
               >
                 <option value="" disabled>
                   Choose a canvas…
                 </option>
+                {entry.parentId && onNest && <option value="__out">Out of this block (one level up)</option>}
                 {targets.map((c) => (
                   <option key={c.id} value={c.id}>
                     {canvasLabel(canvases ?? [], c.id)}
@@ -233,8 +238,8 @@ export const EntryView = memo(function EntryView({
                   Task
                 </button>
               )}
-              {onMove && targets.length > 0 && !entry.parentId && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setMoving(true)} title="Move to another canvas">
+              {onMove && (targets.length > 0 || (entry.parentId && onNest)) && (
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setMoving(true)} title="Move to another canvas, or out of the block it is in (drag it onto a block to put it inside)">
                   Move
                 </button>
               )}

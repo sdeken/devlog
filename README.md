@@ -219,6 +219,15 @@ whenever they were written; the review, summary, timeline and timesheet
 count each one on the day it was written. A page on a task canvas belongs to
 the task: writing there makes it the active task.
 
+To put a block inside another, drag it by its grip onto the middle of that
+block (the top and bottom edges still reorder); a block on another day of
+the same canvas works too. **Move → Out of this block** takes one back out,
+beside the block it was in; **Move** to another canvas puts it at that
+canvas's top level. Making a block with notes inside it a task (**Task**,
+⌘⇧Enter) moves those notes into the new task's stream; the block stays
+behind as the link to it. The quick switcher (⌘K / Go to…) lists the pages
+you opened lately first.
+
 **Hide** on a block collapses it (with what is inside it) into a "1 hidden block"
 stub so a busy stream reads cleanly; click the stub to look inside and
 **Unhide** to bring it back. Nothing is deleted; hidden blocks stay in the

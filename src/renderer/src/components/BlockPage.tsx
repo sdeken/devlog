@@ -23,6 +23,7 @@ interface Props {
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
+  onNest: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
   onPromote: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onSetDone: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
@@ -153,6 +154,7 @@ export function BlockPage(props: Props): React.JSX.Element {
                     onOpenCanvas(to)
                   }
             }
+            onNest={props.onNest}
             onPromote={props.onPromote}
             onSetDone={props.onSetDone}
             onOpenCanvas={onOpenCanvas}
@@ -183,6 +185,7 @@ export function BlockPage(props: Props): React.JSX.Element {
       onUpdate={props.onUpdate}
       onDelete={props.onDelete}
       onMove={props.onMove}
+      onNest={props.onNest}
       onPromote={props.onPromote}
       onSetHidden={props.onSetHidden}
       onSetDone={props.onSetDone}

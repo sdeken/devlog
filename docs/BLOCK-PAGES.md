@@ -1,7 +1,8 @@
 # Block pages and todos as blocks: design
 
-Status: phase 1 (block pages) in 0.14.0, phase 2 (todos as blocks) in
-0.15.0; phase 3 to follow.
+Status: done. Phase 1 (block pages) in 0.14.0, phase 2 (todos as blocks)
+in 0.15.0, phase 3 (moving into and out of blocks, tasks taking what is
+inside them, recent pages) in 0.16.0.
 
 ## The idea
 

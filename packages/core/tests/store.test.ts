@@ -437,6 +437,54 @@ describe('canvases in the store', () => {
     expect(await store.listTodos()).toEqual([])
   })
 
+  it('moves a block inside another, out again, and across days and canvases', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const web = await store.createCanvas({ title: 'Web', parentId: acme.id })
+    const standup = await store.addEntry(acme.id, 'Standup Sep 28', {}, new Date(2026, 8, 28, 9))
+    const note = await store.addEntry(acme.id, 'Remember the DNS', {}, new Date(2026, 8, 28, 9, 30))
+    const inside = await store.addEntry(acme.id, 'with a reply', { date: note.date, parentId: note.entry.id }, new Date(2026, 8, 28, 9, 31))
+    // Same file: one set record, and what is inside it follows.
+    const moved = await store.moveBlock({ canvasId: acme.id, date: note.date, id: note.entry.id }, { canvasId: acme.id, date: note.date, parentId: standup.entry.id }, new Date(2026, 8, 28, 10))
+    expect(moved.entry.parentId).toBe(standup.entry.id)
+    let day = await store.readDay(acme.id, note.date)
+    expect(day.entries.map((e) => [e.markdown, e.parentId ?? null])).toEqual([
+      ['Standup Sep 28', null],
+      ['Remember the DNS', standup.entry.id],
+      ['with a reply', note.entry.id]
+    ])
+    await expect(store.moveBlock({ canvasId: acme.id, date: note.date, id: standup.entry.id }, { canvasId: acme.id, date: note.date, parentId: inside.entry.id })).rejects.toThrow(/inside itself/)
+    // Out again: to the top level, right after the block it was in.
+    await store.moveBlock({ canvasId: acme.id, date: note.date, id: note.entry.id }, { canvasId: acme.id }, new Date(2026, 8, 28, 11))
+    day = await store.readDay(acme.id, note.date)
+    expect(day.entries.filter((e) => !e.parentId).map((e) => e.markdown)).toEqual(['Standup Sep 28', 'Remember the DNS'])
+    // Across days: into a block written on another day, in its file.
+    const older = await store.addEntry(acme.id, 'Kickoff Sep 21', {}, new Date(2026, 8, 21, 9))
+    const across = await store.moveBlock({ canvasId: acme.id, date: note.date, id: note.entry.id }, { canvasId: acme.id, date: older.date, parentId: older.entry.id }, new Date(2026, 8, 28, 12))
+    expect(across).toMatchObject({ date: '2026-09-21', entry: { markdown: 'Remember the DNS', parentId: older.entry.id } })
+    expect((await store.readDay(acme.id, older.date)).entries.map((e) => e.markdown)).toEqual(['Kickoff Sep 21', 'Remember the DNS', 'with a reply'])
+    expect((await store.readDay(acme.id, note.date)).entries.map((e) => e.markdown)).toEqual(['Standup Sep 28'])
+    // Across canvases, from inside a block to the top level (on its own date).
+    const out = await store.moveBlock({ canvasId: acme.id, date: older.date, id: note.entry.id }, { canvasId: web.id })
+    expect(out.date).toBe('2026-09-21')
+    expect((await store.readDay(web.id, '2026-09-21')).entries.map((e) => [e.markdown, e.parentId ? 'inside' : 'top'])).toEqual([
+      ['Remember the DNS', 'top'],
+      ['with a reply', 'inside']
+    ])
+  })
+
+  it('moves what was written inside a block into the task it becomes', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const b = await store.addEntry(acme.id, 'Migrate the CDN', {}, new Date(2026, 8, 28, 9))
+    await store.addEntry(acme.id, 'first finding', { date: b.date, parentId: b.entry.id }, new Date(2026, 8, 28, 9, 5))
+    await store.addTodos(acme.id, ['check the headers'], { date: b.date, parentId: b.entry.id }, new Date(2026, 8, 28, 9, 6))
+    const { canvas } = await store.promoteToTask(acme.id, b.date, b.entry.id, new Date(2026, 8, 28, 10))
+    expect((await store.readDay(acme.id, b.date)).entries.map((e) => [e.kind, e.markdown])).toEqual([['task', 'Migrate the CDN']])
+    expect((await store.readDay(canvas.id, b.date)).entries.map((e) => [e.kind ?? 'note', e.markdown, e.parentId ?? null])).toEqual([
+      ['note', 'first finding', null],
+      ['todo', 'check the headers', null]
+    ])
+  })
+
   it('moves storage format 3 todo lists into the streams (format 4)', async () => {
     const acme = await store.createCanvas({ title: 'Acme' })
     const dir = `canvases/${acme.id.slice(0, 2)}/${acme.id}`

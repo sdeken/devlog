@@ -27,6 +27,7 @@ interface Props {
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
+  onNest: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
   onPromote: (canvasId: string, date: string, id: string) => Promise<void>
   onOpenCanvas: (id: string) => void
   onEditCanvas: () => void
@@ -101,6 +102,7 @@ export function CanvasView({
   onUpdate,
   onDelete,
   onMove,
+  onNest,
   onPromote,
   onOpenCanvas,
   onEditCanvas,
@@ -361,6 +363,7 @@ export function CanvasView({
       onUpdate={onUpdate}
       onDelete={onDelete}
       onMove={onMove}
+      onNest={onNest}
       onPromote={onPromote}
       onSetHidden={onSetHidden}
       onSetDone={onSetDone}

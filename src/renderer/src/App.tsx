@@ -386,6 +386,11 @@ export function App(): React.JSX.Element {
     })
   }, [repo, canvasId, refreshCanvases, loadTimeline, checkJournal, loadPage])
 
+  // Coming back to a canvas from another view shows it as it is now.
+  useEffect(() => {
+    if (view === 'canvas' && repo) void loadTimeline(canvasIdRef.current)
+  }, [view]) // eslint-disable-line react-hooks/exhaustive-deps
+
   useEffect(() => {
     setPageDay((d) => (d && page && d.date === page.date ? d : null))
     void loadPage(page)
@@ -495,6 +500,15 @@ export function App(): React.JSX.Element {
     [reloadDay]
   )
 
+  const nestEntry = useCallback(
+    async (id: string, date: string, entryId: string, to: { date: string; parentId?: string; afterId?: string }) => {
+      await api.blocks.move(id, date, entryId, { canvasId: id, ...to })
+      await reloadDay(id, date)
+      if (to.date !== date) await reloadDay(id, to.date)
+    },
+    [reloadDay]
+  )
+
   const setHidden = useCallback(
     async (id: string, date: string, entryId: string, hidden: boolean) => {
       await api.blocks.setHidden(id, date, entryId, hidden)
@@ -549,6 +563,10 @@ export function App(): React.JSX.Element {
         setSettingsPage(target.page ?? 'repository')
         return
       }
+      if (target.kind === 'block') {
+        openBlock(target.canvasId, target.date, target.id)
+        return
+      }
       if (target.kind === 'command') {
         // A command's answer (e.g. "List my CMS assignments") shows as a toast.
         void reported(api.extensions.run(target.extension, target.command)).then((text) => {
@@ -562,11 +580,35 @@ export function App(): React.JSX.Element {
         setView(target.view)
       } else openCanvas(target.canvasId)
     },
-    [openCanvas]
+    [openCanvas, openBlock]
   )
 
   // On a block page, the note box writes inside the block.
   const pageBlock = view === 'canvas' && page && pageDay?.date === page.date ? (pageDay.entries.find((e) => e.id === page.id) ?? null) : null
+
+  // Block pages opened lately, for the quick switcher (per devlog, on this machine).
+  const recentKey = `devlog:recent-pages:${repo?.path ?? ''}`
+  const [recentPages, setRecentPages] = useState<Array<{ canvasId: string; date: string; id: string; title: string }>>([])
+  useEffect(() => {
+    try {
+      setRecentPages(JSON.parse(localStorage.getItem(recentKey) ?? '[]'))
+    } catch {
+      setRecentPages([])
+    }
+  }, [recentKey])
+  const pageTitleNow = pageBlock ? blockTitle(pageBlock, 60) : null
+  useEffect(() => {
+    if (!page || !pageTitleNow) return
+    setRecentPages((cur) => {
+      const next = [{ canvasId: page.canvasId, date: page.date, id: page.id, title: pageTitleNow }, ...cur.filter((p) => !(p.canvasId === page.canvasId && p.date === page.date && p.id === page.id))].slice(0, 12)
+      try {
+        localStorage.setItem(recentKey, JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [blockKey(page), pageTitleNow, recentKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const menuItems = (id: string): MenuItem[] => {
     const c = canvases.find((x) => x.id === id)
@@ -711,6 +753,7 @@ export function App(): React.JSX.Element {
             onUpdate={updateEntry}
             onDelete={deleteEntry}
             onMove={moveEntry}
+            onNest={nestEntry}
             onPromote={promoteEntry}
             onSetHidden={setHidden}
             onSetDone={setTodoDone}
@@ -743,6 +786,7 @@ export function App(): React.JSX.Element {
             onUpdate={updateEntry}
             onDelete={deleteEntry}
             onMove={moveEntry}
+            onNest={nestEntry}
             onPromote={promoteEntry}
             onOpenCanvas={openCanvas}
             onEditCanvas={() => setCanvasDialog({ canvas })}
@@ -842,6 +886,7 @@ export function App(): React.JSX.Element {
         <QuickSwitcher
           canvases={canvases}
           extensions={extensions}
+          recentPages={recentPages}
           onPick={(t) => {
             setSwitcherOpen(false)
             goTo(t)
