@@ -107,6 +107,24 @@
         "placement": "canvasHeader",
         "nodeType": "task"
       }
+    ],
+    "canvasFields": [
+      {
+        "key": "target_week",
+        "label": "Hours per week",
+        "type": "number",
+        "placeholder": "20",
+        "description": "A weekly target for the hours under this canvas, shown on the Timesheet. Canvases inside it keep their own targets.",
+        "inherited": false
+      },
+      {
+        "key": "target_month",
+        "label": "Hours per month",
+        "type": "number",
+        "placeholder": "168",
+        "description": "A monthly target for the hours under this canvas, shown on the Timesheet.",
+        "inherited": false
+      }
     ]
   },
   "permissions": {

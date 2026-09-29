@@ -19,6 +19,7 @@ import { draftTimesheet, newEntryId } from '@shared/timesheet'
 import type { DestinationInfo } from '@devlog/extension-api'
 import { api } from './api'
 import { SendDialog } from './SendDialog'
+import { Targets } from './Targets'
 
 interface Props {
   canvases: CanvasMeta[]
@@ -128,6 +129,9 @@ export function Timesheet({ canvases, today, onError }: Props): React.JSX.Elemen
       cancelled = true
     }
   }, [start, buildDraft])
+
+  // Another week for the monthly targets: as saved, or drafted from tracked time.
+  const loadWeek = useCallback(async (week: string): Promise<Sheet> => (await api.timesheet(week)) ?? (await buildDraft(week)), [buildDraft])
 
   const flush = useCallback(async () => {
     if (saveTimer.current) clearTimeout(saveTimer.current)
@@ -329,6 +333,7 @@ export function Timesheet({ canvases, today, onError }: Props): React.JSX.Elemen
       </header>
 
       {!sheet && <p className="feed-empty">Loading…</p>}
+      {sheet && <Targets canvases={canvases} week={start} sheet={sheet} loadWeek={loadWeek} />}
       {sheet && (
         <div className="review-table-wrap">
           <table className="review-table ts-grid">

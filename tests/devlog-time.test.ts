@@ -7,6 +7,8 @@ import { buildTaskSegments } from '@shared/activity'
 import type { ActivityEvent } from '@shared/types'
 import * as time from '../builtin-extensions/devlog-time/src/main'
 import { Timesheets } from '../builtin-extensions/devlog-time/src/timesheets'
+import { monthsOfWeek, targetHours, targetsFor, weeksOfMonth } from '../builtin-extensions/devlog-time/src/targets'
+import type { CanvasMeta, TimesheetEntry } from '@devlog/core'
 
 const ID = 'builtin.devlog-time'
 const TASK = `${ID}/task`
@@ -239,5 +241,46 @@ describe('devlog-time timesheets', () => {
     expect(await t.viewCall('summary', 'pref', 'summary.granularity')).toBe('30')
     await t.run('open-summary')
     expect(t.openedPages).toEqual(['summary'])
+  })
+})
+
+describe('hour targets', () => {
+  const canvas = (id: string, title: string, parentId: string | null, fields: Record<string, string> = {}): CanvasMeta => ({ id, title, parentId, task: false, archived: false, createdAt: '', updatedAt: '', repos: [], hasSurface: false, fields })
+  // 168 h for Drury in September, and 20 h a week for a task under Drury: two separate measures.
+  const canvases = [canvas('drury', 'Drury', null, { target_month: '168' }), canvas('site', 'Site', 'drury'), canvas('fix', 'Fix login', 'site', { target_week: '20' }), canvas('acme', 'Acme', null)]
+  let n = 0
+  const e = (canvasId: string, date: string, minutes: number): TimesheetEntry => ({ id: `e${++n}`, date, start: `${date}T09:00:00.000Z`, minutes, canvasId, worked: minutes, source: 'tracked' })
+
+  it('reads a target as hours, or none', () => {
+    expect(targetHours('20')).toBe(20)
+    expect(targetHours('7,5')).toBe(7.5)
+    expect(targetHours('')).toBeNull()
+    expect(targetHours('0')).toBeNull()
+    expect(targetHours('lots')).toBeNull()
+  })
+
+  it('knows the months a week touches and the weeks of a month', () => {
+    expect(monthsOfWeek('2026-09-21')).toEqual(['2026-09'])
+    expect(monthsOfWeek('2026-09-28')).toEqual(['2026-09', '2026-10'])
+    expect(weeksOfMonth('2026-09')).toEqual(['2026-08-31', '2026-09-07', '2026-09-14', '2026-09-21', '2026-09-28'])
+  })
+
+  it('measures each target on its own: its canvas and what is inside, in its own period, not taken on by canvases inside', () => {
+    const week = [e('fix', '2026-09-22', 600), e('site', '2026-09-23', 120), e('acme', '2026-09-23', 60)]
+    const earlier = [e('fix', '2026-09-08', 480), e('drury', '2026-08-31', 300)] // 31 Aug is outside September
+    const rows = targetsFor(canvases, '2026-09-21', week, new Map([['2026-09', [...week, ...earlier]]]))
+    expect(rows).toEqual([
+      { canvasId: 'drury', period: 'month', key: '2026-09', target: 168 * 60, actual: 600 + 120 + 480 },
+      { canvasId: 'fix', period: 'week', key: '2026-09-21', target: 20 * 60, actual: 600 }
+    ])
+  })
+
+  it('a week across two months shows the monthly target for each', () => {
+    const week = [e('fix', '2026-09-29', 60), e('fix', '2026-10-01', 90)]
+    const rows = targetsFor(canvases, '2026-09-28', week, new Map([['2026-09', week], ['2026-10', week]]))
+    expect(rows.filter((r) => r.period === 'month').map((r) => [r.key, r.actual])).toEqual([
+      ['2026-09', 60],
+      ['2026-10', 90]
+    ])
   })
 })

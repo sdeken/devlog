@@ -251,7 +251,7 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
             <h3>{e.displayName}</h3>
             {e.canvasFields.map((f) => {
               const k = `ext.${e.id}.${f.key}`
-              const inherited = canvas ? inheritedField(canvases, canvas.parentId ?? '', k) : parentId ? inheritedField(canvases, parentId, k) : null
+              const inherited = f.inherited === false ? null : canvas ? inheritedField(canvases, canvas.parentId ?? '', k) : parentId ? inheritedField(canvases, parentId, k) : null
               return (
                 <FieldRow
                   key={k}
@@ -262,7 +262,7 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
                 />
               )
             })}
-            <p className="hint">Canvases inside this one use these values unless they set their own.</p>
+            {e.canvasFields.some((f) => f.inherited !== false) && <p className="hint">Canvases inside this one use these values unless they set their own.</p>}
           </div>
         ))}
     </PagedDialog>

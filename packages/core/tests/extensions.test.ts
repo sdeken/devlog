@@ -95,6 +95,11 @@ describe('extension settings fields', () => {
     expect(() => parseExtensionManifest({ name: 'x', version: '1.0.0', api: '1.x', contributes: { check: 'nope' } })).toThrow(/check/)
   })
 
+  it('reads canvas fields that are not taken on by canvases inside (1.7)', () => {
+    const m = parseExtensionManifest({ name: 'x', version: '1.0.0', api: '^1.7.0', contributes: { canvasFields: [{ key: 'target', type: 'number', inherited: false }, { key: 'issue' }] } })
+    expect(m.contributes.canvasFields).toEqual([{ key: 'target', label: 'target', type: 'number', inherited: false }, { key: 'issue', label: 'issue' }])
+  })
+
   it('reads node types', () => {
     const m = parseExtensionManifest({
       name: 'x',

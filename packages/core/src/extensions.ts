@@ -34,6 +34,8 @@ export interface ExtensionField {
   options?: Array<{ value: string; label: string }>
   /** The extension cannot work without it; the app says so until it is set. */
   required?: boolean
+  /** A canvas field that applies to its canvas only; canvases inside it do not take it on (1.7). Default: they do. */
+  inherited?: false
 }
 
 /**
@@ -267,7 +269,8 @@ export function parseExtensionManifest(raw: unknown): ExtensionManifest {
         ...(typeof f.description === 'string' && f.description.trim() ? { description: f.description.trim() } : {}),
         ...(type && type !== 'text' ? { type } : {}),
         ...(options?.length ? { options } : {}),
-        ...(f.required === true ? { required: true } : {})
+        ...(f.required === true ? { required: true } : {}),
+        ...(f.inherited === false ? { inherited: false as const } : {})
       })
     }
     return out

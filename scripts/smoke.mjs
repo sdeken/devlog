@@ -935,8 +935,8 @@ try {
   check((await pageFrame.locator('#net').textContent()) === 'network: blocked' && (await pageFrame.locator('#parent').textContent()) === 'parent: blocked', 'a view cannot reach the network or the window around it')
   await page.screenshot({ path: path.join(shots, '04g-extension-page.png') })
   await openCanvasNamed('Scratch')
-  await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur())
-  await page.keyboard.press('Control+k')
+  // (The note box takes the focus back when a canvas opens, and Ctrl+K there makes a link: use the top bar.)
+  await page.locator('.topbar-go').click()
   await page.waitForSelector('.switcher input', { timeout: 5_000 })
   await page.keyboard.type('probe the sandbox')
   await page.keyboard.press('Enter')
@@ -1019,6 +1019,8 @@ try {
     const monday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - dow)
     const week = `${monday.getFullYear()}-${String(monday.getMonth() + 1).padStart(2, '0')}-${String(monday.getDate()).padStart(2, '0')}`
 
+    // Hour targets (the time extension's canvas fields): a weekly one on Website, a monthly one on Acme Corp.
+    await page.evaluate(([w, a]) => Promise.all([window.devlog.canvases.update(w, { fields: { 'ext.builtin.devlog-time.target_week': '10' } }), window.devlog.canvases.update(a, { fields: { 'ext.builtin.devlog-time.target_month': '100' } })]), [websiteId, acmeId])
     // The Timesheet is the time extension's page, in a sandboxed frame.
     await timePage('timesheet')
     const ts = page.frameLocator('iframe.ext-page-view')
@@ -1035,6 +1037,9 @@ try {
     const totalBefore = minutesOf(await dayTotal.textContent())
     check(cellBefore >= 60 && totalBefore >= cellBefore, `the grid shows Website's time that day in its cell, and the day's total (${cellBefore} of ${totalBefore} min)`)
     check((await ts.locator(`.ts-client-row .ts-client-label`, { hasText: 'Acme Corp' }).count()) === 1, 'tasks roll up under their client')
+    const weekTarget = ts.locator(`.ts-target[data-canvas="${websiteId}"][data-period="week"]`)
+    check((await weekTarget.locator('.ts-target-hours').textContent()).endsWith('of 10:00'), `a weekly target shows against the week's hours under its canvas (${await weekTarget.textContent()})`)
+    check((await ts.locator(`.ts-target[data-canvas="${acmeId}"][data-period="month"]`).count()) >= 1, "a monthly target on the client shows too, measured on its own")
     await cell.click()
     await ts.locator('.ts-detail .ts-row').first().waitFor({ timeout: 5_000 })
     const rowId = await tsFrame.evaluate(() => [...document.querySelectorAll('.ts-detail .ts-row')].find((r) => r.querySelector('.ts-worked').textContent.includes('1:00'))?.getAttribute('data-entry') ?? null)

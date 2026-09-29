@@ -12,7 +12,7 @@ export const TIMESHEETS_KEY = 'timesheets'
 
 /** Extension canvases as the core helpers want them. */
 export function asMeta(list: ExtensionCanvas[]): CanvasMeta[] {
-  return list.map((c) => ({ id: c.id, title: c.title, parentId: c.parentId, task: c.task, ...(c.type ? { type: c.type } : {}), archived: c.archived, createdAt: '', updatedAt: '', repos: [], hasSurface: false }))
+  return list.map((c) => ({ id: c.id, title: c.title, parentId: c.parentId, task: c.task, ...(c.type ? { type: c.type } : {}), archived: c.archived, createdAt: '', updatedAt: '', repos: [], hasSurface: false, fields: { ...c.fields } }))
 }
 
 export class Timesheets {

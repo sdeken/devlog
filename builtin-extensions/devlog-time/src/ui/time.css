@@ -803,3 +803,70 @@ button {
   gap: 10px;
   margin-bottom: 4px;
 }
+
+/* ---- Hour targets ---- */
+.ts-targets {
+  margin: 4px 0 14px;
+}
+
+.ts-targets h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.ts-targets ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ts-target {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) 130px minmax(80px, 1fr) 120px 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.ts-target-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-target-period,
+.ts-target-pct {
+  color: var(--fg-muted);
+}
+
+.ts-target-hours,
+.ts-target-pct {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ts-target-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+.ts-target-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.ts-target.is-over .ts-target-bar > span {
+  background: var(--warn);
+}
+
+.ts-target.is-over .ts-target-pct {
+  color: var(--warn);
+  font-weight: 600;
+}
