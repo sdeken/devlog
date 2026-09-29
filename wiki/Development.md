@@ -77,13 +77,14 @@ an unsaved edit.
 
 The wiki's pages live in the repository under `wiki/` (one Markdown file per
 page, `Home.md`, `_Sidebar.md` and `_Footer.md` included), so they are
-reviewed like code. To publish them to the GitHub wiki:
+reviewed like code. The **Wiki** workflow (`.github/workflows/wiki.yml`)
+publishes them to the GitHub wiki whenever `wiki/` changes on `main`, and can
+be run by hand (Actions → Wiki → Run workflow).
 
-```sh
-git clone https://github.com/sdeken/devlog.wiki.git
-cp wiki/*.md devlog.wiki/
-cd devlog.wiki && git add -A && git commit -m "Update wiki" && git push
-```
-
-(Create the wiki's first page once in the GitHub UI if the wiki repository
-does not exist yet.)
+- Edit pages in `wiki/`, not in the GitHub wiki UI: each publish replaces the
+  wiki with the folder's contents, and pages deleted from the folder are
+  deleted from the wiki.
+- Page names are file names without `.md`; link between pages with
+  `[text](Page-Name)` or `[text](Page-Name#section)`.
+- The wiki must exist (create its first page once in the GitHub UI) and be
+  enabled in the repository's settings.
