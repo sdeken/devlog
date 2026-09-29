@@ -1,8 +1,9 @@
 # Time tracking as an extension: design
 
-Status: steps 1–4 done in 0.17.0 (API 1.6, `devlog-time`, its views);
-the timesheet and Summary as the extension's pages, and hour targets, are
-next. What was built follows this plan with these differences:
+Status: done. Steps 1–3 in 0.17.0 (API 1.6, `devlog-time`, its Start/Stop
+views); step 4 (the Timesheet and Summary as its pages, sending through the
+app, API 1.7) and step 5 (hour targets) in 0.18.0. What was built follows
+this plan with these differences:
 
 - The API stayed 1.x (1.6): everything is additive, so extensions written
   for 1.0–1.5 keep loading.
@@ -10,8 +11,13 @@ next. What was built follows this plan with these differences:
   the app keeps logging locks, idle and sleep (and git events) in
   `activity/<machine>/` while an extension provides time, and its views
   replay both together with the older log.
-- The Timesheet, Summary and review stay in the app for now, drawing their
-  time from `provide.activity`; they hide when nothing provides it.
+- The Weekly review and the Timeline stay in the app, drawing their time
+  from `provide.activity`; the Timesheet and Summary are devlog-time's
+  pages, reading what the app recorded through `devlog.activity`.
+- A built-in extension keeps its grant when the app brings a new build (it
+  is part of the app you updated), so an update never stops the clock.
+- Targets are measured against the timesheet hours (reported), the week's
+  on screen and, for a month, the other weeks as saved or drafted.
 - Quick pick is `ui.pick`; the canvas an extension considers current is
   `ui.highlight` (the sidebar marks it, and commits route to it).
 

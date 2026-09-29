@@ -419,6 +419,9 @@ timestamps instead (each note counts until the next one, capped at an hour).
 
 ## Summary
 
+The Summary and the Timesheet are pages of the Time tracking extension,
+listed in the sidebar with the app's own views (and in the quick switcher).
+
 **Summary** (⌘⇧H) is the timesheet view: one row per top-level canvas
 (client) with hours for the chosen range (this week, last week, this month,
 last month, or any two dates), a share bar, the block count and the exact
@@ -443,6 +446,16 @@ the task, the day or the note, remove one, or add one; click an empty cell to
 add time there, and **+ Add a task…** for a task with no time yet. When
 rounding inflates a client's day, its row shows the suggested trim (−0:45)
 on that day; click it to apply. **Mark final** approves the week.
+
+**Hour targets.** Give any canvas a weekly or a monthly target (right-click
+→ Properties → Time tracking: *Hours per week*, *Hours per month*). The
+Timesheet lists the targets that apply to the week on screen, each against
+the timesheet hours under its canvas (it and everything inside it) for its
+own period: this week, and each month the week touches (other weeks count
+as saved, or as drafted from tracked time). Targets overlap and each applies
+on its own: 168 h for a client in September and 20 h a week for a task under
+that client are two separate measures, and a target is not taken on by the
+canvases inside.
 
 **Sending to Jira.** Add the built-in **Jira worklogs** extension in
 Settings → Extensions and allow it (it is sandboxed: it only talks to Jira).
@@ -473,10 +486,13 @@ The note is sent as the day's description when there is one; otherwise the
 description CMS has is kept. CMS only opens a day on that day, so time on
 days still ahead (typically the week's Sunday) waits: send again then.
 
-Timesheets are saved in a **Timesheets** canvas Devlog creates on first use:
-one block per week on its Monday, a readable table with the exact data
-underneath, read-only in the stream; every change is an edit record, so the
-history of the adjustments is kept. See `docs/TIMESHEETS.md`.
+Timesheets are saved in a **Timesheets** canvas the Time tracking extension
+keeps (made on first use): one block per week on its Monday, a readable
+table with the exact data underneath, read-only in the stream; every change
+is an edit record, so the history of the adjustments is kept, and what was
+sent where is written inside the week. Sending goes through the app to the
+Jira or CMS extension, so each keeps its own credentials. See
+`docs/TIMESHEETS.md`.
 
 ## Timeline
 

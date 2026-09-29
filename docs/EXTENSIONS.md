@@ -345,6 +345,32 @@ interface Destination {
 }
 ```
 
+## Reading what the app recorded, kept canvases, sending through others (built, API 1.7)
+
+What the Timesheet and Summary needed to move into devlog-time:
+
+- `devlog.activity(from, to)`: what the app recorded (its own log of locks,
+  idle, sleep, git events and corrections, merged with what extensions
+  provide: time, focus), limited to what it may read (task time on canvases
+  it may not read shows as none; window titles only with read access to the
+  whole devlog). `devlog.range(from, to)`: the day files with blocks written
+  in a range.
+- `devlog.managedCanvas(key, { title })`: a canvas the extension keeps
+  (`devlog.managed: <id>/<key>` in canvas.md): its own whatever it was
+  granted; `addBlock` there takes a `kind` of its own (not todo, task,
+  commit or done) and any `date`, and `editBlock` works on every block there.
+- `destinations.list()` / `preview(to, sheet)` / `send(to, sheet)`: other
+  extensions' destinations, through the app, for an extension that declares
+  `permissions.send` (shown when you allow it). The app builds each
+  destination's sheet (labels, its own canvas fields) as before; the sender
+  keeps the record.
+- `ui.openPage(viewId)`; canvas fields with `"inherited": false` (a target
+  applies to its canvas only).
+- Views: a shortcut pressed inside a view that it does not use (Ctrl, Alt or
+  Cmd with a key, F-keys) is passed to the app (`key`), so Ctrl+K works
+  from an extension's page.
+- A built-in extension keeps its grant when the app brings a new build.
+
 ## Node types, commands, events and app state (built, API 1.6)
 
 What time tracking needed to move out of the app (`TIME-EXTENSION.md`);

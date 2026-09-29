@@ -188,8 +188,11 @@ change. No dated settings are needed.
 
 ## Storage: a managed canvas
 
-The timesheets live in a Devlog-managed canvas, **Timesheets** (created on
-first use, not a task, shown in the sidebar like any canvas):
+Since 0.18 the timesheet is the time extension's (devlog-time): its page,
+its storage, its send flow. The timesheets live in a canvas it keeps,
+**Timesheets** (created on first use, not a task, shown in the sidebar like
+any canvas; marked `devlog.managed: timesheets`, the mark the app gave it
+before, which devlog-time takes as its own):
 
 - **One block per week** (`kind=timesheet`, `week=2026-09-21`): the body is
   a readable markdown table of the entries (date, start, duration, task,
@@ -203,8 +206,11 @@ first use, not a task, shown in the sidebar like any canvas):
   against it, so a second press, or a second machine, sends only what
   changed, and corrections after the fact send differences. Each send also
   leaves a read-only reply under the week's timesheet block ("Sent to Jira: 3
-  worklogs created, 1 updated (4:15 on 2 issues)"), so the history reads in
-  the notebook itself.
+  worklogs created, 1 updated (4:15 on 2 issues)"), written by devlog-time,
+  so the history reads in the notebook itself. devlog-time reaches the
+  destinations through the app (`destinations.preview` / `send`, with
+  `permissions.send`), which gives each destination the week with labels
+  and its own canvas fields, as before.
 - Timesheet blocks are automatic blocks (edited through the grid, not as
   text).
 
@@ -214,7 +220,10 @@ first use, not a task, shown in the sidebar like any canvas):
   inflation arithmetic and suggested trims, the entry model, reading and
   writing timesheet blocks, and resolving a canvas's mapping by walking up
   the tree. Pure and unit-tested.
-- App: the weekly timesheet grid, the managed canvas, preview and submit UI.
+- devlog-time: the weekly timesheet grid and the Summary (pages built on
+  `@devlog/ui`), the Timesheets canvas, preview and send, hour targets.
+- App: what it recorded (`devlog.activity`), block ranges, the kept canvas,
+  and passing sheets to the destinations.
 - Extensions: Jira and CMS destinations (mapping fields, grouping, sending,
   credentials). A built-in CSV destination (#4) needs no extension.
 
