@@ -43,6 +43,7 @@ function sanitize(s: Settings): Settings {
     authorName: String(s.authorName ?? '').trim(),
     authorEmail: String(s.authorEmail ?? '').trim(),
     trackingEnabled: s.trackingEnabled !== false,
+    timeSwitched: s.timeSwitched === true,
     trackFocus: Boolean(s.trackFocus),
     idleMinutes: clamp(Number.isFinite(Number(s.idleMinutes)) ? Number(s.idleMinutes) : DEFAULT_SETTINGS.idleMinutes, 0, 240),
     activityInRepo: Boolean(s.activityInRepo),

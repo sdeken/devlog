@@ -11,7 +11,7 @@ const APP_PAGES: Array<{ id: string; label: string; keys: Array<keyof Settings |
   { id: 'repository', label: 'Repository', keys: ['remote', 'authorName', 'authorEmail'] },
   { id: 'sync', label: 'Sync', keys: ['commitDebounceSeconds', 'syncIntervalMinutes', 'autoPush', 'pullOnStart', 'commitOnQuit'] },
   { id: 'appearance', label: 'Appearance', keys: ['theme'] },
-  { id: 'tracking', label: 'Activity tracking', keys: ['trackingEnabled', 'idleMinutes', 'focusMinSeconds', 'activityInRepo', 'captureCommits', 'commitBackfillDays'] },
+  { id: 'tracking', label: 'Activity', keys: ['focusMinSeconds', 'activityInRepo', 'captureCommits', 'commitBackfillDays'] },
   { id: 'updates', label: 'Updates', keys: ['autoUpdate'] }
 ]
 
@@ -285,17 +285,13 @@ export function SettingsDialog({ settings, repo, canvases, extensions, initialPa
 
       {page === 'tracking' && (
         <div className="settings-page">
-          <h3>Activity tracking</h3>
-          <label className="check">
-            <input type="checkbox" checked={form.trackingEnabled} onChange={(ev) => set('trackingEnabled', ev.target.checked)} /> Track the active task and machine
-            activity (lock, idle, sleep)
-          </label>
+          <h3>Activity</h3>
           <p className="hint">
-            Recording the focused window (app and title) is the <strong>devlog-focus</strong> extension: add it under Extensions to turn it on for this devlog.
+            Time tracking (tasks, Start and Stop, the timesheet) is the <strong>devlog-time</strong> extension, and recording the focused window is{' '}
+            <strong>devlog-focus</strong>: add them under Extensions. While time is tracked, Devlog notes when this machine is locked, idle or asleep, and keeps
+            running in the tray when the window is closed (quit from the tray or the File menu).
           </p>
           <div className="field-grid">
-            <label htmlFor="idle">Pause the task after idle (minutes, 0 = never)</label>
-            <input id="idle" type="number" min={0} max={240} value={form.idleMinutes} onChange={(ev) => set('idleMinutes', Number(ev.target.value))} />
             <label htmlFor="focusMin" title="Alt-tab flips shorter than this are folded into the surrounding window. Raw data is always kept.">
               Ignore window switches shorter than (seconds)
             </label>
@@ -305,13 +301,12 @@ export function SettingsDialog({ settings, repo, canvases, extensions, initialPa
               min={0}
               max={120}
               value={form.focusMinSeconds}
-              disabled={!form.trackingEnabled}
               onChange={(ev) => set('focusMinSeconds', Number(ev.target.value))}
             />
           </div>
           <label className="check">
-            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Keep the activity log in the devlog
-            repository, one folder per machine, so time tracked on every machine adds up (synced). Off: this machine only
+            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Keep this machine's activity (locks,
+            idle, sleep, git events) in the devlog repository, one folder per machine (synced). Off: this machine only
           </label>
           <h3>Commits</h3>
           <label className="check">
@@ -324,7 +319,6 @@ export function SettingsDialog({ settings, repo, canvases, extensions, initialPa
             </label>
             <input id="backfill" type="number" min={1} max={3650} value={form.commitBackfillDays} disabled={!form.captureCommits} onChange={(ev) => set('commitBackfillDays', Number(ev.target.value))} />
           </div>
-          <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
         </div>
       )}
 

@@ -297,7 +297,7 @@ export class ExtensionManager {
 
   /** Forget what a (re)started or stopped process registered. */
   private resetRuntime(rec: Rec): void {
-    const hadState = rec.trayLabel !== null || rec.keepRunning || rec.idleMinutes > 0 || rec.highlight !== null
+    const hadState = rec.trayLabel !== null || rec.keepRunning || rec.idleMinutes > 0 || rec.highlight !== null || rec.providesActivity
     rec.activity = false
     rec.providesFocus = false
     rec.providesActivity = false
@@ -318,7 +318,8 @@ export class ExtensionManager {
       trayLabel: running.find((r) => r.trayLabel)?.trayLabel ?? null,
       keepRunning: running.some((r) => r.keepRunning),
       idleMinutes: idle.length ? Math.min(...idle) : 0,
-      highlighted: running.flatMap((r) => (r.highlight ? [r.highlight] : []))
+      highlighted: running.flatMap((r) => (r.highlight ? [r.highlight] : [])),
+      providesTime: running.some((r) => r.providesActivity)
     }
   }
 
@@ -614,14 +615,6 @@ export class ExtensionManager {
   /** Whether some running extension provides time-tracking events. */
   providesActivity(): boolean {
     return [...this.recs.values()].some((r) => r.host && r.providesActivity)
-  }
-
-  /** Pass pause/resume/task changes from the tracker to extensions that listen for them. */
-  activity(ev: ActivityEvent): void {
-    if (ev.type === 'lock' || ev.type === 'suspend') return this.setSystemState(ev.type === 'lock' ? 'locked' : 'asleep', true)
-    if (ev.type === 'unlock' || ev.type === 'resume') return this.setSystemState(ev.type === 'unlock' ? 'locked' : 'asleep', false)
-    if (ev.type === 'idle' || ev.type === 'active') return this.setSystemState('idle', ev.type === 'idle')
-    if (ev.type === 'task' || ev.type === 'stop') this.notify({ t: ev.t, type: 'task', canvasId: ev.type === 'task' ? (ev.canvasId ?? null) : null })
   }
 
   private notify(notice: ActivityNotice): void {
@@ -1038,7 +1031,10 @@ export class ExtensionManager {
       }
       case 'provide.register':
         if (args[0] === 'focus') rec.providesFocus = true
-        else if (args[0] === 'activity') rec.providesActivity = true
+        else if (args[0] === 'activity') {
+          rec.providesActivity = true
+          this.deps.onAppState?.()
+        }
         else throw new Error(`Cannot provide ${String(args[0])}`)
         return null
       default:

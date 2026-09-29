@@ -116,7 +116,7 @@ describe('extensions in the app', () => {
     expect(info.views[0]).toMatchObject({ id: 'head', placement: 'canvasHeader', nodeType: 'builtin.shaper/job' })
 
     // What it asked of the app.
-    expect(manager.appState()).toEqual({ trayLabel: 'shaping', keepRunning: true, idleMinutes: 7, highlighted: [] })
+    expect(manager.appState()).toEqual({ trayLabel: 'shaping', keepRunning: true, idleMinutes: 7, highlighted: [], providesTime: true })
     expect(appStateChanges).toBeGreaterThan(0)
 
     // Commands get where they were run from; canvases it cannot see are left out.
@@ -174,7 +174,7 @@ describe('extensions in the app', () => {
 
     // Stopped, it asks nothing of the app.
     await manager.revoke('shaper')
-    expect(manager.appState()).toEqual({ trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [] })
+    expect(manager.appState()).toEqual({ trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [], providesTime: false })
   })
 
   it('serves views only while the extension runs, and relays their calls and messages', async () => {
@@ -283,7 +283,7 @@ describe('extensions in the app', () => {
     await manager.setSecret('probe', 'token', 's3cret')
     expect((await manager.list())[0].secrets).toEqual([{ key: 'token', label: 'Token', set: true }])
     expect(await fs.readFile(path.join(userData, 'secrets', 'builtin.probe.json'), 'utf8')).not.toContain('s3cret')
-    manager.activity({ t: new Date().toISOString(), type: 'lock' })
+    manager.setSystemState('locked', true)
     await new Promise((r) => setTimeout(r, 200))
     const r = await probe()
     expect(r.settings).toEqual({ greeting: 'Hi' })

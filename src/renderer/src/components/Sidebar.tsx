@@ -23,6 +23,8 @@ interface Props {
   showJournal: boolean
   /** An extension needs setting up or allowing. */
   settingsAttention: boolean
+  /** Show the time views (Summary, Timesheet): an extension tracks time. */
+  timeViews: boolean
   /** Pages extensions contribute, listed with the views. */
   extPages: Array<{ extKey: string; viewId: string; title: string; icon?: string }>
   onSelect: (sel: SidebarSelection) => void
@@ -31,7 +33,7 @@ interface Props {
   onOpenSettings: () => void
 }
 
-export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, extPages, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
+export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, timeViews, extPages, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
   const types = useNodeTypes()
   const tree = useMemo(() => buildCanvasTree(canvases), [canvases])
   const archived = useMemo(() => canvases.filter((c) => c.archived), [canvases])
@@ -112,12 +114,14 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, showJo
     <aside className="sidebar">
       <nav className="sidebar-nav">
         <ul className="sidebar-views">
-          <li>
-            <button type="button" className={`view-link${isView('summary') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'summary' })} title={`Hours per client (${kbd('mod', 'shift', 'H')})`}>
-              <span className="view-icon">Σ</span>
-              <span className="view-name">Summary</span>
-            </button>
-          </li>
+          {timeViews && (
+            <li>
+              <button type="button" className={`view-link${isView('summary') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'summary' })} title={`Hours per client (${kbd('mod', 'shift', 'H')})`}>
+                <span className="view-icon">Σ</span>
+                <span className="view-name">Summary</span>
+              </button>
+            </li>
+          )}
           <li>
             <button type="button" className={`view-link${isView('review') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'review' })} title={`Weekly review (${kbd('mod', 'shift', 'R')})`}>
               <span className="view-icon">▦</span>
@@ -130,12 +134,14 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, showJo
               <span className="view-name">Timeline</span>
             </button>
           </li>
-          <li>
-            <button type="button" className={`view-link${isView('timesheet') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'timesheet' })} title="Weekly timesheet: review and adjust reported hours">
-              <span className="view-icon">▤</span>
-              <span className="view-name">Timesheet</span>
-            </button>
-          </li>
+          {timeViews && (
+            <li>
+              <button type="button" className={`view-link${isView('timesheet') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'timesheet' })} title="Weekly timesheet: review and adjust reported hours">
+                <span className="view-icon">▤</span>
+                <span className="view-name">Timesheet</span>
+              </button>
+            </li>
+          )}
         </ul>
         {extPages.length > 0 && (
           <ul className="sidebar-views sidebar-ext-pages">

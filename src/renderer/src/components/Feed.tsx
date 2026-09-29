@@ -25,7 +25,6 @@ interface Props {
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
   /** Move a block within its canvas: inside another (drop it on the middle of one), or out of the one it is in. */
   onNest?: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
-  onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onSetDone?: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   /** Drag-and-drop reordering of a top-level block within its day. */
@@ -100,7 +99,6 @@ interface NodeProps {
   onDelete: Props['onDelete']
   onMove: Props['onMove']
   onNest?: Props['onNest']
-  onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
   onSetDone?: Props['onSetDone']
   onOpenCanvas: Props['onOpenCanvas']
@@ -110,7 +108,7 @@ interface NodeProps {
 }
 
 /** A block in a stream. What is written inside it lives on its own page, behind a chip. */
-function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onNest, onPromote, onSetHidden, onSetDone, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
+function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDelete, onMove, onNest, onSetHidden, onSetDone, onOpenCanvas, onOpenBlock, draggable }: NodeProps): React.JSX.Element {
   return (
     <div className="note">
       <EntryView
@@ -124,7 +122,6 @@ function NoteNode({ node, canvasId, canvases, date, editRequest, onUpdate, onDel
         onDelete={onDelete}
         onMove={onMove}
         onNest={onNest}
-        onPromote={onPromote}
         onSetHidden={onSetHidden}
         onSetDone={onSetDone}
         onOpenCanvas={onOpenCanvas}
@@ -181,7 +178,6 @@ function DayGroup({
   onDelete,
   onMove,
   onNest,
-  onPromote,
   onSetHidden,
   onReorder,
   onSetDone,
@@ -200,7 +196,6 @@ function DayGroup({
   onDelete: Props['onDelete']
   onMove: Props['onMove']
   onNest?: Props['onNest']
-  onPromote?: Props['onPromote']
   onSetHidden?: Props['onSetHidden']
   onReorder?: Props['onReorder']
   onSetDone?: Props['onSetDone']
@@ -293,7 +288,6 @@ function DayGroup({
         onDelete={onDelete}
         onMove={onMove}
         onNest={onNest}
-        onPromote={onPromote}
         onSetHidden={onSetHidden}
         onSetDone={onSetDone}
         onOpenCanvas={onOpenCanvas}
@@ -356,7 +350,6 @@ export function Feed({
   onDelete,
   onMove,
   onNest,
-  onPromote,
   onSetHidden,
   onReorder,
   onSetDone,
@@ -525,7 +518,6 @@ export function Feed({
           onDelete={onDelete}
           onMove={onMove}
           onNest={onNest}
-          onPromote={onPromote}
           onSetHidden={onSetHidden}
           onReorder={onReorder}
           onSetDone={onSetDone}

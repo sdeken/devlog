@@ -58,6 +58,8 @@ export interface ExtensionAppState {
   idleMinutes: number
   /** Canvases extensions marked as their current one (the running task). */
   highlighted: string[]
+  /** Some extension provides time-tracking events: the time views (Summary, Timesheet) have something to show. */
+  providesTime: boolean
 }
 
 /** An extension asked for a quick pick (1.6); answer with `extensions.answerPick(id, choice)`. */

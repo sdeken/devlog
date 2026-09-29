@@ -118,12 +118,27 @@ export interface MenuEntry {
  * A pick list: arrow keys move, Enter picks, and typing in the optional
  * search box filters (by `filterText`, or the label when it is a string).
  */
-export function Menu({ items, search, placeholder, filterText, empty }: { items: MenuEntry[]; search?: boolean; placeholder?: string; filterText?: (item: MenuEntry) => string; empty?: ReactNode }): React.JSX.Element {
+export function Menu({
+  items,
+  search,
+  placeholder,
+  filterText,
+  empty,
+  extra
+}: {
+  items: MenuEntry[]
+  search?: boolean
+  placeholder?: string
+  filterText?: (item: MenuEntry) => string
+  empty?: ReactNode
+  /** Entries added after the filtered ones, from what is typed (a "New …" entry). */
+  extra?: (query: string) => MenuEntry[]
+}): React.JSX.Element {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
   const q = query.trim().toLowerCase()
   const text = (it: MenuEntry): string => (filterText ? filterText(it) : typeof it.label === 'string' ? it.label : '').toLowerCase()
-  const shown = q ? items.filter((it) => text(it).includes(q)) : items
+  const shown = [...(q ? items.filter((it) => text(it).includes(q)) : items), ...(extra ? extra(query.trim()) : [])]
   useEffect(() => setActive(0), [q])
   const onKey = (ev: React.KeyboardEvent): void => {
     if (ev.key === 'ArrowDown') setActive((i) => Math.min(shown.length - 1, i + 1))

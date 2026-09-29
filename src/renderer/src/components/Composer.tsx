@@ -28,7 +28,7 @@ export interface ComposerProps {
   assetDate?: string
   /** Custom image sink (e.g. a wiki's asset folder). */
   saveImage?: (bytes: Uint8Array, mime: string, name: string) => Promise<{ src: string }>
-  /** Called with markdown when the user posts. Resolve to clear the editor. `task` is set for Mod+Shift+Enter, `open` for Alt+Enter. */
+  /** Called with markdown when the user posts. Resolve to clear the editor. `open` is set for Alt+Enter, `action` for a post command's keybinding. */
   onSubmit: (markdown: string, opts?: SubmitOpts) => Promise<void>
   /** Extension post commands (1.6): their keybinding posts, then runs the command (`action` is its key). New mode only. */
   postActions?: Array<{ key: string; keybinding: string }>
@@ -49,14 +49,13 @@ export interface ComposerProps {
 }
 
 export interface SubmitOpts {
-  task?: boolean
   open?: boolean
   /** An extension post command's key. */
   action?: string
 }
 
 const PLACEHOLDER: Record<ComposerMode, string> = {
-  new: `Write a block…  Enter posts, Alt+Enter posts and opens it, ${kbd('mod', 'shift', 'Enter')} posts as a task`,
+  new: 'Write a block…  Enter posts, Alt+Enter posts and opens it',
   edit: 'Edit block…  Enter saves, Esc cancels',
   reply: 'Reply…  Enter posts, Esc cancels',
   insert: 'New block here…  Enter posts, Esc cancels',
@@ -201,7 +200,6 @@ export function Composer({
       Placeholder.configure({ placeholder: placeholder ?? PLACEHOLDER[mode] }),
       SubmitKeymap.configure({
         onSubmit: () => (isDocument ? false : submitRef.current()),
-        onSubmitTask: () => (isDocument || mode !== 'new' ? false : submitRef.current({ task: true })),
         onSubmitOpen: () => (isDocument || mode !== 'new' ? false : submitRef.current({ open: true })),
         onCancel: () => (isDocument ? false : cancelRef.current()),
         onLink: () => linkRef.current(),

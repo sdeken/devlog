@@ -31,7 +31,6 @@ export const IPC = {
   entryUpdate: 'entry:update',
   entryDelete: 'entry:delete',
   entryMove: 'entry:move',
-  entryPromote: 'entry:promote',
   entryHide: 'entry:hide',
   timesheetGet: 'timesheet:get',
   timesheetSave: 'timesheet:save',
@@ -58,12 +57,10 @@ export const IPC = {
   entryReorder: 'entry:reorder',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
-  // activity / tracker
+  // activity
   activityRange: 'activity:range',
   activityExclude: 'activity:exclude',
   activityRestore: 'activity:restore',
-  trackerStatus: 'tracker:status',
-  trackerSetTask: 'tracker:setTask',
   // updates
   updateStatus: 'updates:status',
   updateCheck: 'updates:check',
@@ -82,7 +79,6 @@ export const IPC = {
   evRepoChanged: 'ev:repoChanged',
   evMenu: 'ev:menu',
   evAttachImages: 'ev:attachImages',
-  evTrackerStatus: 'ev:trackerStatus',
   evUpdateStatus: 'ev:updateStatus',
   evExtensionsChanged: 'ev:extensionsChanged',
   evNotify: 'ev:notify',
@@ -92,4 +88,4 @@ export const IPC = {
   evExtOpen: 'ev:extOpen'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask' | 'back' | 'forward'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'back' | 'forward'

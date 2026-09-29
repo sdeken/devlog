@@ -18,6 +18,8 @@ interface Props {
   extensions?: ExtensionInfo[]
   /** Block pages opened lately, newest first. */
   recentPages?: Array<{ canvasId: string; date: string; id: string; title: string }>
+  /** Offer the time views (Summary, Timesheet): an extension tracks time. */
+  timeViews?: boolean
   /** The node type of the canvas on screen: commands for another type are left out. */
   canvasType?: string
   onPick: (target: SwitchTarget) => void
@@ -45,7 +47,7 @@ function score(query: string, label: string): number {
   return i === q.length ? 1 : 0
 }
 
-export function QuickSwitcher({ canvases, extensions = [], recentPages = [], canvasType, onPick, onClose }: Props): React.JSX.Element {
+export function QuickSwitcher({ canvases, extensions = [], recentPages = [], timeViews = true, canvasType, onPick, onClose }: Props): React.JSX.Element {
   const types = useNodeTypes()
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
@@ -53,10 +55,10 @@ export function QuickSwitcher({ canvases, extensions = [], recentPages = [], can
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [
-      { key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } },
+      ...(timeViews ? [{ key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } } as Item] : []),
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
       { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } },
-      { key: 'view:timesheet', label: 'Timesheet', hint: 'view', target: { kind: 'view', view: 'timesheet' } },
+      ...(timeViews ? [{ key: 'view:timesheet', label: 'Timesheet', hint: 'view', target: { kind: 'view', view: 'timesheet' } } as Item] : []),
       { key: 'settings', label: 'Settings', hint: 'settings', target: { kind: 'settings' } },
       { key: 'extensions', label: 'Extensions', hint: 'settings', target: { kind: 'settings', page: 'extensions' } }
     ]
@@ -86,7 +88,7 @@ export function QuickSwitcher({ canvases, extensions = [], recentPages = [], can
       })
     }
     return out
-  }, [canvases, extensions, recentPages, types, canvasType])
+  }, [canvases, extensions, recentPages, types, canvasType, timeViews])
 
   const results = useMemo(() => {
     return items

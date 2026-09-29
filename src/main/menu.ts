@@ -14,7 +14,6 @@ export interface MenuActions {
   timeline: () => void
   back: () => void
   forward: () => void
-  stopTask: () => void
   quit: () => void
 }
 
@@ -48,7 +47,6 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
       { label: 'Open Devlog Repository…', accelerator: 'CmdOrCtrl+O', click: actions.openRepo },
       { type: 'separator' },
       { label: 'Sync Now', accelerator: 'CmdOrCtrl+Shift+S', click: actions.syncNow },
-      { label: 'Stop Active Task', accelerator: 'CmdOrCtrl+Shift+.', click: actions.stopTask },
       { type: 'separator' },
       ...(isMac
         ? [{ role: 'close' } as MenuItemConstructorOptions]

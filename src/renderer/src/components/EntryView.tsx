@@ -28,7 +28,6 @@ interface Props {
   /** Move it within its canvas: inside a block, or out of the one it is in (one level up). */
   onNest?: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
   /** Turn this block into a task (a task canvas beneath this one). */
-  onPromote?: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden?: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   /** Tick a todo off, or back on. */
   onSetDone?: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
@@ -78,7 +77,6 @@ export const EntryView = memo(function EntryView({
   onDelete,
   onMove,
   onNest,
-  onPromote,
   onSetHidden,
   onSetDone,
   onOpenCanvas,
@@ -233,11 +231,6 @@ export const EntryView = memo(function EntryView({
               {!readOnly && (
                 <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title={surface ? 'Edit (or double-click)' : 'Edit'}>
                   Edit
-                </button>
-              )}
-              {onPromote && !readOnly && !isTask && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => void onPromote(canvasId, date, entry.id)} title="Turn this block into a task with its own canvas, and start the clock">
-                  Task
                 </button>
               )}
               {!surface &&

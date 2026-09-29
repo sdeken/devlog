@@ -41,8 +41,6 @@ export const DevlogImage = Image.extend({
 
 export interface SubmitKeymapOptions {
   onSubmit: () => boolean
-  /** Mod+Shift+Enter: post and turn the block into a task. */
-  onSubmitTask: () => boolean
   /** Alt+Enter: post and open the new block's page. */
   onSubmitOpen: () => boolean
   onCancel: () => boolean
@@ -65,7 +63,7 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
   priority: 1000,
 
   addOptions() {
-    return { onSubmit: () => false, onSubmitTask: () => false, onSubmitOpen: () => false, onCancel: () => false, onEditLast: () => false, onLink: () => false }
+    return { onSubmit: () => false, onSubmitOpen: () => false, onCancel: () => false, onEditLast: () => false, onLink: () => false }
   },
 
   addKeyboardShortcuts() {
@@ -93,7 +91,6 @@ export const SubmitKeymap = Extension.create<SubmitKeymapOptions>({
         return this.editor.commands.splitBlock()
       },
       'Mod-Enter': () => this.options.onSubmit(),
-      'Mod-Shift-Enter': () => this.options.onSubmitTask(),
       'Alt-Enter': () => this.options.onSubmitOpen(),
       Escape: () => this.options.onCancel(),
       ArrowUp: () => {

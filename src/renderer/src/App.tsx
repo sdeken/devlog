@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { hasTag, localDate, stripTag } from '@devlog/core'
 import { JOURNAL, JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import { themeCssVars } from '@shared/theme'
-import type { CanvasMeta, Day, Entry, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus, TrackerStatus } from '@shared/types'
+import type { CanvasMeta, Day, Entry, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus } from '@shared/types'
 import { api } from '@renderer/api'
 import { Composer } from './components/Composer'
 import { Feed } from './components/Feed'
@@ -28,7 +28,7 @@ import { Welcome } from './components/Welcome'
 import { getActiveComposer, getDockEditor } from './editor/active'
 import { Toasts } from './components/Toasts'
 import { errorMessage, reported, showToast } from './toasts'
-import { kbd, keybindingLabel, matchesKeybinding } from './keys'
+import { keybindingLabel, matchesKeybinding } from './keys'
 import { NodeTypesContext, buildNodeTypes } from './nodeTypes'
 import { BlockActionsContext, appliesTo, runningCommands, type BlockAction, type ExtCommand } from './extensionCommands'
 import type { CommandContext } from '@devlog/extension-api'
@@ -114,7 +114,6 @@ export function App(): React.JSX.Element {
   // Where the composer posts. Follows the open canvas but can be pointed elsewhere.
   const [targetCanvasId, setTargetCanvasId] = useState<string>('')
   const [timelineDate, setTimelineDate] = useState<string>(localDate(new Date()))
-  const [tracker, setTracker] = useState<TrackerStatus | null>(null)
   const [days, setDays] = useState<Day[]>([])
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
@@ -141,7 +140,7 @@ export function App(): React.JSX.Element {
       offPick()
     }
   }, [])
-  const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; task?: boolean; start?: boolean } | null>(null)
+  const [canvasDialog, setCanvasDialog] = useState<{ canvas: CanvasMeta | null; parentId?: string | null; type?: string } | null>(null)
   const [canvasMenu, setCanvasMenu] = useState<{ canvasId: string; x: number; y: number } | null>(null)
   // The retired journal is listed (under Archived) only while it still holds notes.
   const [journalHasNotes, setJournalHasNotes] = useState(false)
@@ -156,8 +155,10 @@ export function App(): React.JSX.Element {
   blockRef.current = block
   const viewRef = useRef(view)
   viewRef.current = view
-  const trackerRef = useRef(tracker)
-  trackerRef.current = tracker
+  // The canvas an extension marks as current (the running task), for the sidebar and the home canvas.
+  const activeCanvasId = extState?.highlighted[0] ?? null
+  const activeRef = useRef(activeCanvasId)
+  activeRef.current = activeCanvasId
   const canvasesRef = useRef(canvases)
   canvasesRef.current = canvases
 
@@ -224,7 +225,7 @@ export function App(): React.JSX.Element {
   const refreshCanvases = useCallback(async () => {
     const list = await api.canvases.list()
     setCanvases(list)
-    if (!list.some((c) => c.id === canvasIdRef.current)) setCanvasId(homeCanvas(list, trackerRef.current?.activeCanvasId))
+    if (!list.some((c) => c.id === canvasIdRef.current)) setCanvasId(homeCanvas(list, activeRef.current))
     return list
   }, [])
 
@@ -282,11 +283,10 @@ export function App(): React.JSX.Element {
   // Boot: settings + repo.
   useEffect(() => {
     void (async () => {
-      const [s, r, st, tr] = await Promise.all([api.settings.get(), api.repo.info(), api.sync.status(), api.tracker.status()])
+      const [s, r, st] = await Promise.all([api.settings.get(), api.repo.info(), api.sync.status()])
       setSettings(s)
       setRepo(r)
       setSync(st)
-      setTracker(tr)
       if (!r && s.repoPath) setBootError(`Could not reopen ${s.repoPath}. Open it again or create a new devlog.`)
     })()
     const offRepo = api.repo.onChanged((info) => {
@@ -297,7 +297,6 @@ export function App(): React.JSX.Element {
       nav.current = { stack: [], index: -1, restoring: null }
     })
     const offSync = api.sync.onStatus((st) => setSync(st))
-    const offTracker = api.tracker.onStatus((st) => setTracker(st))
     const offMenu = api.onMenu((cmd) => {
       if (cmd === 'openSettings') setSettingsPage((p) => p ?? 'repository')
       if (cmd === 'focusComposer') setFocusToken((n) => n + 1)
@@ -322,7 +321,6 @@ export function App(): React.JSX.Element {
     return () => {
       offRepo()
       offSync()
-      offTracker()
       offMenu()
       offAttach()
     }
@@ -460,17 +458,13 @@ export function App(): React.JSX.Element {
   }, [])
 
   const addEntry = useCallback(
-    async (id: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }): Promise<{ date: string; entry: Entry }> => {
-      const res = await api.blocks.add(id, markdown, position, opts)
+    async (id: string, markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry }> => {
+      const res = await api.blocks.add(id, markdown, position)
       if (!position && res.date !== today) setToday(res.date)
       await reloadDay(id, res.date)
-      if (res.canvas) {
-        await refreshCanvases()
-        showToast(`Task started: ${res.canvas.title}`)
-      }
       return res
     },
-    [today, reloadDay, refreshCanvases]
+    [today, reloadDay]
   )
 
   // Up a level: from a block page to the block it is inside (or its canvas); from a canvas to its parent.
@@ -619,16 +613,6 @@ export function App(): React.JSX.Element {
     []
   )
 
-  const promoteEntry = useCallback(
-    async (id: string, date: string, entryId: string) => {
-      const res = await api.blocks.promote(id, date, entryId)
-      await reloadDay(id, date)
-      await refreshCanvases()
-      showToast(`Task started: ${res.canvas.title}`)
-    },
-    [reloadDay, refreshCanvases]
-  )
-
   const editLast = useCallback(() => {
     let id: string | undefined
     if (page) {
@@ -697,21 +681,15 @@ export function App(): React.JSX.Element {
   const menuItems = (id: string): MenuItem[] => {
     const c = canvases.find((x) => x.id === id)
     if (!c) return []
-    const active = tracker?.activeCanvasId === id
     const items: MenuItem[] = [{ label: 'Open', onClick: () => openCanvas(id) }]
-    if (c.task && tracker?.tracking && !c.archived)
-      items.push(
-        active
-          ? { label: 'Stop this task', onClick: () => void reported(api.tracker.setTask(null)) }
-          : { label: tracker?.activeCanvasId ? 'Switch to this task' : 'Start this task', onClick: () => void reported(api.tracker.setTask(id)) }
-      )
     const extItems = extCommands.filter((x) => x.menus?.includes('canvas') && appliesTo(x, c.type))
     if (extItems.length) items.push('separator', ...extItems.map((x): MenuItem => ({ label: x.label, onClick: () => runExt(x, { source: 'menu', canvasId: id }) })))
     items.push('separator', { label: 'Properties…', onClick: () => setCanvasDialog({ canvas: c }) })
     if (!c.archived)
       items.push(
         { label: 'New canvas inside…', onClick: () => setCanvasDialog({ canvas: null, parentId: id }) },
-        { label: 'New task inside…', onClick: () => setCanvasDialog({ canvas: null, parentId: id, task: true }) }
+        // One entry per node type extensions bring ("New task inside…").
+        ...[...nodeTypes.values()].map((t): MenuItem => ({ label: `New ${t.label.toLowerCase()} inside…`, onClick: () => setCanvasDialog({ canvas: null, parentId: id, type: t.type }) }))
       )
     items.push('separator', {
       label: c.archived ? 'Unarchive' : 'Archive',
@@ -771,6 +749,9 @@ export function App(): React.JSX.Element {
   // The note box's extension post commands, for the canvas it posts to.
   const targetType = canvases.find((c) => c.id === targetCanvasId)?.type
   const postCommands = extCommands.filter((c) => c.post && appliesTo(c, targetType))
+  const targetTypeHint = targetType ? (nodeTypes.get(targetType)?.placeholder ?? '') : ''
+  // What status bar items are told is on screen.
+  const statusContext: ViewContext = view === 'canvas' && canvasId ? { canvasId, ...(page ? { date: page.date, blockId: page.id } : {}) } : {}
   const postHint = postCommands.flatMap((c) => (c.keybinding ? [`${keybindingLabel(c.keybinding)} ${c.label.charAt(0).toLowerCase()}${c.label.slice(1)}`] : [])).join(', ')
   const openFromView = (t: { canvasId: string; date?: string; blockId?: string }): void => {
     if (!canvases.some((c) => c.id === t.canvasId)) return
@@ -786,10 +767,11 @@ export function App(): React.JSX.Element {
         <Sidebar
           canvases={canvases}
           selection={selection}
-          activeCanvasId={tracker?.activeCanvasId ?? extState?.highlighted[0] ?? null}
+          activeCanvasId={activeCanvasId}
           searching={Boolean(search)}
           showJournal={journalHasNotes}
           settingsAttention={extensions.some(needsAttention)}
+          timeViews={Boolean(extState?.providesTime)}
           extPages={extPages}
           onCanvasMenu={openMenu}
           onOpenSettings={() => setSettingsPage('repository')}
@@ -880,10 +862,9 @@ export function App(): React.JSX.Element {
               blockId={page.id}
               today={today}
               editRequest={editRequest}
-              activeCanvasId={tracker?.activeCanvasId ?? extState?.highlighted[0] ?? null}
-              tracking={Boolean(tracker?.tracking)}
-              onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
-              onStopTask={() => void reported(api.tracker.setTask(null))}
+              headerViews={headerViews}
+              onExtPopover={showPopover}
+              onExtOpen={openFromView}
               onCanvasMenu={openMenu}
               onAdd={async (id, md, position) => {
                 await addEntry(id, md, position)
@@ -892,7 +873,6 @@ export function App(): React.JSX.Element {
               onDelete={deleteEntry}
               onMove={moveEntry}
               onNest={nestEntry}
-              onPromote={promoteEntry}
               onSetHidden={setHidden}
               onSetDone={setTodoDone}
               onReorder={reorderEntry}
@@ -911,13 +891,10 @@ export function App(): React.JSX.Element {
               today={today}
               loading={loading}
               editRequest={editRequest}
-              activeCanvasId={tracker?.activeCanvasId ?? extState?.highlighted[0] ?? null}
-              tracking={Boolean(tracker?.tracking)}
+              activeCanvasId={activeCanvasId}
               headerViews={headerViews}
               onExtPopover={showPopover}
               onExtOpen={openFromView}
-              onStartTask={() => void reported(api.tracker.setTask(canvas.id))}
-              onStopTask={() => void reported(api.tracker.setTask(null))}
               onCanvasMenu={openMenu}
               onOpenBlock={openBlock}
               onLoadMore={loadMore}
@@ -928,10 +905,9 @@ export function App(): React.JSX.Element {
               onDelete={deleteEntry}
               onMove={moveEntry}
               onNest={nestEntry}
-              onPromote={promoteEntry}
               onOpenCanvas={openCanvas}
               onEditCanvas={() => setCanvasDialog({ canvas })}
-              onNewCanvasHere={(task) => setCanvasDialog({ canvas: null, parentId: canvasId, task })}
+              onNewCanvasHere={() => setCanvasDialog({ canvas: null, parentId: canvasId })}
               onArchive={async (archived) => {
                 await api.canvases.archive(canvasId, archived)
                 await refreshCanvases()
@@ -972,13 +948,10 @@ export function App(): React.JSX.Element {
                 key={pageBlock ? blockKey(page) : targetCanvasId}
                 mode="new"
                 placeholder={
+                  // The canvas's node type may add a word ("posting here makes it the active task"); post commands add their keys.
                   pageBlock
-                    ? `Write inside “${blockTitle(pageBlock, 40)}”…  Enter posts, Alt+Enter posts and opens it${targetCanvas.task ? ' · counts toward this task' : ''}`
-                    : targetCanvas.type && nodeTypes.get(targetCanvas.type)?.placeholder
-                      ? `${nodeTypes.get(targetCanvas.type)?.placeholder}  Enter posts, Alt+Enter posts and opens it`
-                      : targetCanvas.task
-                        ? `Note on ${targetCanvas.title}…  posting here makes it the active task · Enter posts, Alt+Enter posts and opens it`
-                        : `Note on ${targetCanvas.title}…  Enter posts, Alt+Enter posts and opens it, ${postHint || `${kbd('mod', 'shift', 'Enter')} posts as a task`}`
+                    ? `Write inside “${blockTitle(pageBlock, 40)}”…  Enter posts, Alt+Enter posts and opens it`
+                    : [`Note on ${targetCanvas.title}…`, targetTypeHint, 'Enter posts, Alt+Enter posts and opens it', postHint].filter(Boolean).join('  ·  ')
                 }
                 assetCanvasId={targetCanvasId}
                 assetDate={pageBlock ? page?.date : undefined}
@@ -991,7 +964,7 @@ export function App(): React.JSX.Element {
                   const tagged = opts?.action ? undefined : postCommands.find((c) => c.tag && hasTag(md, c.tag))
                   const action = tagged ?? postCommands.find((c) => `${c.extKey}:${c.id}` === opts?.action)
                   const text = tagged?.tag ? stripTag(md, tagged.tag) : md
-                  const res = await addEntry(targetCanvasId, text, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined, action ? { ...opts, task: false } : opts)
+                  const res = await addEntry(targetCanvasId, text, pageBlock && page ? { date: page.date, parentId: pageBlock.id } : undefined)
                   if (action) runExt(action, { source: 'post', canvasId: targetCanvasId, date: res.date, blockId: res.entry.id })
                   if (opts?.open) openBlock(targetCanvasId, res.date, res.entry.id)
                   else if (view !== 'canvas') showToast(`Posted to ${canvasLabel(canvases, targetCanvasId)}`)
@@ -1008,19 +981,9 @@ export function App(): React.JSX.Element {
             extViews={statusViews}
             onExtPopover={showPopover}
             onExtOpen={openFromView}
+            extContext={statusContext}
             status={sync}
-            tracker={tracker}
-            taskLabel={tracker?.activeCanvasId ? canvasLabel(canvases, tracker.activeCanvasId) : null}
-            canvases={canvases}
-            currentCanvasId={view === 'canvas' ? canvasId : null}
             onSyncNow={() => void reported(api.sync.now())}
-            onStartTask={(id) => void reported(api.tracker.setTask(id))}
-            onStopTask={() => void reported(api.tracker.setTask(null))}
-            onNewTask={() => setCanvasDialog({ canvas: null, parentId: view === 'canvas' && canvas && canvasId !== JOURNAL_ID ? canvasId : null, task: true, start: true })}
-            onOpenTimeline={() => {
-              setTimelineDate(localDate(new Date()))
-              setView('timeline')
-            }}
           />
         </main>
         <TodoPanel
@@ -1039,6 +1002,8 @@ export function App(): React.JSX.Element {
             canvases={canvases}
             extensions={extensions}
             recentPages={recentPages}
+            timeViews={Boolean(extState?.providesTime)}
+            canvasType={view === 'canvas' ? canvas?.type : undefined}
             onPick={(t) => {
               setSwitcherOpen(false)
               goTo(t)
@@ -1107,12 +1072,11 @@ export function App(): React.JSX.Element {
             canvases={canvases}
             extensions={extensions}
             initialParentId={canvasDialog.parentId}
-            initialTask={canvasDialog.task}
+            initialType={canvasDialog.type}
             onClose={() => setCanvasDialog(null)}
             onSaved={async (saved) => {
               await refreshCanvases()
               openCanvas(saved.id)
-              if (canvasDialog.start && saved.task) void reported(api.tracker.setTask(saved.id))
             }}
             onDeleted={async () => {
               await refreshCanvases()

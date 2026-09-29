@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { AppToView, ViewContext, ViewToApp } from '@devlog/extension-api/view'
 import { api } from '@renderer/api'
 
@@ -50,7 +50,8 @@ export function ExtensionView({ extKey, viewId, url, title, className, onResize,
     frame.current?.contentWindow?.postMessage({ devlog: 1, type: 'context', context: contextRef.current } satisfies AppToView, '*')
   }, [contextKey])
 
-  useEffect(() => {
+  // Listen before the frame can load (a layout effect runs before the page's first paint), so its "ready" is never missed.
+  useLayoutEffect(() => {
     const post = (msg: AppToView): void => frame.current?.contentWindow?.postMessage(msg, '*')
     const onMessage = (ev: MessageEvent): void => {
       if (!frame.current || ev.source !== frame.current.contentWindow) return
@@ -107,5 +108,12 @@ export function ExtensionView({ extKey, viewId, url, title, className, onResize,
     }
   }, [extKey, viewId])
 
-  return <iframe ref={frame} className={`ext-view${className ? ` ${className}` : ''}`} src={url} title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" />
+  // Once loaded, say the theme and context again: a page that asked before anyone listened still gets them.
+  const onLoad = (): void => {
+    const w = frame.current?.contentWindow
+    w?.postMessage(themeMessage(), '*')
+    w?.postMessage({ devlog: 1, type: 'context', context: contextRef.current } satisfies AppToView, '*')
+  }
+
+  return <iframe ref={frame} className={`ext-view${className ? ` ${className}` : ''}`} src={url} title={title} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={onLoad} />
 }

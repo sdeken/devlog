@@ -4,7 +4,8 @@ import type { CanvasMeta, Day, Entry, EntryPosition } from '@shared/types'
 import { kbd } from '@renderer/keys'
 import { Feed } from './Feed'
 import { EntryView } from './EntryView'
-import { TaskControl } from './CanvasView'
+import { HeaderSlot } from './CanvasView'
+import type { ViewContext } from '@devlog/extension-api/view'
 
 interface Props {
   canvas: CanvasMeta
@@ -14,17 +15,16 @@ interface Props {
   blockId: string
   today: string
   editRequest: string | null
-  activeCanvasId: string | null
-  tracking: boolean
-  onStartTask: () => void
-  onStopTask: () => void
+  /** Extension views for the canvas's header (1.6). */
+  headerViews?: Array<{ extKey: string; viewId: string; title: string; url: string }>
+  onExtPopover?: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext) => void
+  onExtOpen?: (target: { canvasId: string; date?: string; blockId?: string }) => void
   onCanvasMenu: (canvasId: string, x: number, y: number) => void
   onAdd: (canvasId: string, markdown: string, position: EntryPosition) => Promise<void>
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
   onNest: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
-  onPromote: (canvasId: string, date: string, id: string) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onSetDone: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
@@ -45,7 +45,7 @@ export function blockTitle(entry: Entry, max = 60): string {
  * was written. They all live in the block's own day file.
  */
 export function BlockPage(props: Props): React.JSX.Element {
-  const { canvas, canvases, day, blockId, today, editRequest, activeCanvasId, onOpenCanvas, onOpenBlock, onUp } = props
+  const { canvas, canvases, day, blockId, today, editRequest, onOpenCanvas, onOpenBlock, onUp } = props
   const entries = day?.entries ?? []
   const block = entries.find((e) => e.id === blockId)
 
@@ -124,7 +124,9 @@ export function BlockPage(props: Props): React.JSX.Element {
             ))}
           <span className="crumb is-current">{block ? blockTitle(block, 50) : '…'}</span>
         </h2>
-        <TaskControl canvas={canvas} activeCanvasId={activeCanvasId} tracking={props.tracking} onStart={props.onStartTask} onStop={props.onStopTask} />
+        {props.headerViews?.map((v) => (
+          <HeaderSlot key={`${v.extKey}/${v.viewId}`} view={v} canvasId={canvas.id} onPopover={props.onExtPopover} onOpen={props.onExtOpen} />
+        ))}
         <span className="spacer" />
         <button type="button" className="btn btn-quiet btn-xs block-up" onClick={onUp} title={`Up a level (${kbd('alt', '↑')})`}>
           ↑ Up
@@ -155,7 +157,6 @@ export function BlockPage(props: Props): React.JSX.Element {
                   }
             }
             onNest={props.onNest}
-            onPromote={props.onPromote}
             onSetDone={props.onSetDone}
             onOpenCanvas={onOpenCanvas}
           />
@@ -186,7 +187,6 @@ export function BlockPage(props: Props): React.JSX.Element {
       onDelete={props.onDelete}
       onMove={props.onMove}
       onNest={props.onNest}
-      onPromote={props.onPromote}
       onSetHidden={props.onSetHidden}
       onSetDone={props.onSetDone}
       onReorder={props.onReorder}

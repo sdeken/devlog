@@ -10,7 +10,6 @@ import type {
   DaySummary,
   Entry,
   EntryPosition,
-  PromoteResult,
   TodoRef,
   RepoInfo,
   SavedAsset,
@@ -18,7 +17,6 @@ import type {
   Settings,
   SyncStatus,
   Timeline,
-  TrackerStatus,
   UpdateStatus
 } from '../shared/types'
 import type { ExtensionAppState, ExtensionInfo, ExtensionPickRequest, ExtensionUpdateReport } from '../shared/extensions'
@@ -72,8 +70,7 @@ const api = {
     range: (fromDate: string, toDate: string): Promise<Array<{ canvasId: string; day: Day }>> =>
       ipcRenderer.invoke(IPC.rangeGet, fromDate, toDate),
     /** Post a block. `task: true` (or `#task` on the first line) also turns it into a task and starts the clock. */
-    add: (canvasId: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }): Promise<{ date: string; entry: Entry; canvas?: CanvasMeta }> =>
-      ipcRenderer.invoke(IPC.entryAdd, canvasId, markdown, position, opts),
+    add: (canvasId: string, markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry; count?: number }> => ipcRenderer.invoke(IPC.entryAdd, canvasId, markdown, position),
     update: (canvasId: string, date: string, id: string, markdown: string): Promise<Entry> =>
       ipcRenderer.invoke(IPC.entryUpdate, canvasId, date, id, markdown),
     remove: (canvasId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, canvasId, date, id),
@@ -89,8 +86,6 @@ const api = {
     /** Move a top-level block (with its thread) within its day. */
     reorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Day> =>
       ipcRenderer.invoke(IPC.entryReorder, canvasId, date, id, position),
-    /** Turn an existing block into a task canvas beneath its canvas. */
-    promote: (canvasId: string, date: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.entryPromote, canvasId, date, id),
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
@@ -159,11 +154,6 @@ const api = {
     exclude: (start: string, end: string): Promise<string> => ipcRenderer.invoke(IPC.activityExclude, start, end),
     /** Undo a removal. `start` files the undo on the same day as the removal. */
     restore: (id: string, start: string): Promise<void> => ipcRenderer.invoke(IPC.activityRestore, id, start)
-  },
-  tracker: {
-    status: (): Promise<TrackerStatus | null> => ipcRenderer.invoke(IPC.trackerStatus),
-    setTask: (canvasId: string | null): Promise<void> => ipcRenderer.invoke(IPC.trackerSetTask, canvasId),
-    onStatus: (cb: (status: TrackerStatus) => void): Unsubscribe => on(IPC.evTrackerStatus, cb)
   },
   updates: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke(IPC.updateStatus),

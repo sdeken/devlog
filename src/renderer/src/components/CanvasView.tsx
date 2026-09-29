@@ -19,10 +19,6 @@ interface Props {
   loading: boolean
   editRequest: string | null
   activeCanvasId: string | null
-  /** Activity tracking is on, so tasks can be started from here. */
-  tracking: boolean
-  onStartTask: () => void
-  onStopTask: () => void
   onCanvasMenu: (canvasId: string, x: number, y: number) => void
   onOpenBlock: (canvasId: string, date: string, id: string) => void
   onLoadMore: () => Promise<void>
@@ -31,10 +27,9 @@ interface Props {
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
   onNest: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
-  onPromote: (canvasId: string, date: string, id: string) => Promise<void>
   onOpenCanvas: (id: string) => void
   onEditCanvas: () => void
-  onNewCanvasHere: (task: boolean) => void
+  onNewCanvasHere: () => void
   onArchive: (archived: boolean) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
   onSetDone: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
@@ -49,7 +44,7 @@ interface Props {
 }
 
 /** An extension's view in a canvas's header: the header's height; it asks for a width (1.6). */
-function HeaderSlot({
+export function HeaderSlot({
   view,
   canvasId,
   onPopover,
@@ -57,8 +52,8 @@ function HeaderSlot({
 }: {
   view: { extKey: string; viewId: string; title: string; url: string }
   canvasId: string
-  onPopover?: Props['onExtPopover']
-  onOpen?: Props['onExtOpen']
+  onPopover?: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext) => void
+  onOpen?: (target: { canvasId: string; date?: string; blockId?: string }) => void
 }): React.JSX.Element {
   const [width, setWidth] = useState(120)
   const context = useMemo(() => ({ canvasId }), [canvasId])
@@ -78,48 +73,6 @@ function HeaderSlot({
   )
 }
 
-/** On a task canvas (and the pages inside it): start, switch to or stop the task. */
-export function TaskControl({
-  canvas,
-  activeCanvasId,
-  tracking,
-  onStart,
-  onStop
-}: {
-  canvas: CanvasMeta
-  activeCanvasId: string | null
-  tracking: boolean
-  onStart: () => void
-  onStop: () => void
-}): React.JSX.Element | null {
-  if (!canvas.task) return null
-  const isActive = activeCanvasId === canvas.id
-  if (!tracking || canvas.archived)
-    return (
-      <span className="task-badge" title="Task: time is tracked against it">
-        task
-      </span>
-    )
-  return isActive ? (
-    <>
-      <span className="task-badge is-active" title="This is the active task">
-        ◉ active
-      </span>
-      <button type="button" className="btn btn-quiet btn-xs task-stop" onClick={onStop} title="Stop tracking time on this task">
-        Stop
-      </button>
-    </>
-  ) : (
-    <button type="button" className="btn btn-primary btn-xs task-start" onClick={onStart} title={activeCanvasId ? 'Make this the active task (stops the current one)' : 'Start tracking time on this task'}>
-      ▶ {activeCanvasId ? 'Switch to this task' : 'Start this task'}
-    </button>
-  )
-}
-
-/**
- * One canvas: breadcrumbs and actions, the surface (free markdown, read
- * mode by default so links work), then the stream of blocks.
- */
 export function CanvasView({
   canvas,
   canvases,
@@ -129,9 +82,6 @@ export function CanvasView({
   loading,
   editRequest,
   activeCanvasId,
-  tracking,
-  onStartTask,
-  onStopTask,
   onCanvasMenu,
   onOpenBlock,
   onLoadMore,
@@ -140,7 +90,6 @@ export function CanvasView({
   onDelete,
   onMove,
   onNest,
-  onPromote,
   onOpenCanvas,
   onEditCanvas,
   onNewCanvasHere,
@@ -241,7 +190,6 @@ export function CanvasView({
             {canvas.title}
           </span>
         </h2>
-        <TaskControl canvas={canvas} activeCanvasId={activeCanvasId} tracking={tracking} onStart={onStartTask} onStop={onStopTask} />
         {headerViews?.map((v) => (
           <HeaderSlot key={`${v.extKey}/${v.viewId}`} view={v} canvasId={canvas.id} onPopover={onExtPopover} onOpen={onExtOpen} />
         ))}
@@ -380,7 +328,7 @@ export function CanvasView({
               </button>
             ))}
           {!isJournal && !canvas.archived && (
-            <button type="button" className="child-chip child-add" onClick={() => onNewCanvasHere(false)} title="New canvas inside this one">
+            <button type="button" className="child-chip child-add" onClick={() => onNewCanvasHere()} title="New canvas inside this one">
               +
             </button>
           )}
@@ -408,7 +356,6 @@ export function CanvasView({
       onDelete={onDelete}
       onMove={onMove}
       onNest={onNest}
-      onPromote={onPromote}
       onSetHidden={onSetHidden}
       onSetDone={onSetDone}
       onReorder={onReorder}

@@ -62,6 +62,21 @@ try {
 
   const canvasIdOf = async (title) => (await page.evaluate(() => window.devlog.canvases.list())).find((c) => c.title === title)?.id
   const canvasFolder = (id) => path.join(repo, 'canvases', id.slice(0, 2), id)
+  // The time extension's status bar item (a view in a sandboxed frame).
+  const timeStatus = () => page.frameLocator('[data-ext-view="devlog-time/status"] iframe')
+  const stopClock = async () => {
+    await timeStatus().getByRole('button', { name: 'Stop' }).click()
+    await timeStatus().getByText('No active task').waitFor({ timeout: 10_000 })
+  }
+  const listFiles = async (dir) => {
+    const out = []
+    for (const d of await fs.readdir(dir, { withFileTypes: true }).catch(() => [])) {
+      const p = path.join(dir, d.name)
+      if (d.isDirectory()) out.push(...(await listFiles(p)))
+      else out.push(p)
+    }
+    return out
+  }
   const openCanvasNamed = async (title) => {
     await page.locator('.canvas-tree .canvas-link', { hasText: title }).first().click()
     await page.waitForSelector(`.page-head .crumb.is-current:has-text("${title}")`, { timeout: 10_000 })
@@ -298,33 +313,39 @@ try {
   await page.waitForSelector('.entry', { timeout: 10_000 })
   const acmeFile = path.join(canvasFolder(websiteId), 'entries', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'), `${ymd}.md`)
   check((await fs.readFile(acmeFile, 'utf8')).includes('first note for acme'), 'block stored under canvases/website/entries')
+  // Time tracking is the devlog-time extension (0.17): switched on for this machine because it tracked time before.
+  const devlogJson = JSON.parse(await fs.readFile(path.join(repo, 'devlog.json'), 'utf8'))
+  check(devlogJson.extensions?.['devlog-time'] === 'builtin', 'a machine that tracked time gets the devlog-time extension added to the devlog')
+  await timeStatus().getByText('No active task').waitFor({ timeout: 30_000 })
+  check(true, "devlog-time's status bar item shows, allowed without asking (it was on before)")
   await page.waitForTimeout(300)
-  check((await page.locator('.task-status').textContent()).includes('No active task'), 'posting on a non-task canvas is just a note; no task starts')
+  check((await timeStatus().locator('body').textContent()).includes('No active task'), 'posting on a non-task canvas is just a note; no task starts')
 
-  // 3d'. Tasks: Mod+Shift+Enter, "#task", and the hover action each turn a block into a task canvas.
+  // 3d'. Tasks: Mod+Shift+Enter, "#task", and the block action each turn a block into a task canvas.
   await pageEditor.click()
   await page.keyboard.type('Fix the login redirect. It loops on Safari.')
   await page.keyboard.press('Control+Shift+Enter')
   await page.waitForSelector('.entry-task', { timeout: 10_000 })
-  await page.waitForFunction(() => document.querySelector('.task-status .status-text')?.textContent?.includes('Fix the login redirect'), null, { timeout: 10_000 })
+  await timeStatus().locator('.tt-label', { hasText: 'Fix the login redirect' }).waitFor({ timeout: 10_000 })
   check(true, 'Mod+Shift+Enter posts the block as a task and makes it the active task')
   check((await page.locator('.entry-task .task-chip').first().textContent()).includes('Fix the login redirect'), 'the task block links to its canvas')
   check((await page.locator('.canvas-tree .canvas-node.is-task .canvas-name').first().textContent()) === 'Fix the login redirect', 'the task canvas appears under its project in the sidebar')
   const fixId = await canvasIdOf('Fix the login redirect')
   check((await fs.readFile(acmeFile, 'utf8')).includes(`kind=task canvas=${fixId}`), 'task block stored with kind=task and its canvas id')
   check((await fs.readFile(path.join(canvasFolder(fixId), 'canvas.md'), 'utf8')).includes('task: true'), 'task canvas.md carries task: true')
-  await page.locator('.task-status button', { hasText: 'Stop' }).click()
-  await page.waitForFunction(() => document.querySelector('.task-status')?.textContent?.includes('No active task'), null, { timeout: 10_000 })
+  const timeLog = path.join(repo, 'extensions', 'builtin.devlog-time')
+  const timeFiles = await listFiles(timeLog)
+  check(timeFiles.some((f) => f.endsWith(`${ymd}.jsonl`)), `the clock writes its events in its own folder (${timeFiles.map((f) => path.relative(timeLog, f)).join(', ')})`)
+  await stopClock()
   check(true, 'Stop clears the active task')
 
   await pageEditor.click()
   await page.keyboard.type('#task Write the launch checklist')
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => document.querySelector('.task-status .status-text')?.textContent?.includes('Write the launch checklist'), null, { timeout: 10_000 })
+  await timeStatus().locator('.tt-label', { hasText: 'Write the launch checklist' }).waitFor({ timeout: 10_000 })
   check(true, '"#task" on the first line turns a block into a task')
   check(!(await fs.readFile(acmeFile, 'utf8')).includes('#task'), 'the #task tag is stripped from the stored block')
-  await page.locator('.task-status button', { hasText: 'Stop' }).click()
-  await page.waitForFunction(() => document.querySelector('.task-status')?.textContent?.includes('No active task'), null, { timeout: 10_000 })
+  await stopClock()
 
   await pageEditor.click()
   await page.keyboard.type('[45m] retro-logged call')
@@ -351,25 +372,29 @@ try {
   await page.locator('.entry-task > .entry-brace').first().click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Fix the login redirect")', { timeout: 10_000 })
   check((await page.locator('.breadcrumbs').textContent()).includes('Acme Corp') && (await page.locator('.breadcrumbs').textContent()).includes('Website'), 'task canvas breadcrumbs run client / project / task')
-  check((await page.locator('.page-head .task-start').count()) === 1, 'a task canvas offers Start in its header')
-  check((await page.locator('.statusbar .split-main').textContent()).includes('Fix the login redirect'), "the status bar's Start button offers the task on screen")
-  await page.locator('.statusbar .split-caret').click()
-  await page.waitForSelector('.start-menu', { timeout: 5_000 })
-  check((await page.locator('.start-menu .start-item').first().textContent()).includes('Fix the login redirect'), 'its drop-down lists the other tasks, the one on screen first')
-  await page.locator('.statusbar .split-caret').click()
-  await page.waitForSelector('.start-menu', { state: 'detached', timeout: 5_000 })
-  check(true, 'the drop-down arrow toggles the list closed again')
-  await page.locator('.statusbar .split-main').click()
-  await page.waitForFunction(() => document.querySelector('.task-badge.is-active') !== null, null, { timeout: 10_000 })
-  check(true, 'one click on Start starts the task on screen')
+  const header = page.frameLocator('.page-head [data-ext-view="devlog-time/header"] iframe')
+  await header.getByRole('button', { name: /Start/ }).waitFor({ timeout: 10_000 })
+  check(true, 'a task canvas offers Start in its header (a view of the time extension)')
+  await timeStatus().locator('.tt-split', { hasText: 'Fix the login redirect' }).waitFor({ timeout: 10_000 })
+  check(true, "the status bar's Start button offers the task on screen")
+  await timeStatus().locator('.tt-split button').last().click()
+  const picker = page.frameLocator('.ext-popover iframe')
+  await picker.locator('.dl-menu-item').first().waitFor({ timeout: 10_000 })
+  check((await picker.locator('.dl-menu-item').first().textContent()).includes('Fix the login redirect'), 'its drop-down lists the tasks, the one on screen first')
+  await picker.locator('input').press('Escape')
+  await page.waitForSelector('.ext-popover', { state: 'detached', timeout: 5_000 })
+  check(true, 'Escape closes the list again')
+  await timeStatus().locator('.tt-split button').first().click()
+  await header.getByRole('button', { name: /Stop/ }).waitFor({ timeout: 10_000 })
+  await page.waitForSelector('.canvas-icon.is-active', { timeout: 10_000 })
+  check(true, 'one click on Start starts the task on screen; its header offers Stop, and the sidebar marks it')
   await page.locator('.composer-new .composer-editor').click()
   await page.keyboard.type('Reproduced it: the redirect keeps the hash.')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.entry', { timeout: 10_000 })
   const taskFile = path.join(canvasFolder(fixId), 'entries', String(today.getFullYear()), String(today.getMonth() + 1).padStart(2, '0'), `${ymd}.md`)
   check((await fs.readFile(taskFile, 'utf8')).includes('Reproduced it'), 'blocks on a task canvas are stored under its own folder')
-  await page.locator('.task-status button', { hasText: 'Stop' }).click()
-  await page.waitForFunction(() => document.querySelector('.task-status')?.textContent?.includes('No active task'), null, { timeout: 10_000 })
+  await stopClock()
   await page.locator('.breadcrumbs .crumb', { hasText: 'Website' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")', { timeout: 10_000 })
 
@@ -408,7 +433,8 @@ try {
   check(websiteBlocks === 6, `branch switch does not create a block (${websiteBlocks} blocks)`)
 
   // With a task under this canvas active, the next commit lands on the task, not the canvas.
-  await page.evaluate((id) => window.devlog.tracker.setTask(id), fixId)
+  await page.evaluate((id) => window.devlog.extensions.run('devlog-time', 'start', { source: 'menu', canvasId: id }), fixId)
+  await timeStatus().locator('.tt-label', { hasText: 'Fix the login redirect' }).waitFor({ timeout: 10_000 })
   await fs.writeFile(path.join(proj, 'a.txt'), '3')
   git(['add', '-A'], proj)
   git(['-c', 'user.name=Dev', '-c', 'user.email=d@e.com', 'commit', '-m', 'Route to the task'], proj)
@@ -418,7 +444,7 @@ try {
   }, fixId, { timeout: 30_000 })
   check(true, 'a commit made while a task under the linked canvas is active lands on that task')
   check((await page.locator('.entry-commit').count()) === 2, 'the routed commit does not also land on the canvas')
-  await page.evaluate(() => window.devlog.tracker.setTask(null))
+  await stopClock()
 
   // Linking checks for a git repository; unlinking is one click on the chip.
   const notRepo = path.join(tmp, 'not-a-repo')
@@ -481,14 +507,13 @@ try {
   const appended = afterText.startsWith(beforeText) ? afterText.slice(beforeText.length) : ''
   check(/^<!-- devlog:set id=\w+ pos=\S+ at=\S+ -->\n$/.test(appended), `a reorder appends one record (${JSON.stringify(appended).slice(0, 80)})`)
 
-  // The hover "Task" action promotes an existing block.
+  // The block action "Make task" (the time extension's) promotes an existing block.
   const plain = page.locator('.entry:not(.entry-task):not(.entry-commit)').first()
   await plain.hover()
-  await plain.locator('button', { hasText: 'Task' }).click()
+  await plain.locator('button', { hasText: 'Make task' }).click()
   await page.waitForFunction(() => document.querySelectorAll('.entry-task').length === 3, null, { timeout: 10_000 })
-  check(true, 'the Task action turns an existing block into a task')
-  await page.locator('.task-status button', { hasText: 'Stop' }).click()
-  await page.waitForFunction(() => document.querySelector('.task-status')?.textContent?.includes('No active task'), null, { timeout: 10_000 })
+  check(true, 'the Make task action turns an existing block into a task')
+  await stopClock()
 
   await openCanvasNamed('Scratch')
   await page.waitForFunction(() => document.querySelectorAll('.entry').length === 3, null, { timeout: 10_000 })
@@ -767,13 +792,13 @@ try {
   await page.waitForFunction(() => ![...document.querySelectorAll('.todo-panel .todo-text')].some((e) => e.textContent.includes('Water the plants')), null, { timeout: 10_000 })
   check(true, '"Here" limits the list to this canvas and what is inside it')
 
-  // Make a todo a task: the Task action on its block.
+  // Make a todo a task: the Make task action on its block.
   const cdn = page.locator('.feed .entry-todo', { hasText: 'Check the CDN rules' })
   await cdn.hover()
-  await cdn.locator('button', { hasText: 'Task' }).click()
-  await page.waitForFunction(() => document.querySelector('.task-status .status-text')?.textContent?.includes('Check the CDN rules'), null, { timeout: 10_000 })
-  check(true, 'the Task action turns a todo into an active task')
-  await page.locator('.task-status button', { hasText: 'Stop' }).click()
+  await cdn.locator('button', { hasText: 'Make task' }).click()
+  await timeStatus().locator('.tt-label', { hasText: 'Check the CDN rules' }).waitFor({ timeout: 10_000 })
+  check(true, 'the Make task action turns a todo into an active task')
+  await stopClock()
 
   // The panel stays put while the stream scrolls, and collapses to a strip.
   await page.locator('.feed').evaluate((el) => el.scrollTo({ top: 0 }))
@@ -832,7 +857,7 @@ try {
   await page.keyboard.type('extensions')
   await page.keyboard.press('Enter')
   await page.waitForSelector('.modal-settings .ext-manage', { timeout: 5_000 })
-  check((await page.locator('.ext-empty').count()) === 1, 'Settings → Extensions opens from the quick switcher, empty at first')
+  check((await page.locator('.ext-manage .ext-item[data-ext]').count()) === 1 && (await page.locator('.ext-manage .ext-item[data-ext="devlog-time"]').count()) === 1, 'Settings → Extensions opens from the quick switcher, with only the time extension so far')
   await page.locator('.ext-add input[aria-label="Source"]').fill('probe')
   await page.locator('.ext-add input[aria-label="Version"]').fill('builtin')
   await page.locator('.ext-add button', { hasText: 'Add' }).click()
@@ -1130,9 +1155,13 @@ try {
   check(/^[a-z0-9-]+-[0-9a-f]{4}$/.test(machine ?? ''), `this install has a machine folder name (${machine})`)
   const actDir = path.join(repo, 'activity', machine)
   const actFiles = (await fs.readdir(actDir, { recursive: true })).filter((f) => f.endsWith('.jsonl'))
-  check(actFiles.length === 1, 'activity log written into the repository, in this machine folder, one file per day')
+  check(actFiles.length === 1, "the app's activity log (git events, locks) is written into the repository, in this machine folder, one file per day")
   const actText = await fs.readFile(path.join(actDir, actFiles[0]), 'utf8')
-  check(actText.includes('"type":"start"') && actText.includes('"type":"task"') && actText.trim().endsWith('"type":"stop"}'), 'activity log records start, task and stop events')
+  check(actText.includes('"type":"git"') && !actText.includes('"type":"task"'), 'the app logs git events; the clock is no longer its to log')
+  const clockDir = path.join(repo, 'extensions', 'builtin.devlog-time', machine)
+  const clockFiles = (await fs.readdir(clockDir, { recursive: true })).filter((f) => f.endsWith('.jsonl'))
+  const clockText = await fs.readFile(path.join(clockDir, clockFiles[0]), 'utf8')
+  check(clockFiles.length === 1 && clockText.includes('"type":"start"') && clockText.includes('"type":"task"') && clockText.trim().endsWith('"type":"stop"}'), "devlog-time's log in its own folder records start, task and stop (on quit)")
   const finalLog = git(['log', '--format=%s', 'main'], bare)
   check(git(['status', '--porcelain']) === '', 'quit committed the last entry')
   check(finalLog.split('\n').length >= 2, `quit pushed the last commit (${finalLog.split('\n').length} commits on remote)`)

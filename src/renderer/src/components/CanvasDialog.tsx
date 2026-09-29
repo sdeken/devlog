@@ -15,7 +15,8 @@ interface Props {
   extensions?: ExtensionInfo[]
   /** Pre-selected parent for a new canvas. */
   initialParentId?: string | null
-  initialTask?: boolean
+  /** Node type for a new canvas ("New task inside…"). */
+  initialType?: string
   /** 'general', 'repos', or 'ext:<key>'. */
   initialPage?: string
   onClose: () => void
@@ -28,12 +29,12 @@ interface Props {
  * repositories, and one page for each extension that adds fields to
  * canvases (a Jira issue, a CMS assignment).
  */
-export function CanvasDialog({ canvas, canvases, extensions = [], initialParentId, initialTask, initialPage, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
+export function CanvasDialog({ canvas, canvases, extensions = [], initialParentId, initialType, initialPage, onClose, onSaved, onDeleted }: Props): React.JSX.Element {
   const [page, setPage] = useState(initialPage ?? 'general')
   const [title, setTitle] = useState(canvas?.title ?? '')
   const [parentId, setParentId] = useState<string>(canvas?.parentId ?? (initialParentId && initialParentId !== JOURNAL_ID ? initialParentId : '') ?? '')
   const types = useNodeTypes()
-  const [type, setType] = useState<string>(canvas?.type ?? (initialTask ? TASK_TYPE : ''))
+  const [type, setType] = useState<string>(canvas?.type ?? initialType ?? '')
   const [repos, setRepos] = useState<string[]>(canvas?.repos ?? [])
   const [importHistory, setImportHistory] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -144,7 +145,7 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
 
   return (
     <PagedDialog
-      title={canvas ? canvas.title || 'Canvas' : initialTask ? 'New task' : 'New canvas'}
+      title={canvas ? canvas.title || 'Canvas' : initialType && types.get(initialType) ? `New ${types.get(initialType)?.label.toLowerCase()}` : 'New canvas'}
       className="modal-page"
       pages={pages}
       page={page}
