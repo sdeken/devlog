@@ -1,0 +1,17 @@
+{
+  "name": "@devlog/ui",
+  "version": "1.0.0",
+  "description": "For Devlog extension views: the bridge to the app, its design tokens and a few React components",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.tsx",
+    "./bridge": "./src/bridge.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "peerDependencies": {
+    "react": ">=18",
+    "react-dom": ">=18"
+  }
+}

@@ -93,8 +93,13 @@ export interface CanvasMeta {
   title: string
   /** Enclosing canvas, or null at the top level. */
   parentId: string | null
-  /** Tasks are what the tracker times. Posting on a task makes it the active task. */
+  /** Tasks are what the tracker times. Posting on a task makes it the active task. Same as `type === TASK_TYPE`. */
   task: boolean
+  /**
+   * A node type an extension contributes ("<extension id>/<type id>"): its
+   * icon and label come from that extension; without it, a plain canvas.
+   */
+  type?: string
   createdAt: string
   /** Last surface edit. */
   updatedAt: string
@@ -122,6 +127,8 @@ export interface CanvasInput {
   title: string
   parentId?: string | null
   task?: boolean
+  /** A node type ("<extension id>/<type id>"), or null for a plain canvas. Wins over `task`. */
+  type?: string | null
   repos?: string[]
   /** Extra front-matter fields to set; an empty string or null removes one. */
   fields?: Record<string, string | null>

@@ -19,9 +19,12 @@
       "@devlog/core": ["packages/core/src/index.ts"],
       "@devlog/core/*": ["packages/core/src/*"],
       "@devlog/extension-api": ["packages/extension-api/src/index.ts"],
-      "@devlog/extension-api/view": ["packages/extension-api/src/view.ts"]
+      "@devlog/extension-api/view": ["packages/extension-api/src/view.ts"],
+      "@devlog/ui": ["packages/ui/src/index.tsx"],
+      "@devlog/ui/*": ["packages/ui/src/*"]
     }
   },
   "include": ["src/renderer/**/*", "src/shared/**/*", "src/preload/index.d.ts", "packages/core/src/index.ts", "packages/core/src/types.ts", "packages/core/src/format/**/*", "packages/core/src/timesheet.ts",
-    "packages/core/src/extensions.ts", "packages/extension-api/src/index.ts", "packages/extension-api/src/view.ts"]
+    "packages/core/src/extensions.ts", "packages/extension-api/src/index.ts", "packages/extension-api/src/view.ts",
+    "packages/ui/src/**/*", "builtin-extensions/*/src/views/**/*"]
 }

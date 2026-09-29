@@ -26,6 +26,14 @@ export const CANVAS_FILE = 'canvas.md'
 export const MANIFEST_FILE = 'devlog.json'
 export const STORAGE_FORMAT = 4
 
+/**
+ * The time extension's node type. Canvases written before node types carry
+ * `task: true` instead of `type:`; both read as this type.
+ */
+export const TASK_TYPE = 'builtin.devlog-time/task'
+/** A node type: "<extension id>/<type id>". */
+export const NODE_TYPE_RE = /^[a-z0-9][a-z0-9._-]{0,127}\/[a-z][a-z0-9_-]{0,63}$/
+
 /** Alphabet for canvas ids: lowercase, no easily confused characters (i, l, o, u). */
 export const CANVAS_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
 export const CANVAS_ID_LENGTH = 10
@@ -213,7 +221,7 @@ export function parseFrontMatter(text: string): { fields: Array<[string, string]
   return { fields, body: text.slice(m[0].length) }
 }
 
-const RESERVED_KEYS = new Set(['title', 'parent', 'task', 'created', 'updated', 'repo', 'archived', 'alias'])
+const RESERVED_KEYS = new Set(['title', 'parent', 'task', 'type', 'created', 'updated', 'repo', 'archived', 'alias'])
 const FIELD_KEY_RE = /^[a-z_][\w.-]*$/
 
 /** Whether `key` can be stored as an extra canvas field (lowercase, `[a-z_][a-z0-9_.-]*`, not a built-in key). */
@@ -257,6 +265,9 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
       case 'task':
         meta.task = isTrue(value)
         break
+      case 'type':
+        if (NODE_TYPE_RE.test(value)) meta.type = value
+        break
       case 'created':
         meta.createdAt = value
         break
@@ -279,6 +290,8 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
   }
   if (aliases.length) meta.aliases = aliases
   if (Object.keys(extra).length) meta.fields = extra
+  if (!meta.type && meta.task) meta.type = TASK_TYPE
+  meta.task = meta.type === TASK_TYPE
   const surface = body.replace(/^\s*\n/, '').replace(/\s+$/, '')
   meta.hasSurface = surface.length > 0
   return { meta, surface }
@@ -287,7 +300,9 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
 export function serializeCanvasFile(meta: CanvasMeta, surface: string): string {
   const lines = ['---', `title: ${quote(meta.title)}`]
   if (meta.parentId) lines.push(`parent: ${meta.parentId}`)
-  if (meta.task) lines.push('task: true')
+  const type = meta.type ?? (meta.task ? TASK_TYPE : undefined)
+  if (type === TASK_TYPE) lines.push('task: true')
+  else if (type) lines.push(`type: ${type}`)
   lines.push(`created: ${meta.createdAt}`)
   if (meta.updatedAt) lines.push(`updated: ${meta.updatedAt}`)
   for (const r of meta.repos) lines.push(`repo: ${quote(r)}`)

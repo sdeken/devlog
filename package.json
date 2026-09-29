@@ -7,8 +7,8 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "node scripts/build-builtins.mjs && electron-vite dev",
+    "build": "node scripts/build-builtins.mjs && electron-vite build",
     "preview": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",
@@ -17,7 +17,7 @@
     "package:mac": "electron-vite build && electron-builder --mac",
     "package:win": "electron-vite build && electron-builder --win",
     "package:linux": "electron-vite build && electron-builder --linux",
-    "smoke": "electron-vite build && node scripts/smoke.mjs",
+    "smoke": "npm run build && node scripts/smoke.mjs",
     "screens": "electron-vite build && node scripts/screens.mjs",
     "smoke:ci": "node scripts/smoke.mjs"
   },
@@ -48,6 +48,7 @@
     "electron": "^44.4.3",
     "electron-builder": "^26.15.3",
     "electron-vite": "^5.0.0",
+    "esbuild": "^0.25.12",
     "playwright-core": "^1.63.0",
     "typescript": "^5.9.3",
     "vite": "^7.0.0",

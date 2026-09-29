@@ -12,7 +12,8 @@ import {
   isWithin,
   newCanvasId,
   parseCanvasFile,
-  serializeCanvasFile
+  serializeCanvasFile,
+  TASK_TYPE
 } from '../src/format/canvases'
 import { hasTaskTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
 import type { CanvasMeta } from '../src/types'
@@ -79,8 +80,20 @@ describe('canvases', () => {
       '---\ntitle: "Website: relaunch"\nparent: acme-corp\ntask: true\ncreated: 2026-09-19T10:00:00.000Z\nupdated: 2026-09-20T10:00:00.000Z\nrepo: "C:\\\\src\\\\acme"\nrepo: /home/me/src/acme site\narchived: true\n---\n\n# Links\n\n- [Tracker](https://x)\n'
     )
     const parsed = parseCanvasFile('website', text)
-    expect(parsed.meta).toEqual(meta)
+    // `task: true` reads as the time extension's node type.
+    expect(parsed.meta).toEqual({ ...meta, type: TASK_TYPE })
     expect(parsed.surface).toBe('# Links\n\n- [Tracker](https://x)')
+  })
+
+  it('keeps an extension node type in canvas.md; the task type stays `task: true`', () => {
+    const base: CanvasMeta = { id: 'k3m9x2q7vd', title: 'Standup', parentId: null, task: false, createdAt: '2026-09-19T10:00:00.000Z', updatedAt: '', repos: [], archived: false, hasSurface: false }
+    const meeting = serializeCanvasFile({ ...base, type: 'sdeken.meetings/series' }, '')
+    expect(meeting).toContain('type: sdeken.meetings/series')
+    expect(parseCanvasFile(base.id, meeting).meta).toMatchObject({ type: 'sdeken.meetings/series', task: false })
+    const task = serializeCanvasFile({ ...base, type: TASK_TYPE, task: true }, '')
+    expect(task).toContain('task: true')
+    expect(task).not.toContain('type:')
+    expect(parseCanvasFile(base.id, 'title: x\ntype: not a type\n').meta.type).toBeUndefined()
   })
 
   it('tolerates a missing or partial front matter', () => {

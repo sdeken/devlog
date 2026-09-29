@@ -17,7 +17,7 @@ asarUnpack:
 extraResources:
   - from: builtin-extensions
     to: extensions
-    filter: ['**/*', '!README.md']
+    filter: ['**/*', '!README.md', '!*/src/**']
 mac:
   category: public.app-category.productivity
   target: [dmg, zip]

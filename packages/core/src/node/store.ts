@@ -54,6 +54,8 @@ import {
   JOURNAL_ID,
   MANIFEST_FILE,
   STORAGE_FORMAT,
+  NODE_TYPE_RE,
+  TASK_TYPE,
   canvasDir,
   canvasEntriesBase,
   canvasFilePath,
@@ -244,13 +246,14 @@ export class DevlogStore extends EventEmitter {
       id,
       title,
       parentId,
-      task: Boolean(input.task),
+      task: false,
       createdAt: now.toISOString(),
       updatedAt: '',
       repos: cleanRepos(input.repos),
       archived: false,
       hasSurface: false
     }
+    applyType(meta, input)
     await fs.mkdir(this.resolve(canvasEntriesBase(id)), { recursive: true })
     await this.writeCanvas(meta, '')
     return meta
@@ -270,7 +273,7 @@ export class DevlogStore extends EventEmitter {
       if (parentId && isWithin(all, parentId, id)) throw new Error('A canvas cannot be moved inside itself')
       canvas.parentId = parentId
     }
-    if (patch.task !== undefined) canvas.task = Boolean(patch.task)
+    applyType(canvas, patch)
     if (patch.repos !== undefined) canvas.repos = cleanRepos(patch.repos)
     if (patch.fields !== undefined) {
       const fields = { ...(canvas.fields ?? {}) }
@@ -1093,6 +1096,19 @@ function cleanRepos(repos?: string[]): string[] {
     if (t && !out.includes(t)) out.push(t)
   }
   return out
+}
+
+/** Set a canvas's node type from `type` (wins) or the older `task` flag; `task` follows the type. */
+function applyType(meta: CanvasMeta, input: { type?: string | null; task?: boolean }): void {
+  if (input.type !== undefined) {
+    if (input.type && !NODE_TYPE_RE.test(input.type)) throw new Error(`Not a node type: ${input.type}`)
+    if (input.type) meta.type = input.type
+    else delete meta.type
+  } else if (input.task !== undefined) {
+    if (input.task) meta.type = TASK_TYPE
+    else if (meta.type === TASK_TYPE) delete meta.type
+  }
+  meta.task = meta.type === TASK_TYPE
 }
 
 function assertDate(date: string): void {
