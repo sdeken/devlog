@@ -8,8 +8,7 @@
  * `canvas.md` (metadata + surface) and its own `entries/` tree in the same
  * day-file format.
  *
- * This assumes storage format 2; open older repositories through
- * `migrateRepository()` first.
+ * This assumes storage format 3 (see `assertSupportedFormat`).
  */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
@@ -36,6 +35,7 @@ import {
   planDelete,
   planEdit,
   planMove,
+  planNest,
   planSet,
   previewText,
   readBlockLog,
@@ -52,22 +52,25 @@ import {
   CANVASES_DIR,
   JOURNAL,
   JOURNAL_ID,
-  LEGACY_CATEGORIES_DIR,
-  LEGACY_PAGES_DIR,
   MANIFEST_FILE,
   STORAGE_FORMAT,
+  NODE_TYPE_RE,
+  TASK_TYPE,
   canvasDir,
   canvasEntriesBase,
   canvasFilePath,
   canvasShard,
   descendantCanvasIds,
+  isFieldKey,
   isValidCanvasId,
+  MANAGED_FIELD,
   isWithin,
   newCanvasId,
   parseCanvasFile,
   serializeCanvasFile
 } from '../index'
 import type { RepoIndex } from './repoIndex'
+import { readStorageFormat, updateManifest } from './manifest'
 import { ensureRepoFiles, listBlockFiles } from './repoFiles'
 import type {
   Canvas,
@@ -83,7 +86,8 @@ import type {
   SearchHit,
   SearchResult,
   SurfaceHit,
-  Timeline
+  Timeline,
+  TodoRef
 } from '../types'
 
 const IMAGE_EXT_BY_MIME: Record<string, string> = {
@@ -141,8 +145,7 @@ export class DevlogStore extends EventEmitter {
 
   /** Create the on-disk skeleton for a new devlog (idempotent). */
   async initLayout(): Promise<void> {
-    // A repository with no devlog content yet starts at the current format;
-    // anything older is left for migrateRepository() to upgrade.
+    // A repository with no devlog content yet starts at the current format.
     if (!(await exists(path.join(this.root, MANIFEST_FILE))) && !(await this.hasContent())) {
       await fs.writeFile(path.join(this.root, MANIFEST_FILE), `${JSON.stringify({ format: STORAGE_FORMAT }, null, 2)}\n`)
     }
@@ -158,9 +161,9 @@ export class DevlogStore extends EventEmitter {
           '',
           `- Journal notes live in \`${ENTRIES_DIR}/YYYY/MM/YYYY-MM-DD.md\`, one file per day.`,
           `- Canvases (clients, projects, tasks, …) live in \`${CANVASES_DIR}/<xx>/<id>/\` (xx = the first two characters of the id) with a \`canvas.md\` (metadata + surface) and their own \`entries/\`.`,
-          `- \`${MANIFEST_FILE}\` records the storage format; the Devlog app upgrades older layouts when it opens the repository.`,
+          `- \`${MANIFEST_FILE}\` records the storage format.`,
           `- Pasted images live next to the notes in an \`${ASSETS_DIR}/\` folder.`,
-          '- Every block is delimited by a `<!-- devlog:entry … -->` comment that carries its id, parent and timestamps.',
+          '- Day files are append-only logs of `<!-- devlog:add … -->`, `edit`, `set` and `delete` records; the app replays them into blocks.',
           ''
         ].join('\n')
       )
@@ -169,9 +172,7 @@ export class DevlogStore extends EventEmitter {
   }
 
   private async hasContent(): Promise<boolean> {
-    for (const dir of [CANVASES_DIR, LEGACY_PAGES_DIR, LEGACY_CATEGORIES_DIR]) {
-      if ((await readdirSafe(path.join(this.root, dir))).length > 0) return true
-    }
+    if ((await readdirSafe(path.join(this.root, CANVASES_DIR))).length > 0) return true
     return (await readdirSafe(path.join(this.root, ENTRIES_DIR))).some((d) => d.isDirectory() || d.name === 'todos.md')
   }
 
@@ -196,7 +197,7 @@ export class DevlogStore extends EventEmitter {
     return out
   }
 
-  /** Old canvas ids (from before the format 2 migration, or merged canvases) → current ids. */
+  /** Old canvas ids (from before canvases got random ids, or merged canvases) → current ids. */
   async aliasMap(): Promise<Map<string, string>> {
     const map = new Map<string, string>()
     for (const c of await this.listCanvases()) for (const a of c.aliases ?? []) map.set(a, c.id)
@@ -238,13 +239,14 @@ export class DevlogStore extends EventEmitter {
       id,
       title,
       parentId,
-      task: Boolean(input.task),
+      task: false,
       createdAt: now.toISOString(),
       updatedAt: '',
       repos: cleanRepos(input.repos),
       archived: false,
       hasSurface: false
     }
+    applyType(meta, input)
     await fs.mkdir(this.resolve(canvasEntriesBase(id)), { recursive: true })
     await this.writeCanvas(meta, '')
     return meta
@@ -264,8 +266,19 @@ export class DevlogStore extends EventEmitter {
       if (parentId && isWithin(all, parentId, id)) throw new Error('A canvas cannot be moved inside itself')
       canvas.parentId = parentId
     }
-    if (patch.task !== undefined) canvas.task = Boolean(patch.task)
+    applyType(canvas, patch)
     if (patch.repos !== undefined) canvas.repos = cleanRepos(patch.repos)
+    if (patch.fields !== undefined) {
+      const fields = { ...(canvas.fields ?? {}) }
+      for (const [rawKey, value] of Object.entries(patch.fields)) {
+        const key = rawKey.toLowerCase()
+        if (!isFieldKey(key)) throw new Error(`Not a canvas field name: ${rawKey}`)
+        if (value === null || value.trim() === '') delete fields[key]
+        else fields[key] = value.trim()
+      }
+      if (Object.keys(fields).length) canvas.fields = fields
+      else delete canvas.fields
+    }
     if (!canvas.createdAt) canvas.createdAt = new Date().toISOString()
     await this.writeCanvas(stripSurface(canvas), canvas.surface)
     return stripSurface(canvas)
@@ -326,6 +339,15 @@ export class DevlogStore extends EventEmitter {
    * titled from the block's first line, and the block becomes the link to it.
    */
   async promoteToTask(canvasId: string, date: string, entryId: string, now: Date = new Date()): Promise<PromoteResult> {
+    return this.promoteBlock(canvasId, date, entryId, TASK_TYPE, now)
+  }
+
+  /**
+   * Turn a block into a canvas of a node type (`null`: a plain canvas) just
+   * beneath the block's canvas, titled from its first line. What was written
+   * inside the block moves there; the block becomes the link to it.
+   */
+  async promoteBlock(canvasId: string, date: string, entryId: string, type: string | null, now: Date = new Date()): Promise<PromoteResult> {
     const day = await this.readDay(canvasId, date)
     const entry = day.entries.find((e) => e.id === entryId)
     if (!entry) throw new Error(`Entry ${entryId} not found on ${date}`)
@@ -334,8 +356,10 @@ export class DevlogStore extends EventEmitter {
       const existing = await this.readCanvas(entry.meta.canvas).catch(() => null)
       if (existing) return { canvas: stripSurface(existing), entry }
     }
-    const canvas = await this.createCanvas({ title: titleFromMarkdown(entry.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, task: true }, now)
+    const canvas = await this.createCanvas({ title: titleFromMarkdown(entry.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, type }, now)
     await this.mutateDay(canvasId, date, (log) => ({ ops: planSet(log, entryId, { kind: 'task', canvas: canvas.id }, stampFor(log, now)), result: null }))
+    // What was written inside the block moves into the task's own stream; the block stays as the link to it.
+    for (const child of day.entries.filter((e) => e.parentId === entryId)) await this.moveBlock({ canvasId, date, id: child.id }, { canvasId: canvas.id, date }, now)
     entry.kind = 'task'
     entry.meta = { ...(entry.meta ?? {}), canvas: canvas.id }
     return { canvas, entry }
@@ -358,127 +382,154 @@ export class DevlogStore extends EventEmitter {
   }
 
   // -------------------------------------------------------------------------
-  // Todos: a per-canvas list of todo blocks (with reply threads) in todos.md
+  // Todos: blocks with kind=todo, anywhere in the streams (docs/BLOCK-PAGES.md)
   // -------------------------------------------------------------------------
 
-  private todoDir(canvasId: string): string {
-    return canvasId === JOURNAL_ID ? ENTRIES_DIR : canvasDir(canvasId)
-  }
-
-  private todoPath(canvasId: string): string {
-    return `${this.todoDir(canvasId)}/todos.md`
-  }
-
-  /** The canvas's todo list in order (open and done), replies included. */
-  async readTodos(canvasId: string): Promise<Entry[]> {
-    assertCanvasId(canvasId)
-    try {
-      return parseBlockFile(await fs.readFile(this.resolve(this.todoPath(canvasId)), 'utf8'), this.todoDir(canvasId))
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return []
-      throw err
-    }
-  }
-
-  private mutateTodos<T>(canvasId: string, plan: (log: BlockLog) => { ops: Op[]; result: T }): Promise<T> {
-    assertCanvasId(canvasId)
-    return this.mutate(this.todoPath(canvasId), '# Todos', undefined, plan, { kind: 'todos', canvasId })
-  }
-
-  /** Append todos (one per string) to the end of the canvas's list. */
-  async addTodos(canvasId: string, texts: string[], now: Date = new Date()): Promise<Entry[]> {
-    if (canvasId !== JOURNAL_ID) await this.readCanvas(canvasId)
+  /**
+   * Add todos (one block each, in order) to a canvas: at the end of today, or
+   * inside a block (`parentId`, with the block's day file as `date`).
+   */
+  async addTodos(canvasId: string, texts: string[], position: { date?: string; parentId?: string } = {}, now: Date = new Date(), opts: { done?: boolean[] } = {}): Promise<{ date: string; entries: Entry[] }> {
     const items = texts.map((x) => x.trim()).filter(Boolean)
     if (items.length === 0) throw new Error('Nothing to add')
-    return this.mutateTodos(canvasId, (log) => {
+    const date = position.date ?? localDate(now)
+    const entries = await this.mutateDay(canvasId, date, (log) => {
       const ops: Op[] = []
       const added: Entry[] = []
       let cur = log
-      for (const t of items) {
+      items.forEach((t, i) => {
         const entry: Entry = { id: uniqueId(cur.ids), createdAt: now.toISOString(), kind: 'todo', markdown: t }
-        const planned = planAdd(cur, entry, {}, entry.createdAt)
+        if (opts.done?.[i]) entry.meta = { done: now.toISOString() }
+        const planned = planAdd(cur, entry, position.parentId ? { parentId: position.parentId } : {}, entry.createdAt)
         ops.push(...planned)
         added.push(entry)
         cur = advance(cur, planned)
-      }
+      })
       return { ops, result: added }
     })
+    return { date, entries }
   }
 
-  /** Comment on a todo (or on a comment in its thread). */
-  async addTodoReply(canvasId: string, parentId: string, markdown: string, now: Date = new Date()): Promise<Entry> {
-    if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty comment')
-    return this.mutateTodos(canvasId, (log) => {
-      const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim() }
-      return { ops: planAdd(log, entry, { parentId }, entry.createdAt), result: entry }
-    })
-  }
-
-  async updateTodoEntry(canvasId: string, id: string, markdown: string, now: Date = new Date()): Promise<Entry> {
-    if (isBlankMarkdown(markdown)) throw new Error('A todo needs some text')
-    return this.mutateTodos(canvasId, (log) => {
-      const entry = log.entries.find((e) => e.id === id)
-      if (!entry) throw new Error('Todo not found')
-      const at = stampFor(log, now)
-      return { ops: planEdit(log, id, markdown.trim(), at), result: { ...entry, markdown: markdown.trim(), updatedAt: at } }
-    })
-  }
-
-  /** Delete a todo (or a comment) and its thread. */
-  async deleteTodoEntry(canvasId: string, id: string, now: Date = new Date()): Promise<number> {
-    return this.mutateTodos(canvasId, (log) => {
-      if (!log.entries.some((e) => e.id === id)) throw new Error('Todo not found')
-      const ops = planDelete(log, id, stampFor(log, now))
-      return { ops, result: ops.length }
-    })
-  }
-
-  async reorderTodo(canvasId: string, id: string, position: { afterId?: string; beforeId?: string }, now: Date = new Date()): Promise<Entry[]> {
-    await this.mutateTodos(canvasId, (log) => ({ ops: planMove(log, id, position, stampFor(log, now)), result: null }))
-    return this.readTodos(canvasId)
-  }
-
-  /**
-   * Tick a todo off (or back on). Ticking writes a read-only "done" block into
-   * today's stream on the same canvas; unticking the same day removes it again.
-   */
-  async setTodoDone(canvasId: string, id: string, done: boolean, now: Date = new Date()): Promise<{ todo: Entry; date: string }> {
-    const date = localDate(now)
-    const { todo, changed } = await this.mutateTodos(canvasId, (log) => {
-      const todo = log.entries.find((e) => e.id === id && e.kind === 'todo')
-      if (!todo) throw new Error('Todo not found')
-      if (Boolean(todo.meta?.done) === done) return { ops: [], result: { todo, changed: false } }
+  /** Tick a todo off, or back on: a `done` time on the block, where it is. */
+  async setTodoDone(canvasId: string, date: string, id: string, done: boolean, now: Date = new Date()): Promise<Entry> {
+    return this.mutateDay(canvasId, date, (log) => {
+      const todo = log.entries.find((e) => e.id === id)
+      if (!todo || todo.kind !== 'todo') throw new Error('Todo not found')
+      if (Boolean(todo.meta?.done) === done) return { ops: [], result: todo }
+      // The record sorts after the file's latest; the done time is when it was ticked.
+      const when = now.toISOString()
       const meta = { ...(todo.meta ?? {}) }
-      if (done) meta.done = now.toISOString()
+      if (done) meta.done = when
       else delete meta.done
       const next: Entry = { ...todo }
       if (Object.keys(meta).length) next.meta = meta
       else delete next.meta
-      return { ops: planSet(log, id, { done: done ? now.toISOString() : '' }, stampFor(log, now)), result: { todo: next, changed: true } }
+      return { ops: planSet(log, id, { done: done ? when : '' }, stampFor(log, now)), result: next }
     })
-    if (!changed) return { todo, date }
-    if (done) {
-      await this.addEntry(canvasId, `✓ ${todoTitle(todo.markdown)}`, { date }, now, { kind: 'done', meta: { todo: id } })
-    } else {
-      await this.mutateDay(canvasId, date, (log) => {
-        const mark = log.entries.find((e) => e.kind === 'done' && e.meta?.todo === id)
-        return { ops: mark ? planDelete(log, mark.id, stampFor(log, now)) : [], result: null }
-      })
-    }
-    return { todo, date }
   }
 
   /**
-   * A todo that turned out to be real work: make it a task canvas beneath this
-   * one, record a task block in today's stream, and close the todo.
+   * Every todo in the devlog that is open, or was ticked off at or after
+   * `doneSince`, with where it lives. Archived canvases are left out.
    */
-  async promoteTodo(canvasId: string, id: string, now: Date = new Date()): Promise<PromoteResult> {
-    const todo = (await this.readTodos(canvasId)).find((e) => e.id === id && e.kind === 'todo')
-    if (!todo) throw new Error('Todo not found')
-    const canvas = await this.createCanvas({ title: titleFromMarkdown(todo.markdown), parentId: canvasId === JOURNAL_ID ? null : canvasId, task: true }, now)
-    await this.mutateTodos(canvasId, (log) => ({ ops: planSet(log, id, { done: now.toISOString(), task: canvas.id }, stampFor(log, now)), result: null }))
-    const { entry } = await this.addEntry(canvasId, todo.markdown, { date: localDate(now) }, now, { kind: 'task', meta: { canvas: canvas.id } })
-    return { canvas, entry }
+  async listTodos(opts: { doneSince?: string } = {}): Promise<TodoRef[]> {
+    const canvases = await this.listCanvases()
+    const live = new Set(canvases.filter((c) => !c.archived).map((c) => c.id))
+    const index = this.liveIndex
+    const files: Array<{ canvasId: string; date: string }> = []
+    if (index) files.push(...index.todoDays())
+    else for (const c of canvases) for (const date of await this.listDayFiles(c.id)) files.push({ canvasId: c.id, date })
+    // Oldest day first, then canvas; within a file, the order they are shown in.
+    files.sort((a, b) => a.date.localeCompare(b.date) || a.canvasId.localeCompare(b.canvasId))
+    const out: TodoRef[] = []
+    for (const { canvasId, date } of files) {
+      if (!live.has(canvasId)) continue
+      const { entries } = await this.readDay(canvasId, date)
+      if (!entries.some((e) => e.kind === 'todo')) continue
+      const byId = new Map(entries.map((e) => [e.id, e]))
+      const inside = new Map<string, number>()
+      for (const e of entries) {
+        const seen = new Set<string>()
+        for (let p = e.parentId; p && !seen.has(p); p = byId.get(p)?.parentId) {
+          seen.add(p)
+          inside.set(p, (inside.get(p) ?? 0) + 1)
+        }
+      }
+      for (const entry of entries) {
+        if (entry.kind !== 'todo') continue
+        const done = entry.meta?.done
+        if (done && (!opts.doneSince || done < opts.doneSince)) continue
+        const trail: TodoRef['trail'] = []
+        const seen = new Set<string>([entry.id])
+        for (let p = entry.parentId ? byId.get(entry.parentId) : undefined; p && !seen.has(p.id); p = p.parentId ? byId.get(p.parentId) : undefined) {
+          seen.add(p.id)
+          trail.unshift({ id: p.id, title: previewText(p.markdown, 60), ...(p.kind ? { kind: p.kind } : {}) })
+        }
+        out.push({ canvasId, date, entry, trail, inside: inside.get(entry.id) ?? 0 })
+      }
+    }
+    return out
+  }
+
+  /**
+   * Bring an older devlog up to the current storage format: 3 → 4 moves the
+   * todo lists into the streams. Returns the format it upgraded from, or null.
+   */
+  async upgradeStorage(): Promise<number | null> {
+    if ((await readStorageFormat(this.root)) !== 3) return null
+    await this.convertTodoLists()
+    await updateManifest(this.root, (m) => {
+      m.format = STORAGE_FORMAT
+    })
+    return 3
+  }
+
+  /**
+   * Storage format 3 kept each canvas's todos in its own `todos.md`. Format 4
+   * puts every todo in the stream: each old todo (with its comments, which
+   * become blocks inside it) moves to the day file of the day it was
+   * written, then the old file is removed. Safe to run again after a crash:
+   * a todo already moved (same id and time) is not moved twice.
+   */
+  async convertTodoLists(): Promise<number> {
+    let moved = 0
+    for (const canvas of await this.listCanvases()) {
+      const dir = canvas.id === JOURNAL_ID ? ENTRIES_DIR : canvasDir(canvas.id)
+      const rel = `${dir}/todos.md`
+      let text: string
+      try {
+        text = await fs.readFile(this.resolve(rel), 'utf8')
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') continue
+        throw err
+      }
+      const entries = parseBlockFile(text, dir)
+      for (const root of entries.filter((e) => !e.parentId)) {
+        const thread = [root, ...entries.filter((e) => descendantIds(entries, root.id).has(e.id))]
+        await this.mutateDay(canvas.id, localDate(new Date(root.createdAt)), (log) => {
+          if (log.entries.some((e) => e.id === root.id && e.createdAt === root.createdAt)) return { ops: [], result: null }
+          const rename = new Map<string, string>()
+          const ops: Op[] = []
+          let cur = log
+          for (const e of thread) {
+            const id = cur.ids.has(e.id) ? uniqueId(cur.ids) : e.id
+            rename.set(e.id, id)
+            const entry: Entry = { ...e, id }
+            delete entry.parentId
+            const parent = e.parentId ? rename.get(e.parentId) : undefined
+            const planned = planAdd(cur, entry, parent ? { parentId: parent } : {}, entry.createdAt)
+            ops.push(...planned)
+            cur = advance(cur, planned)
+          }
+          return { ops, result: null }
+        })
+        moved++
+      }
+      await fs.rm(this.resolve(rel), { force: true })
+      this.index?.noteFile(rel, null)
+      this.emit('change', { kind: 'todos', canvasId: canvas.id })
+    }
+    return moved
   }
 
   // -------------------------------------------------------------------------
@@ -534,14 +585,42 @@ export class DevlogStore extends EventEmitter {
     return { canvasId, days, hasMore: i < dates.length }
   }
 
-  /** Every day file across all canvases within [fromDate, toDate], inclusive. */
+  /**
+   * Every day file across all canvases within [fromDate, toDate], inclusive,
+   * plus older ones holding blocks written in that range (index only).
+   */
   async getRange(fromDate: string, toDate: string): Promise<Array<{ canvasId: string; day: Day }>> {
     assertDate(fromDate)
     assertDate(toDate)
     const out: Array<{ canvasId: string; day: Day }> = []
+    // Blocks written inside an older block live in that block's day file; the
+    // index finds those files by creation time (a day of margin either side
+    // for time zones; callers attribute each block by when it was written).
+    const older = new Map<string, Set<string>>()
+    const index = this.liveIndex
+    if (index) {
+      const margin = (d: string, n: number): string => {
+        const [y, m, dd] = d.split('-').map(Number)
+        return new Date(Date.UTC(y, m - 1, dd + n)).toISOString()
+      }
+      for (const { canvasId, date } of index.daysWrittenIn(margin(fromDate, -1), margin(toDate, 2))) {
+        if (date >= fromDate) continue
+        if (!older.has(canvasId)) older.set(canvasId, new Set())
+        older.get(canvasId)!.add(date)
+      }
+    }
+    const inRange = (iso: string | undefined): boolean => {
+      if (!iso) return false
+      const d = localDate(new Date(iso))
+      return d >= fromDate && d <= toDate
+    }
+    const writtenInRange = (e: Entry): boolean => inRange(e.createdAt) || (e.kind === 'todo' && inRange(e.meta?.done))
     for (const canvas of await this.listCanvases()) {
-      const dates = (await this.listDayFiles(canvas.id)).filter((d) => d >= fromDate && d <= toDate).sort()
-      for (const date of dates) {
+      for (const date of [...(older.get(canvas.id) ?? [])].sort()) {
+        const day = await this.readDay(canvas.id, date)
+        if (day.entries.some(writtenInRange)) out.push({ canvasId: canvas.id, day })
+      }
+      for (const date of (await this.listDayFiles(canvas.id)).filter((d) => d >= fromDate && d <= toDate).sort()) {
         const day = await this.readDay(canvas.id, date)
         if (day.entries.length > 0) out.push({ canvasId: canvas.id, day })
       }
@@ -573,9 +652,6 @@ export class DevlogStore extends EventEmitter {
     }
     const hits: Array<SearchHit & { seq: number; todo: number }> = []
     for (const canvas of canvases) {
-      ;(await this.readTodos(canvas.id)).forEach((entry, seq) => {
-        if (entry.markdown.toLowerCase().includes(q)) hits.push({ canvasId: canvas.id, date: localDate(new Date(entry.createdAt)), entry, archived: canvas.archived, seq, todo: 1 })
-      })
       for (const date of await this.listDayFiles(canvas.id)) {
         ;(await this.readDay(canvas.id, date)).entries.forEach((entry, seq) => {
           if (entry.markdown.toLowerCase().includes(q)) hits.push({ canvasId: canvas.id, date, entry, archived: canvas.archived, seq, todo: 0 })
@@ -629,15 +705,75 @@ export class DevlogStore extends EventEmitter {
     })
   }
 
+  /**
+   * A block written by an extension: a note marked `ext=<id>` (plus any
+   * metadata it adds), read-only in the app like other automatic blocks.
+   */
+  async addExtensionBlock(
+    canvasId: string,
+    extensionId: string,
+    markdown: string,
+    meta: Record<string, string> = {},
+    now: Date = new Date(),
+    opts: { parentId?: string; date?: string; todo?: boolean; kind?: string; anyDate?: boolean } = {}
+  ): Promise<{ date: string; entry: Entry }> {
+    if (isBlankMarkdown(markdown)) throw new Error('Cannot add an empty block')
+    if (markdown.length > 100_000) throw new Error('That block is too long')
+    const clean: Record<string, string> = {}
+    for (const [k, v] of Object.entries(meta)) {
+      if (!/^[a-z][a-z0-9_-]{0,31}$/.test(k) || ['id', 'at', 'parent', 'pos', 'kind', 'hidden', 'updated', 'ext'].includes(k)) throw new Error(`Not a metadata key: ${k}`)
+      clean[k] = String(v).replace(/[\r\n]+/g, ' ').slice(0, 500)
+    }
+    // Inside a block: that block's day file. On a canvas the extension keeps, any day it names.
+    const date = opts.date && (opts.parentId || opts.anyDate) ? opts.date : localDate(now)
+    assertDate(date)
+    return this.mutateDay(canvasId, date, (log) => {
+      const entry: Entry = { id: uniqueId(log.ids), createdAt: now.toISOString(), markdown: markdown.trim(), meta: { ext: extensionId, ...clean } }
+      if (opts.todo) entry.kind = 'todo'
+      else if (opts.kind) entry.kind = opts.kind as Entry['kind']
+      return { ops: planAdd(log, entry, opts.parentId ? { parentId: opts.parentId } : {}, entry.createdAt), result: { date, entry } }
+    })
+  }
+
+  /** Change the text of a block an extension added (only that extension may; any block on a canvas it keeps, with `any`). */
+  async updateExtensionBlock(canvasId: string, date: string, id: string, extensionId: string, markdown: string, now: Date = new Date(), opts: { any?: boolean } = {}): Promise<Entry> {
+    if (isBlankMarkdown(markdown)) throw new Error('A block cannot be empty')
+    if (markdown.length > 100_000) throw new Error('That block is too long')
+    return this.mutateDay(canvasId, date, (log) => {
+      const entry = log.entries.find((e) => e.id === id)
+      if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
+      if (entry.meta?.ext !== extensionId && !opts.any) throw new Error('Only blocks it added')
+      const at = stampFor(log, now)
+      const md = markdown.trim()
+      return { ops: planEdit(log, id, md, at), result: { ...entry, markdown: md, updatedAt: at } }
+    })
+  }
+
   async updateEntry(canvasId: string, date: string, id: string, markdown: string, now: Date = new Date()): Promise<Entry> {
     return this.mutateDay(canvasId, date, (log) => {
       const entry = log.entries.find((e) => e.id === id)
       if (!entry) throw new Error(`Entry ${id} not found on ${date}`)
-      if (entry.kind === 'commit' || entry.kind === 'done') throw new Error('Automatic blocks are read-only; reply, move or delete instead')
+      if (entry.kind === 'commit' || entry.kind === 'done' || entry.kind === 'timesheet' || entry.meta?.ext) throw new Error('Automatic blocks are read-only; reply, move or delete instead')
       const at = stampFor(log, now)
       const md = normalizeDurationMarker(markdown.trim())
       return { ops: planEdit(log, id, md, at), result: { ...entry, markdown: md, updatedAt: at } }
     })
+  }
+
+  // -------------------------------------------------------------------------
+  // Canvases extensions keep (the time extension's Timesheets; see docs/TIMESHEETS.md)
+  // -------------------------------------------------------------------------
+
+  /**
+   * A canvas kept by an extension (or the app), found by the owner named in
+   * its `devlog.managed` field; made (with `title`) if it is missing and a
+   * title is given.
+   */
+  async managedCanvas(owner: string, title: string | null = null): Promise<CanvasMeta | null> {
+    const found = (await this.listCanvases()).find((c) => c.fields?.[MANAGED_FIELD] === owner)
+    if (found || !title) return found ?? null
+    const c = await this.createCanvas({ title })
+    return this.updateCanvas(c.id, { fields: { [MANAGED_FIELD]: owner } })
   }
 
   /** Hide (or reveal) a block. Hidden blocks stay in the file and in search; the stream collapses them. */
@@ -673,34 +809,79 @@ export class DevlogStore extends EventEmitter {
    * stay where they are; links are rewritten relative to the new file.
    */
   async moveEntry(fromCanvasId: string, date: string, id: string, toCanvasId: string, now: Date = new Date()): Promise<{ date: string; entry: Entry }> {
-    assertCanvasId(toCanvasId)
     if (fromCanvasId === toCanvasId) throw new Error('Block is already on that canvas')
-    await this.readCanvas(toCanvasId)
-    const source = await this.readDay(fromCanvasId, date)
-    if (!source.entries.some((e) => e.id === id)) throw new Error(`Entry ${id} not found on ${date}`)
-    const thread = new Set([id, ...descendantIds(source.entries, id)])
+    return this.moveBlock({ canvasId: fromCanvasId, date, id }, { canvasId: toCanvasId }, now)
+  }
+
+  /**
+   * Move a block, with everything inside it: to the top level of a canvas
+   * (on the block's own date), inside another block (`parentId`, with that
+   * block's day file as `date`), or out beside a block (`afterId`, same file).
+   * Within one file this is a single `set` record; across files the blocks
+   * are added to the target (re-id'd where the target already uses an id,
+   * images still linked where they are) and then deleted from the source.
+   */
+  async moveBlock(
+    from: { canvasId: string; date: string; id: string },
+    to: { canvasId: string; date?: string; parentId?: string; afterId?: string },
+    now: Date = new Date()
+  ): Promise<{ date: string; entry: Entry }> {
+    assertCanvasId(to.canvasId)
+    if (to.canvasId !== JOURNAL_ID) await this.readCanvas(to.canvasId)
+    if ((to.parentId || to.afterId) && !to.date) throw new Error('Moving inside or beside a block needs its date')
+    const date = to.date ?? from.date
+    if (to.canvasId === from.canvasId && date === from.date) {
+      return this.mutateDay(from.canvasId, date, (log) => {
+        const at = stampFor(log, now)
+        const ops = to.parentId
+          ? planNest(log, from.id, { parentId: to.parentId }, at)
+          : to.afterId
+            ? planNest(log, from.id, { afterId: to.afterId }, at)
+            : (() => {
+                const e = log.entries.find((x) => x.id === from.id)
+                if (!e) throw new Error(`Entry ${from.id} not found on ${date}`)
+                if (!e.parentId) throw new Error('Block is already there')
+                // Out to the top level, right after the top-level block it was inside.
+                let top = e
+                while (top.parentId) top = log.entries.find((x) => x.id === top.parentId) ?? { ...top, parentId: undefined }
+                return planNest(log, from.id, { afterId: top.id }, at)
+              })()
+        const moved = log.entries.find((x) => x.id === from.id)!
+        const entry: Entry = { ...moved }
+        const parent = ops.at(-1)?.attrs.parent
+        if (parent) entry.parentId = parent
+        else delete entry.parentId
+        return { ops, result: { date, entry } }
+      })
+    }
+    if (to.afterId) throw new Error('A block moves beside another only within the same day')
+    const source = await this.readDay(from.canvasId, from.date)
+    if (!source.entries.some((e) => e.id === from.id)) throw new Error(`Entry ${from.id} not found on ${from.date}`)
+    const thread = new Set([from.id, ...descendantIds(source.entries, from.id)])
     const moving = source.entries.filter((e) => thread.has(e.id)).map((e) => ({ ...e }))
 
     // Added to the target first (re-id'd where the target already used an id), then deleted from the source.
-    const movedRoot = await this.mutateDay(toCanvasId, date, (log) => {
+    const movedRoot = await this.mutateDay(to.canvasId, date, (log) => {
+      if (to.parentId && !log.entries.some((e) => e.id === to.parentId)) throw new Error(`Entry ${to.parentId} not found on ${date}`)
       const rename = new Map<string, string>()
       const ops: Op[] = []
       let cur = log
       for (const e of moving) {
         const newId = cur.ids.has(e.id) ? uniqueId(cur.ids) : e.id
         rename.set(e.id, newId)
-        const parent = e.id === id ? undefined : rename.get(e.parentId ?? '')
+        const parent = e.id === from.id ? to.parentId : rename.get(e.parentId ?? '')
         const entry: Entry = { ...e, id: newId }
         delete entry.parentId
         const planned = planAdd(cur, entry, parent ? { parentId: parent } : {}, entry.createdAt)
         ops.push(...planned)
         cur = advance(cur, planned)
       }
-      const root = { ...moving[0], id: rename.get(id)! }
-      delete root.parentId
+      const root: Entry = { ...moving[0], id: rename.get(from.id)! }
+      if (to.parentId) root.parentId = to.parentId
+      else delete root.parentId
       return { ops, result: root }
     })
-    await this.mutateDay(fromCanvasId, date, (log) => ({ ops: planDelete(log, id, stampFor(log, now)), result: null }))
+    await this.mutateDay(from.canvasId, from.date, (log) => ({ ops: planDelete(log, from.id, stampFor(log, now)), result: null }))
     return { date, entry: movedRoot }
   }
 
@@ -896,13 +1077,21 @@ function cleanRepos(repos?: string[]): string[] {
   return out
 }
 
-function assertDate(date: string): void {
-  if (!isValidDate(date)) throw new Error(`Invalid date: ${date}`)
+/** Set a canvas's node type from `type` (wins) or the older `task` flag; `task` follows the type. */
+function applyType(meta: CanvasMeta, input: { type?: string | null; task?: boolean }): void {
+  if (input.type !== undefined) {
+    if (input.type && !NODE_TYPE_RE.test(input.type)) throw new Error(`Not a node type: ${input.type}`)
+    if (input.type) meta.type = input.type
+    else delete meta.type
+  } else if (input.task !== undefined) {
+    if (input.task) meta.type = TASK_TYPE
+    else if (meta.type === TASK_TYPE) delete meta.type
+  }
+  meta.task = meta.type === TASK_TYPE
 }
 
-/** First line of a todo as plain text, for the "done" block. */
-function todoTitle(markdown: string): string {
-  return previewText(markdown.split('\n')[0] ?? markdown, 200)
+function assertDate(date: string): void {
+  if (!isValidDate(date)) throw new Error(`Invalid date: ${date}`)
 }
 
 function assertCanvasId(canvasId: string): void {

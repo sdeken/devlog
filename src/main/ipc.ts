@@ -1,15 +1,23 @@
 import { BrowserWindow, Menu, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
-import type { ActivityEvent, CanvasInput, Entry, EntryPosition, RepoInfo, Settings, TrackerStatus, UpdateStatus } from '@shared/types'
-import { hasTaskTag, stripTaskTag } from '@devlog/core'
+import type { ActivityEvent, CanvasInput, Entry, EntryPosition, RepoInfo, Settings, UpdateStatus } from '@shared/types'
+import { checklistItems } from '@devlog/core'
 import type { DevlogStore } from '@devlog/core/node'
 import type { SyncManager } from '@devlog/core/node'
 import type { SettingsStore } from './settings'
+import type { ExtensionManager } from './extensions/manager'
+import type { CommandContext } from '@devlog/extension-api'
+import { sanitizeGrant } from '@devlog/core'
 import { randomUUID } from 'node:crypto'
 import { inspectWorkingCopy } from './workingCopy'
 
 export interface IpcDeps {
   settings: SettingsStore
+  getExtensions: () => ExtensionManager | null
+  /** A GitHub token for installing extensions from private repositories (kept in the OS keychain). */
+  githubToken: { has: () => Promise<boolean>; set: (token: string | null) => Promise<void> }
+  /** Extensions shipped with the app. */
+  builtinExtensions: () => Promise<Array<{ name: string; displayName: string; description?: string }>>
   getStore: () => DevlogStore | null
   getSync: () => SyncManager | null
   openRepo: (root: string, opts?: { create?: boolean }) => Promise<RepoInfo>
@@ -17,14 +25,14 @@ export interface IpcDeps {
   repoInfo: () => Promise<RepoInfo | null>
   chooseDirectory: () => Promise<string | null>
   onSettingsChanged: (s: Settings) => void
-  /** A user block was added; lets the tracker switch the active task. */
-  onEntryAdded: (canvasId: string, entry: Entry) => Promise<void>
+  /** A user block was added (extensions hear of it). */
+  onEntryAdded: (canvasId: string, date: string, entry: Entry) => Promise<void>
+  /** The renderer answered an extension's quick pick. */
+  answerPick: (id: number, choice: string | null) => void
   onCanvasesChanged: () => Promise<void>
   activityRange: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
   /** Append a user correction to the activity log (filed on the day it applies to). */
   activityAppend: (ev: ActivityEvent) => Promise<void>
-  trackerStatus: () => TrackerStatus | null
-  trackerSetTask: (canvasId: string | null) => Promise<void>
   updateStatus: () => UpdateStatus
   updateCheck: () => Promise<void>
   updateInstall: () => Promise<void>
@@ -41,6 +49,33 @@ function requireStore(deps: IpcDeps): DevlogStore {
 
 export function registerIpc(deps: IpcDeps): void {
   const { settings } = deps
+
+  // Extensions
+  const ext = (): ExtensionManager => {
+    const m = deps.getExtensions()
+    if (!m) throw new Error('No devlog is open')
+    return m
+  }
+  /** devlog.json or the lockfile changed: let sync commit it. */
+  const touched = <T>(p: Promise<T>): Promise<T> => p.finally(() => deps.getSync()?.noteChange())
+  ipcMain.handle(IPC.extList, () => deps.getExtensions()?.list() ?? [])
+  ipcMain.handle(IPC.extAdd, (_e, key: string, spec: string) => touched(ext().add(String(key).trim(), String(spec).trim())))
+  ipcMain.handle(IPC.extRemove, (_e, key: string) => touched(ext().remove(String(key))))
+  ipcMain.handle(IPC.extAllow, (_e, key: string, grant: unknown) => ext().allow(String(key), sanitizeGrant(grant)))
+  ipcMain.handle(IPC.extRevoke, (_e, key: string) => ext().revoke(String(key)))
+  ipcMain.handle(IPC.extRestart, (_e, key: string) => ext().restart(String(key)))
+  ipcMain.handle(IPC.extUpdate, () => touched(ext().update()))
+  ipcMain.handle(IPC.extSetSettings, (_e, key: string, values: Record<string, string>) => touched(ext().setSettings(String(key), values && typeof values === 'object' ? values : {})))
+  ipcMain.handle(IPC.extSetSecret, (_e, key: string, secretKey: string, value: string | null) => ext().setSecret(String(key), String(secretKey), typeof value === 'string' ? value : null))
+  ipcMain.handle(IPC.extRun, (_e, key: string, commandId: string, context?: CommandContext) => ext().runCommand(String(key), String(commandId), context ?? { source: 'switcher' }))
+  ipcMain.handle(IPC.extAppState, () => deps.getExtensions()?.appState() ?? { trayLabel: null, keepRunning: false, idleMinutes: 0, highlighted: [], providesTime: false })
+  ipcMain.handle(IPC.extAnswerPick, (_e, id: number, choice: string | null) => deps.answerPick(Number(id), typeof choice === 'string' ? choice : null))
+  ipcMain.handle(IPC.extViewCall, (_e, key: string, viewId: string, method: string, args: unknown[]) => ext().viewCall(String(key), String(viewId), String(method), Array.isArray(args) ? args : []))
+  ipcMain.handle(IPC.extBuiltins, () => deps.builtinExtensions())
+  ipcMain.handle(IPC.extGithubToken, async (_e, token?: string | null) => {
+    if (token !== undefined) await deps.githubToken.set(typeof token === 'string' && token.trim() ? token.trim() : null)
+    return deps.githubToken.has()
+  })
 
   ipcMain.handle(IPC.settingsGet, () => settings.get())
   ipcMain.handle(IPC.settingsSet, async (_e, patch: Partial<Settings>) => {
@@ -99,24 +134,17 @@ export function registerIpc(deps: IpcDeps): void {
       patch = { ...patch, repos: await checkNewRepos(patch.repos, existing, store.root) }
     }
     const canvas = await store.updateCanvas(id, patch)
-    const active = deps.trackerStatus()?.activeCanvasId
-    if (active === id && patch.task === false) await deps.trackerSetTask(null)
     await deps.onCanvasesChanged()
     return canvas
   })
   ipcMain.handle(IPC.canvasArchive, async (_e, id: string, archived: boolean) => {
     const changed = await requireStore(deps).setCanvasArchived(id, archived)
-    const active = deps.trackerStatus()?.activeCanvasId
-    if (archived && active && changed.includes(active)) await deps.trackerSetTask(null)
     await deps.onCanvasesChanged()
     return changed
   })
   ipcMain.handle(IPC.canvasDelete, async (_e, id: string) => {
     const store = requireStore(deps)
     const n = await store.deleteCanvas(id)
-    // The active task may have been the canvas or one beneath it.
-    const active = deps.trackerStatus()?.activeCanvasId
-    if (active && !(await store.listCanvases()).some((c) => c.id === active)) await deps.trackerSetTask(null)
     await deps.onCanvasesChanged()
     return n
   })
@@ -131,48 +159,27 @@ export function registerIpc(deps: IpcDeps): void {
     requireStore(deps).getTimeline(canvasId, opts ?? {})
   )
   ipcMain.handle(IPC.rangeGet, (_e, fromDate: string, toDate: string) => requireStore(deps).getRange(fromDate, toDate))
-  ipcMain.handle(IPC.entryAdd, async (_e, canvasId: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }) => {
+  ipcMain.handle(IPC.entryAdd, async (_e, canvasId: string, text: string, position?: EntryPosition) => {
     const store = requireStore(deps)
-    // "#task" on the first line (or the explicit flag) posts the block and turns it into a task at once.
-    const wantsTask = Boolean(opts?.task) || hasTaskTag(markdown)
-    const text = wantsTask ? stripTaskTag(markdown) : markdown
-    const result = await store.addEntry(canvasId, text, position ?? {})
-    if (wantsTask) {
-      const promoted = await store.promoteToTask(canvasId, result.date, result.entry.id)
-      await deps.onCanvasesChanged()
-      await deps.trackerSetTask(promoted.canvas.id)
-      return { date: result.date, entry: promoted.entry, canvas: promoted.canvas }
+    // A checklist ("[ ] …" on every line) posts one todo per line.
+    const checklist = !position?.afterId && !position?.beforeId ? checklistItems(text) : null
+    if (checklist) {
+      const { date, entries } = await store.addTodos(canvasId, checklist.map((c) => c.text), { date: position?.date, parentId: position?.parentId }, new Date(), {
+        done: checklist.map((c) => c.done)
+      })
+      for (const e of entries) await deps.onEntryAdded(canvasId, date, e)
+      return { date, entry: entries[0], count: entries.length }
     }
-    await deps.onEntryAdded(canvasId, result.entry)
+    const result = await store.addEntry(canvasId, text, position ?? {})
+    await deps.onEntryAdded(canvasId, result.date, result.entry)
     return result
   })
-  ipcMain.handle(IPC.entryPromote, async (_e, canvasId: string, date: string, id: string) => {
-    const result = await requireStore(deps).promoteToTask(canvasId, date, id)
-    await deps.onCanvasesChanged()
-    await deps.trackerSetTask(result.canvas.id)
-    return result
-  })
-  // Todos
-  ipcMain.handle(IPC.todosList, async (_e, canvasIds: string[]) => {
-    const store = requireStore(deps)
-    const out: Array<{ canvasId: string; entries: Entry[] }> = []
-    for (const id of canvasIds ?? []) out.push({ canvasId: id, entries: await store.readTodos(id).catch(() => []) })
-    return out
-  })
-  ipcMain.handle(IPC.todosAdd, (_e, canvasId: string, texts: string[]) => requireStore(deps).addTodos(canvasId, Array.isArray(texts) ? texts.map(String) : []))
-  ipcMain.handle(IPC.todoReply, (_e, canvasId: string, parentId: string, markdown: string) => requireStore(deps).addTodoReply(canvasId, parentId, markdown))
-  ipcMain.handle(IPC.todoUpdate, (_e, canvasId: string, id: string, markdown: string) => requireStore(deps).updateTodoEntry(canvasId, id, markdown))
-  ipcMain.handle(IPC.todoDelete, (_e, canvasId: string, id: string) => requireStore(deps).deleteTodoEntry(canvasId, id))
-  ipcMain.handle(IPC.todoReorder, (_e, canvasId: string, id: string, position: { afterId?: string; beforeId?: string }) =>
-    requireStore(deps).reorderTodo(canvasId, id, position ?? {})
+  // Todos: blocks with kind=todo, anywhere in the streams
+  ipcMain.handle(IPC.todosList, (_e, opts?: { doneSince?: string }) => requireStore(deps).listTodos({ doneSince: typeof opts?.doneSince === 'string' ? opts.doneSince : undefined }))
+  ipcMain.handle(IPC.todosAdd, (_e, canvasId: string, texts: string[], position?: { date?: string; parentId?: string }) =>
+    requireStore(deps).addTodos(canvasId, Array.isArray(texts) ? texts.map(String) : [], { date: position?.date, parentId: position?.parentId })
   )
-  ipcMain.handle(IPC.todoSetDone, (_e, canvasId: string, id: string, done: boolean) => requireStore(deps).setTodoDone(canvasId, id, Boolean(done)))
-  ipcMain.handle(IPC.todoPromote, async (_e, canvasId: string, id: string) => {
-    const result = await requireStore(deps).promoteTodo(canvasId, id)
-    await deps.onCanvasesChanged()
-    await deps.trackerSetTask(result.canvas.id)
-    return result
-  })
+  ipcMain.handle(IPC.todoSetDone, (_e, canvasId: string, date: string, id: string, done: boolean) => requireStore(deps).setTodoDone(canvasId, date, id, Boolean(done)))
   ipcMain.handle(IPC.entryHide, (_e, canvasId: string, date: string, id: string, hidden: boolean) =>
     requireStore(deps).setEntryHidden(canvasId, date, id, Boolean(hidden))
   )
@@ -183,8 +190,11 @@ export function registerIpc(deps: IpcDeps): void {
     requireStore(deps).updateEntry(canvasId, date, id, markdown)
   )
   ipcMain.handle(IPC.entryDelete, (_e, canvasId: string, date: string, id: string) => requireStore(deps).deleteEntry(canvasId, date, id))
-  ipcMain.handle(IPC.entryMove, (_e, fromCanvasId: string, date: string, id: string, toCanvasId: string) =>
-    requireStore(deps).moveEntry(fromCanvasId, date, id, toCanvasId)
+  // To another canvas (a canvas id), or inside / beside a block ({ canvasId, date, parentId | afterId }).
+  ipcMain.handle(IPC.entryMove, (_e, fromCanvasId: string, date: string, id: string, to: string | { canvasId: string; date?: string; parentId?: string; afterId?: string }) =>
+    typeof to === 'string'
+      ? requireStore(deps).moveEntry(fromCanvasId, date, id, to)
+      : requireStore(deps).moveBlock({ canvasId: fromCanvasId, date, id }, { canvasId: String(to.canvasId), date: to.date, parentId: to.parentId, afterId: to.afterId })
   )
   ipcMain.handle(IPC.entrySearch, (_e, query: string) => requireStore(deps).search(query))
   ipcMain.handle(
@@ -207,8 +217,6 @@ export function registerIpc(deps: IpcDeps): void {
     const s = new Date(start)
     await deps.activityAppend({ t: Number.isNaN(s.getTime()) ? new Date().toISOString() : s.toISOString(), type: 'exclude', cancels: String(id) })
   })
-  ipcMain.handle(IPC.trackerStatus, () => deps.trackerStatus())
-  ipcMain.handle(IPC.trackerSetTask, (_e, canvasId: string | null) => deps.trackerSetTask(canvasId))
 
   ipcMain.handle(IPC.updateStatus, () => deps.updateStatus())
   ipcMain.handle(IPC.updateCheck, () => deps.updateCheck())

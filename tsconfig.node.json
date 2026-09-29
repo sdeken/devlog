@@ -16,7 +16,9 @@
     "paths": {
       "@shared/*": ["src/shared/*"],
       "@devlog/core": ["packages/core/src/index.ts"],
-      "@devlog/core/*": ["packages/core/src/*"]
+      "@devlog/core/*": ["packages/core/src/*"],
+      "@devlog/extension-api": ["packages/extension-api/src/index.ts"],
+      "@devlog/extension-api/*": ["packages/extension-api/src/*"]
     }
   },
   "include": [
@@ -27,6 +29,9 @@
     "src/shared/**/*",
     "tests/**/*",
     "packages/core/src/**/*",
-    "packages/core/tests/**/*"
+    "packages/core/tests/**/*",
+    "packages/extension-api/src/**/*",
+    "packages/extension-api/tests/**/*",
+    "builtin-extensions/*/src/*.ts"
   ]
 }

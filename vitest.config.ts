@@ -3,7 +3,7 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
-    alias: { '@shared': resolve('src/shared'), '@devlog/core': resolve('packages/core/src') }
+    alias: { '@shared': resolve('src/shared'), '@devlog/core': resolve('packages/core/src'), '@devlog/extension-api': resolve('packages/extension-api/src') }
   },
   test: {
     include: ['tests/**/*.test.ts', 'packages/*/tests/**/*.test.ts'],

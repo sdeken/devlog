@@ -10,15 +10,12 @@ import {
   flattenTree,
   isValidCanvasId,
   isWithin,
-  legacyCategoryId,
   newCanvasId,
   parseCanvasFile,
-  parseLegacyPageFile,
-  parseLegacyWikiFile,
   serializeCanvasFile,
-  slugify
+  TASK_TYPE
 } from '../src/format/canvases'
-import { hasTaskTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
+import { hasTag, hasTaskTag, stripTag, stripTaskTag, titleFromMarkdown } from '../src/format/blocks'
 import type { CanvasMeta } from '../src/types'
 
 const c = (id: string, title: string, parentId: string | null = null, extra: Partial<CanvasMeta> = {}): CanvasMeta => ({
@@ -35,13 +32,6 @@ const c = (id: string, title: string, parentId: string | null = null, extra: Par
 })
 
 describe('canvases', () => {
-  it('slugifies titles', () => {
-    expect(slugify('Acme Corp')).toBe('acme-corp')
-    expect(slugify('  Ünïcödé & Co. ')).toBe('unicode-co')
-    expect(slugify('!!!')).toBe('canvas')
-    expect(legacyCategoryId(['Acme Corp', 'Web'])).toBe('acme-corp-web')
-  })
-
   it('validates ids and maps bases', () => {
     expect(isValidCanvasId('journal')).toBe(true)
     expect(isValidCanvasId('acme-corp')).toBe(true)
@@ -90,8 +80,20 @@ describe('canvases', () => {
       '---\ntitle: "Website: relaunch"\nparent: acme-corp\ntask: true\ncreated: 2026-09-19T10:00:00.000Z\nupdated: 2026-09-20T10:00:00.000Z\nrepo: "C:\\\\src\\\\acme"\nrepo: /home/me/src/acme site\narchived: true\n---\n\n# Links\n\n- [Tracker](https://x)\n'
     )
     const parsed = parseCanvasFile('website', text)
-    expect(parsed.meta).toEqual(meta)
+    // `task: true` reads as the time extension's node type.
+    expect(parsed.meta).toEqual({ ...meta, type: TASK_TYPE })
     expect(parsed.surface).toBe('# Links\n\n- [Tracker](https://x)')
+  })
+
+  it('keeps an extension node type in canvas.md; the task type stays `task: true`', () => {
+    const base: CanvasMeta = { id: 'k3m9x2q7vd', title: 'Standup', parentId: null, task: false, createdAt: '2026-09-19T10:00:00.000Z', updatedAt: '', repos: [], archived: false, hasSurface: false }
+    const meeting = serializeCanvasFile({ ...base, type: 'sdeken.meetings/series' }, '')
+    expect(meeting).toContain('type: sdeken.meetings/series')
+    expect(parseCanvasFile(base.id, meeting).meta).toMatchObject({ type: 'sdeken.meetings/series', task: false })
+    const task = serializeCanvasFile({ ...base, type: TASK_TYPE, task: true }, '')
+    expect(task).toContain('task: true')
+    expect(task).not.toContain('type:')
+    expect(parseCanvasFile(base.id, 'title: x\ntype: not a type\n').meta.type).toBeUndefined()
   })
 
   it('tolerates a missing or partial front matter', () => {
@@ -134,18 +136,6 @@ describe('canvases', () => {
     expect(buildCanvasTree(all, { includeArchived: true })[0].children.map((n) => n.canvas.id)).toEqual(['mobile', 'old', 'web'])
   })
 
-  it('reads legacy page and wiki files', () => {
-    expect(parseLegacyPageFile('acme', '---\ntitle: Acme\ncategory: Clients / Big\nrepo: /x\narchived: yes\n---\n\nDesc')).toEqual({
-      id: 'acme',
-      title: 'Acme',
-      category: 'Clients / Big',
-      description: 'Desc',
-      createdAt: '',
-      repos: ['/x'],
-      archived: true
-    })
-    expect(parseLegacyWikiFile('---\npath: Acme Corp / Web\nupdated: t\n---\n\n# Hi\n', ['x'])).toEqual({ path: ['Acme Corp', 'Web'], archived: false, updatedAt: 't', markdown: '# Hi' })
-  })
 })
 
 describe('task tags and titles', () => {
@@ -158,6 +148,15 @@ describe('task tags and titles', () => {
     expect(stripTaskTag('#task Fix the login redirect')).toBe('Fix the login redirect')
     expect(stripTaskTag('Fix the login redirect #task\n\nmore')).toBe('Fix the login redirect\n\nmore')
     expect(stripTaskTag('Fix \\#task it')).toBe('Fix it')
+  })
+
+  it("recognises any post command's #tag on the first line (1.6)", () => {
+    expect(hasTag('#job Rebuild the widget', 'job')).toBe(true)
+    expect(hasTag('Rebuild the widget \\#job', 'job')).toBe(true)
+    expect(hasTag('Rebuild the #jobs page', 'job')).toBe(false)
+    expect(hasTag('Rebuild\n#job', 'job')).toBe(false)
+    expect(stripTag('#job Rebuild the widget', 'job')).toBe('Rebuild the widget')
+    expect(stripTag('Rebuild the widget #job\nmore', 'job')).toBe('Rebuild the widget\nmore')
   })
 
   it('titles a task from the first sentence', () => {

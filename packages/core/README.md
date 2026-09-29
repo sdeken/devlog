@@ -9,7 +9,7 @@ Two entry points:
 | Import              | Contents                                                      | Runs in          |
 | ------------------- | ------------------------------------------------------------- | ---------------- |
 | `@devlog/core`      | Types, block and canvas file formats, pure hierarchy helpers  | Anywhere         |
-| `@devlog/core/node` | `DevlogStore`, `RepoIndex`, `SyncManager` (git), `ActivityLog`, migrations (`upgradeRepository`) | Node 22.13+ only |
+| `@devlog/core/node` | `DevlogStore`, `RepoIndex`, `SyncManager` (git), `ActivityLog`, `assertSupportedFormat` | Node 22.13+ only |
 
 ## Rules
 
@@ -33,12 +33,12 @@ Two entry points:
 ## Typical use
 
 ```ts
-import { DevlogStore, RepoIndex, SyncManager, upgradeRepository } from '@devlog/core/node'
+import { DevlogStore, RepoIndex, SyncManager, assertSupportedFormat } from '@devlog/core/node'
 
 const store = new DevlogStore(root)
 await store.initLayout()
+await assertSupportedFormat(root) // format 3 only; throws with a message otherwise
 const sync = new SyncManager(root, { intervalMinutes: 5, debounceSeconds: 30, autoPush: true, pullOnStart: true })
-await upgradeRepository(root, sync) // older layouts: pull, migrate, commit (or merge)
 const index = RepoIndex.open(dbPath, root) // optional cache; files stay the truth
 store.attachIndex(index)
 void index.refresh()
@@ -53,7 +53,7 @@ const hits = await store.search('dana')
 ## Storage
 
 See the main README (*Repository layout*) and `docs/DESIGN.md` for the
-format; `migrate.ts` documents the upgrades to format 3. The index uses
+format. The index uses
 `node:sqlite`, which prints an experimental warning on Node 22; Electron 44
 (Node 24) is the target.
 
@@ -61,8 +61,7 @@ format; `migrate.ts` documents the upgrades to format 3. The index uses
 
 The tests cover the file formats (including a fuzz test of marker escaping),
 every store operation, indexed-vs-scanned equivalence, git sync against local
-bare remotes, migrations (including two machines upgrading the same history)
-and the per-machine activity log.
+bare remotes and the per-machine activity log.
 
 ```sh
 npx vitest run packages/core

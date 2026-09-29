@@ -22,9 +22,9 @@ describe('DevlogStore', () => {
     expect((await fs.stat(path.join(root, 'entries'))).isDirectory()).toBe(true)
     expect(await fs.readFile(path.join(root, 'README.md'), 'utf8')).toContain('# Devlog')
     // A fresh repository starts at the current storage format.
-    expect(JSON.parse(await fs.readFile(path.join(root, 'devlog.json'), 'utf8'))).toEqual({ format: 3 })
+    expect(JSON.parse(await fs.readFile(path.join(root, 'devlog.json'), 'utf8'))).toEqual({ format: 4 })
     expect(await fs.readFile(path.join(root, '.gitattributes'), 'utf8')).toContain('**/todos.md merge=union')
-    expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toContain('.devlog-migrate/')
+    expect(await fs.readFile(path.join(root, '.gitignore'), 'utf8')).toContain('Thumbs.db')
   })
 
   it('adds, lists, updates and deletes entries', async () => {
@@ -88,19 +88,22 @@ describe('DevlogStore', () => {
     await check('promote')
     await store.moveEntry('journal', a.date, a.entry.id, acme.id)
     await check('move')
-    const [t1, t2] = await store.addTodos(acme.id, ['one', 'two'], when)
-    await store.addTodoReply(acme.id, t1.id, 'note', when)
-    await store.reorderTodo(acme.id, t2.id, { beforeId: t1.id })
-    await store.setTodoDone(acme.id, t1.id, true, when)
-    await store.setTodoDone(acme.id, t1.id, false, when)
-    await store.updateTodoEntry(acme.id, t2.id, 'two, edited')
-    await store.promoteTodo(acme.id, t2.id)
-    await store.deleteTodoEntry(acme.id, t1.id)
+    const {
+      date: tdate,
+      entries: [t1, t2]
+    } = await store.addTodos(acme.id, ['one', 'two'], {}, when)
+    await store.addEntry(acme.id, 'note', { date: tdate, parentId: t1.id }, when)
+    await store.reorderEntry(acme.id, tdate, t2.id, { beforeId: t1.id })
+    await store.setTodoDone(acme.id, tdate, t1.id, true, when)
+    await store.setTodoDone(acme.id, tdate, t1.id, false, when)
+    await store.updateEntry(acme.id, tdate, t2.id, 'two, edited')
+    await store.promoteToTask(acme.id, tdate, t2.id)
+    await store.deleteEntry(acme.id, tdate, t1.id)
     await check('todos')
     await store.deleteEntry('journal', a.date, b.entry.id)
     await check('delete')
     expect((await store.readDay('journal', a.date)).entries).toEqual([])
-    expect((await store.readDay(acme.id, a.date)).entries.map((e) => e.markdown)).toEqual(['A edited', 'reply'])
+    expect((await store.readDay(acme.id, a.date)).entries.map((e) => e.markdown)).toEqual(['A edited', 'reply', 'two, edited'])
     expect(r.entry.parentId).toBe(a.entry.id)
   })
 
@@ -392,50 +395,151 @@ describe('canvases in the store', () => {
     await expect(store.writeSurface('journal', 'x')).rejects.toThrow(/journal/)
   })
 
-  it('keeps a todo list per canvas with comments, reorders it, and ticks items off into the stream', async () => {
+  it('keeps todos as blocks in the stream, at any depth, and lists them with where they live', async () => {
     const acme = await store.createCanvas({ title: 'Acme' })
     const when = new Date(2026, 8, 25, 9)
-    const added = await store.addTodos(acme.id, ['Send Dana the redirect list', 'Check the CDN rules', '  '], when)
+    const { date, entries: added } = await store.addTodos(acme.id, ['Send Dana the redirect list', 'Check the CDN rules', '  '], {}, when)
+    expect(date).toBe('2026-09-25')
     expect(added.map((t) => [t.kind, t.markdown])).toEqual([
       ['todo', 'Send Dana the redirect list'],
       ['todo', 'Check the CDN rules']
     ])
-    const file = await fs.readFile(path.join(root, `canvases/${acme.id.slice(0, 2)}/${acme.id}/todos.md`), 'utf8')
-    expect(file.startsWith('<!-- devlog:format 3 -->\n# Todos')).toBe(true)
-    expect(file).toContain('kind=todo')
+    expect(await fs.readFile(path.join(root, `canvases/${acme.id.slice(0, 2)}/${acme.id}/entries/2026/09/2026-09-25.md`), 'utf8')).toContain('kind=todo')
 
-    const reply = await store.addTodoReply(acme.id, added[0].id, 'Waiting on their ops team', when)
-    expect((await store.readTodos(acme.id)).map((e) => [e.markdown, e.parentId ?? null])).toEqual([
-      ['Send Dana the redirect list', null],
-      ['Waiting on their ops team', added[0].id],
-      ['Check the CDN rules', null]
+    // Todos inside a block ("asked Claude to review" → a pasted list), and a note inside a todo.
+    const review = await store.addEntry(acme.id, 'Asked Claude to review the redirect', {}, new Date(2026, 8, 25, 10))
+    const inner = await store.addTodos(acme.id, ['Handle the trailing slash'], { date: review.date, parentId: review.entry.id }, new Date(2026, 8, 25, 10, 5))
+    await store.addEntry(acme.id, 'Tried a rewrite rule; no luck', { date, parentId: inner.entries[0].id }, new Date(2026, 8, 26, 9))
+    let todos = await store.listTodos()
+    expect(todos.map((t) => [t.entry.markdown, t.trail.map((x) => x.title), t.inside])).toEqual([
+      ['Send Dana the redirect list', [], 0],
+      ['Check the CDN rules', [], 0],
+      ['Handle the trailing slash', ['Asked Claude to review the redirect'], 1]
     ])
-    // Reordering moves the thread with the todo.
-    await store.reorderTodo(acme.id, added[1].id, { beforeId: added[0].id })
-    expect((await store.readTodos(acme.id)).map((e) => e.id)).toEqual([added[1].id, added[0].id, reply.id])
 
-    // Ticking off writes a read-only done block into today's stream; unticking removes it.
-    const { date } = await store.setTodoDone(acme.id, added[0].id, true, new Date(2026, 8, 25, 11))
-    expect(date).toBe('2026-09-25')
-    expect((await store.readTodos(acme.id)).find((e) => e.id === added[0].id)?.meta?.done).toBe(new Date(2026, 8, 25, 11).toISOString())
-    const day = await store.readDay(acme.id, '2026-09-25')
-    expect(day.entries.map((e) => [e.kind, e.markdown, e.meta?.todo])).toEqual([['done', '✓ Send Dana the redirect list', added[0].id]])
-    await expect(store.updateEntry(acme.id, '2026-09-25', day.entries[0].id, 'x')).rejects.toThrow(/read-only/)
-    await store.setTodoDone(acme.id, added[0].id, false, new Date(2026, 8, 25, 11, 5))
-    expect((await store.readTodos(acme.id)).find((e) => e.id === added[0].id)?.meta?.done).toBeUndefined()
-    expect((await store.readDay(acme.id, '2026-09-25')).entries).toEqual([])
+    // Ticking off marks the todo where it is; no separate block is written.
+    const ticked = await store.setTodoDone(acme.id, date, added[0].id, true, new Date(2026, 8, 25, 11))
+    expect(ticked.meta?.done).toBe(new Date(2026, 8, 25, 11).toISOString())
+    expect((await store.readDay(acme.id, date)).entries.filter((e) => e.kind === 'done')).toEqual([])
+    todos = await store.listTodos()
+    expect(todos.map((t) => t.entry.id)).not.toContain(added[0].id)
+    expect((await store.listTodos({ doneSince: new Date(2026, 8, 25).toISOString() })).map((t) => t.entry.id)).toContain(added[0].id)
+    await store.setTodoDone(acme.id, date, added[0].id, false, new Date(2026, 8, 25, 11, 5))
+    expect((await store.readDay(acme.id, date)).entries.find((e) => e.id === added[0].id)?.meta?.done).toBeUndefined()
+    await expect(store.setTodoDone(acme.id, date, review.entry.id, true)).rejects.toThrow(/Todo not found/)
+    // A todo ticked off counts on the day it was ticked for the date range views.
+    await store.setTodoDone(acme.id, date, added[1].id, true, new Date(2026, 8, 25, 12))
+    expect((await store.getRange('2026-09-25', '2026-09-25')).some((r) => r.day.entries.some((e) => e.id === added[1].id))).toBe(true)
 
-    // Promoting a todo makes a task canvas, records a task block, and closes the todo.
-    const { canvas, entry } = await store.promoteTodo(acme.id, added[1].id, new Date(2026, 8, 25, 12))
-    expect(canvas).toMatchObject({ title: 'Check the CDN rules', parentId: acme.id, task: true })
-    expect(entry).toMatchObject({ kind: 'task', meta: { canvas: canvas.id }, markdown: 'Check the CDN rules' })
-    expect((await store.readTodos(acme.id)).find((e) => e.id === added[1].id)?.meta).toMatchObject({ task: canvas.id })
+    // Search finds todos like any block; archived canvases drop out of the list.
+    expect((await store.search('trailing slash')).blocks.map((h) => [h.canvasId, h.entry.kind])).toEqual([[acme.id, 'todo']])
+    await store.setCanvasArchived(acme.id, true)
+    expect(await store.listTodos()).toEqual([])
+  })
 
-    // Journal todos live next to the journal; search finds todos; deleting removes the thread.
-    await store.addTodos('journal', ['Renew the certificate'], when)
-    expect((await fs.stat(path.join(root, 'entries/todos.md'))).isFile()).toBe(true)
-    expect((await store.search('renew the cert')).blocks.map((h) => [h.canvasId, h.entry.kind])).toEqual([['journal', 'todo']])
-    expect(await store.deleteTodoEntry(acme.id, added[0].id)).toBe(2)
-    expect(await store.listDays('journal')).toEqual([])
+  it('moves a block inside another, out again, and across days and canvases', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const web = await store.createCanvas({ title: 'Web', parentId: acme.id })
+    const standup = await store.addEntry(acme.id, 'Standup Sep 28', {}, new Date(2026, 8, 28, 9))
+    const note = await store.addEntry(acme.id, 'Remember the DNS', {}, new Date(2026, 8, 28, 9, 30))
+    const inside = await store.addEntry(acme.id, 'with a reply', { date: note.date, parentId: note.entry.id }, new Date(2026, 8, 28, 9, 31))
+    // Same file: one set record, and what is inside it follows.
+    const moved = await store.moveBlock({ canvasId: acme.id, date: note.date, id: note.entry.id }, { canvasId: acme.id, date: note.date, parentId: standup.entry.id }, new Date(2026, 8, 28, 10))
+    expect(moved.entry.parentId).toBe(standup.entry.id)
+    let day = await store.readDay(acme.id, note.date)
+    expect(day.entries.map((e) => [e.markdown, e.parentId ?? null])).toEqual([
+      ['Standup Sep 28', null],
+      ['Remember the DNS', standup.entry.id],
+      ['with a reply', note.entry.id]
+    ])
+    await expect(store.moveBlock({ canvasId: acme.id, date: note.date, id: standup.entry.id }, { canvasId: acme.id, date: note.date, parentId: inside.entry.id })).rejects.toThrow(/inside itself/)
+    // Out again: to the top level, right after the block it was in.
+    await store.moveBlock({ canvasId: acme.id, date: note.date, id: note.entry.id }, { canvasId: acme.id }, new Date(2026, 8, 28, 11))
+    day = await store.readDay(acme.id, note.date)
+    expect(day.entries.filter((e) => !e.parentId).map((e) => e.markdown)).toEqual(['Standup Sep 28', 'Remember the DNS'])
+    // Across days: into a block written on another day, in its file.
+    const older = await store.addEntry(acme.id, 'Kickoff Sep 21', {}, new Date(2026, 8, 21, 9))
+    const across = await store.moveBlock({ canvasId: acme.id, date: note.date, id: note.entry.id }, { canvasId: acme.id, date: older.date, parentId: older.entry.id }, new Date(2026, 8, 28, 12))
+    expect(across).toMatchObject({ date: '2026-09-21', entry: { markdown: 'Remember the DNS', parentId: older.entry.id } })
+    expect((await store.readDay(acme.id, older.date)).entries.map((e) => e.markdown)).toEqual(['Kickoff Sep 21', 'Remember the DNS', 'with a reply'])
+    expect((await store.readDay(acme.id, note.date)).entries.map((e) => e.markdown)).toEqual(['Standup Sep 28'])
+    // Across canvases, from inside a block to the top level (on its own date).
+    const out = await store.moveBlock({ canvasId: acme.id, date: older.date, id: note.entry.id }, { canvasId: web.id })
+    expect(out.date).toBe('2026-09-21')
+    expect((await store.readDay(web.id, '2026-09-21')).entries.map((e) => [e.markdown, e.parentId ? 'inside' : 'top'])).toEqual([
+      ['Remember the DNS', 'top'],
+      ['with a reply', 'inside']
+    ])
+  })
+
+  it('moves what was written inside a block into the task it becomes', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const b = await store.addEntry(acme.id, 'Migrate the CDN', {}, new Date(2026, 8, 28, 9))
+    await store.addEntry(acme.id, 'first finding', { date: b.date, parentId: b.entry.id }, new Date(2026, 8, 28, 9, 5))
+    await store.addTodos(acme.id, ['check the headers'], { date: b.date, parentId: b.entry.id }, new Date(2026, 8, 28, 9, 6))
+    const { canvas } = await store.promoteToTask(acme.id, b.date, b.entry.id, new Date(2026, 8, 28, 10))
+    expect((await store.readDay(acme.id, b.date)).entries.map((e) => [e.kind, e.markdown])).toEqual([['task', 'Migrate the CDN']])
+    expect((await store.readDay(canvas.id, b.date)).entries.map((e) => [e.kind ?? 'note', e.markdown, e.parentId ?? null])).toEqual([
+      ['note', 'first finding', null],
+      ['todo', 'check the headers', null]
+    ])
+  })
+
+  it('moves storage format 3 todo lists into the streams (format 4)', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const dir = `canvases/${acme.id.slice(0, 2)}/${acme.id}`
+    const at = (d: number, h: number): string => new Date(2026, 8, d, h).toISOString()
+    await fs.writeFile(
+      path.join(root, dir, 'todos.md'),
+      [
+        '<!-- devlog:format 3 -->',
+        '# Todos',
+        '',
+        `<!-- devlog:add id=t1aaaaaa pos=a0 kind=todo at=${at(20, 9)} -->`,
+        'Send Dana the list',
+        '',
+        `<!-- devlog:add id=c1aaaaaa parent=t1aaaaaa pos=a0 at=${at(21, 9)} -->`,
+        'Waiting on ops',
+        '',
+        `<!-- devlog:add id=t2aaaaaa pos=a1 kind=todo at=${at(22, 9)} -->`,
+        'Renew the cert',
+        '',
+        `<!-- devlog:set id=t2aaaaaa at=${at(23, 9)} done=${at(23, 9)} -->`,
+        ''
+      ].join('\n')
+    )
+    await fs.writeFile(path.join(root, 'devlog.json'), JSON.stringify({ format: 3 }))
+    expect(await store.upgradeStorage()).toBe(3)
+    expect(JSON.parse(await fs.readFile(path.join(root, 'devlog.json'), 'utf8')).format).toBe(4)
+    await expect(fs.stat(path.join(root, dir, 'todos.md'))).rejects.toThrow()
+    const day20 = await store.readDay(acme.id, '2026-09-20')
+    expect(day20.entries.map((e) => [e.id, e.kind ?? 'note', e.markdown, e.parentId ?? null])).toEqual([
+      ['t1aaaaaa', 'todo', 'Send Dana the list', null],
+      ['c1aaaaaa', 'note', 'Waiting on ops', 't1aaaaaa']
+    ])
+    expect((await store.readDay(acme.id, '2026-09-22')).entries[0]).toMatchObject({ id: 't2aaaaaa', kind: 'todo', meta: { done: at(23, 9) } })
+    expect((await store.listTodos()).map((t) => [t.entry.id, t.inside])).toEqual([['t1aaaaaa', 1]])
+    // Running it again changes nothing.
+    expect(await store.upgradeStorage()).toBeNull()
+    expect(await store.convertTodoLists()).toBe(0)
+  })
+})
+
+describe('canvases extensions keep', () => {
+  it('are found by their owner, made once, and take blocks of their kinds on any day', async () => {
+    expect(await store.managedCanvas('builtin.x/sheets')).toBeNull()
+    const kept = (await store.managedCanvas('builtin.x/sheets', 'Sheets'))!
+    expect(kept).toMatchObject({ title: 'Sheets', fields: { 'devlog.managed': 'builtin.x/sheets' } })
+    expect((await store.managedCanvas('builtin.x/sheets', 'Sheets'))!.id).toBe(kept.id)
+    const { date, entry } = await store.addExtensionBlock(kept.id, 'builtin.x', 'week one', { week: '2026-09-21' }, new Date(2026, 8, 26, 10), { kind: 'timesheet', date: '2026-09-21', anyDate: true })
+    expect(date).toBe('2026-09-21')
+    expect(entry).toMatchObject({ kind: 'timesheet', meta: { ext: 'builtin.x', week: '2026-09-21' } })
+    // A block the app wrote there before (no extension mark) can be changed by its keeper, and only with `any`.
+    const old = await store.addEntry(kept.id, 'written by the app', { date: '2026-09-21' })
+    await expect(store.updateExtensionBlock(kept.id, '2026-09-21', old.entry.id, 'builtin.x', 'x')).rejects.toThrow(/Only blocks it added/)
+    expect((await store.updateExtensionBlock(kept.id, '2026-09-21', old.entry.id, 'builtin.x', 'rewritten', new Date(), { any: true })).markdown).toBe('rewritten')
+    // Elsewhere, a date without a parent block is ignored: blocks land on today.
+    const acme = await store.createCanvas({ title: 'Acme' })
+    expect((await store.addExtensionBlock(acme.id, 'builtin.x', 'note', {}, new Date(2026, 8, 26, 10), { date: '2026-09-21' })).date).toBe('2026-09-26')
   })
 })

@@ -15,21 +15,30 @@ tracked against; any block can become one.
   you type, with the usual shortcuts (`**bold**`, `- ` for a list, ```` ```ts ````
   for a code block, ⌘B / ⌘I / ⌘K…). The composer is a bare input: the only
   formatting UI is a small bubble menu that appears when you select text.
-  Enter posts, Shift+Enter starts a new line.
-- **Every block is a node.** Reply to a block to start a thread, hover
-  between two blocks and press **+** to insert one there, double-click a
-  block (or press ↑ in the empty composer) to edit it, drag its grip to
-  reorder it within the day, or **Hide** it to collapse it into a one-line
-  stub. Timestamps and actions take no space: on hover they float over
+  Enter posts, Shift+Enter starts a new line. Start typing with nothing
+  focused and the text goes into the note box for the canvas on screen.
+- **Every block is a page.** Double-click a block (or its **Open**
+  action) to open it: the block sits at the top as the page's surface, and
+  what you write there goes inside it, as blocks of their own that can be
+  opened in turn. **Alt+Enter** posts a block and opens it straight away;
+  **Alt+↑** (or **↑ Up**, or the breadcrumb) goes back up a level. In a
+  stream, a block with blocks inside shows a chip ("3 blocks inside")
+  instead of the blocks themselves. Hover between two blocks and press
+  **+** to insert one there, press ↑ in the empty composer to edit the last
+  block (on a page, double-click the surface to edit it), drag a block's
+  grip to reorder it among the blocks beside it, or **Hide** it to collapse
+  it into a one-line stub. Timestamps and actions take no space: on hover they float over
   whatever sits above the block. Blocks you wrote have no marker; blocks the
   app created carry a leading brace, muted for captured commits and in the
   accent colour for task blocks (click it to open the task). Blocks on past
   days work the same way.
-- **Canvases nest however you slice your work.** Besides the journal, make a
+- **Canvases nest however you slice your work.** Make a
   canvas per client, with project canvases inside it, with task canvases
-  inside those; or flatter, or deeper. The sidebar is the tree. "Website"
-  under two clients is two different canvases. Blocks can be moved between
-  canvases, and search covers all of them.
+  inside those; or flatter, or deeper. The sidebar is the tree; right-click a
+  canvas there for its properties, to start it, to add a canvas or task
+  inside it, or to archive it. "Website" under two clients is two different
+  canvases. Blocks can be moved between canvases, and search covers all of
+  them. Devlog opens on the canvas you last had open.
 - **Every canvas has a surface.** Above the stream sits free-form markdown
   that is not a dated note: links to the issue tracker, environments,
   contacts, credentials, how-tos, or the evolving write-up of whatever you are
@@ -37,22 +46,24 @@ tracked against; any block can become one.
   double-click) turns it into the editor, which saves as you type.
 - **Notes are notes until you say otherwise.** Posting on a client or
   project canvas is just a note. A block becomes a **task** with
-  ⌘⇧Enter, with `#task` anywhere on its first line, or with the **Task**
-  action on hover: Devlog creates a task canvas beneath the current one,
-  titled from the block, links the block to it, and starts the clock. The
-  task canvas has its own surface and stream for everything that follows.
-- **One active task, tracked for you.** Posting on a task canvas, or
-  **Start** in the status bar, makes it the active task; it stays active
+  ⌘⇧Enter, with `#task` anywhere on its first line, or with **Make task**
+  on hover: a task canvas appears beneath the current one, titled from the
+  block, the block links to it, and the clock starts. The task canvas has
+  its own surface and stream for everything that follows.
+- **One active task, tracked for you.** Time tracking is the built-in
+  **Time tracking** extension (devlog-time). Posting on a task canvas,
+  **Start** in its header, or **Start** in the status bar makes it the
+  active task; it stays active
   until you post on another task, press Stop, lock the machine, go idle or
   sleep. Devlog keeps running in the tray to watch. A block with an explicit
   duration like `[2h]` or `[45m]` overrides tracking for that window when
   you know better.
-- **Todos, always in view.** A panel pinned to the right edge lists the open
-  todos for the canvas on screen and everything inside it (or every todo,
-  with one click). Type one, or paste a list from anywhere and get one todo
-  per line. Each todo takes comments, can be reordered by dragging, and turns
-  into a task with one click. Ticking one off writes a "✓ done" block into
-  the canvas stream, so the log records when things got finished.
+- **Todos are blocks, and always in view.** A todo is a block with a
+  checkbox, written anywhere: on a canvas, inside a block, inside another
+  todo. A panel pinned to the right edge gathers the open ones for the page
+  on screen and everything inside it (or every todo, with one click),
+  grouped under the canvases and blocks they live in. Click one to open it
+  as a page and write your notes about it there.
 - **Archive what you're done with.** Archive a canvas, with everything
   beneath it, to get it out of the sidebar. Archived things stay readable
   and searchable, and one click brings them back.
@@ -118,18 +129,11 @@ existing devlog** (a clone from another machine).
 README.md
 devlog.json                       ← { "format": 3 }: the storage format
 .gitattributes                    ← block files and activity logs merge by keeping both sides
-entries/                          ← the journal
-  2026/
-    09/
-      2026-09-19.md
-      assets/
-        2026-09-19-143201-a1b2.png
-  todos.md                        ← the journal's todo list
+entries/                          ← the old journal (retired; only in devlogs that used it)
 canvases/
   k3/                             ← shard: the first two characters of the id
     k3m9x2q7vd/                   ← a canvas (a client, "Acme Corp")
       canvas.md                   ← title, parent, task flag, repos, archived flag + the surface
-      todos.md                    ← its todo list
       assets/                     ← images pasted into the surface
       entries/2026/09/2026-09-19.md ← its stream, same day-file format
   7w/
@@ -162,47 +166,23 @@ Marketing site rebuild. Weekly sync on Tuesdays.
 - Tracker: https://issues.example.com/acme
 ```
 
-`alias` lines record ids a canvas had before (see *Upgrading* below), so old
-activity logs and links still find it.
+`alias` lines record ids a canvas had before (older devlogs used title
+slugs), so old activity logs and links still find it.
 
-### Upgrading older devlogs
+### Older devlogs
 
-Devlog 0.5 uses storage format 3 (above). Opening an older devlog (0.3's
-format 1, or 0.4's format 2) upgrades it once, automatically:
-
-1. **Pull first** (when a remote is configured and reachable), so the upgrade
-   covers everything already pushed from your other machines.
-2. **Migrate.** From format 1, canvases move from `canvases/<slug>/` to
-   `canvases/<xx>/<id>/`; every reference (parents, task links, todo links,
-   image paths in blocks and surfaces) is rewritten; the old folder name
-   becomes an `alias`. The new tree is built in `.devlog-migrate/` and
-   swapped in at the end, so an interrupted upgrade is rolled back (or
-   finished) on the next open rather than left half done. From either
-   format, block files are rewritten as append-only logs (below); format 2
-   files are rewritten one at a time in place, so an interrupted upgrade
-   just carries on next time.
-3. **Commit** it as its own commit, `devlog: migrate to storage format 3`,
-   and push.
-
-The migration is deterministic: an upgraded canvas's id is derived from its
-old folder name, so two machines that upgrade the same history produce
-byte-identical files. If another machine already pushed the upgrade, this one
-just pulls it; if this machine also has unsynced changes from before the
-upgrade, it migrates them the same way and merges, instead of replaying them
-onto the moved files. Devlog 0.2 devlogs (`pages/` and `categories/`) go
-through the same upgrade.
-
-**Update the app on every machine before opening the devlog there:** older
-versions cannot read the new format (0.3 would show an empty sidebar, 0.4
-would misread the logs; nothing is lost either way, but they would not see
-new work).
+This version reads and writes storage format 3 only. A devlog from before
+Devlog 0.5 (format 1 or 2, or a 0.2 `pages/` + `categories/` layout) is
+refused with a message: open it once with Devlog 0.5, which upgrades it,
+then again with this version. A devlog written by a newer Devlog is refused
+too, rather than misread.
 
 ## Canvases, surfaces and tasks
 
 Click a canvas in the sidebar to open it. The header shows its breadcrumbs,
 the canvases inside it as chips, and actions: **Edit** (rename, move under
-another canvas, mark as a task, repositories), **Archive**, and for tasks
-**Start** / **Stop**.
+another canvas, its type, repositories), **Archive**, and whatever
+extensions add for canvases of their type (**Start** / **Stop** on a task).
 
 The **surface** sits above the stream. It opens rendered: links open in the
 browser, images open full size. **Add surface** / **Edit surface** (or a
@@ -211,33 +191,57 @@ image support as blocks, but no posting: Enter is just a new line and every
 change is saved a moment later (the header says "Saved"); **Done** switches
 back. Surfaces are searched along with blocks.
 
-A **task** is a canvas with the task flag. Three ways to make one from a
-block you are writing or have written:
+A canvas can have a **type** that an extension gives meaning to (its icon
+shows in the sidebar; choose it under **Type** in its **Properties**, or
+**New task inside…** on a canvas's right-click menu). The one that ships is
+the **task**, from the Time tracking extension: a canvas you record time
+against. Three ways to make one from a block you are writing or have
+written:
 
 - press ⌘⇧Enter instead of Enter when posting,
 - put `#task` anywhere on the block's first line (it is stripped on save),
-- hover an existing block and choose **Task**.
+- hover an existing block and choose **Make task**.
 
-Each creates a task canvas beneath the block's canvas (top-level for journal
-blocks), titled from the block's first sentence, marks the block as the link
+Each creates a task canvas beneath the block's canvas, titled from the block's first sentence, marks the block as the link
 to it (a chip opens the task), and makes it the active task. Blocks inside a
-task canvas can be anything: more notes, pasted evidence, further tasks. A
-canvas can also be flagged as a task, or unflagged, in **Edit**.
+task canvas can be anything: more notes, pasted evidence, further tasks.
+Without the extension a task canvas is a plain canvas; nothing in it is lost.
 
-The task controls live in one place, the status bar. **Start ▾** opens a
-menu of every task (the canvas on screen, or the tasks inside it, first;
-type to filter; Enter picks the first match) plus **New task…**, which
-creates a task under the canvas on screen and starts it. **Stop** replaces
-it while a task is active.
+On a task canvas, **▶ Start** in the header starts it (**Switch to this
+task** when another is running, **■ Stop** once it is the active one).
+The status bar's **Start** is a split button: while a task canvas is on
+screen its main part reads **▶ Start** *that task* and starts it in one
+click; the ▾ beside it opens the list of every task (the canvas on screen,
+or the tasks inside it, first; type to filter; Enter picks), and a name that
+matches nothing offers **+ New task**, made under the canvas on screen and
+started. **Stop** sits next to it while a task is active.
 
-**Hide** on a block collapses it (with its thread) into a "1 hidden block"
+**Block pages.** A standup, a call, a bug: post a block for it (Alt+Enter
+opens it), write your notes inside, and later edit the block itself into the
+summary worth keeping. The stream above then reads as a list of those
+summaries, each one openable. Blocks inside a block live in its day file,
+whenever they were written; the review, summary, timeline and timesheet
+count each one on the day it was written. A page on a task canvas belongs to
+the task: writing there makes it the active task.
+
+To put a block inside another, drag it by its grip onto the middle of that
+block (the top and bottom edges still reorder); a block on another day of
+the same canvas works too. **Move → Out of this block** takes one back out,
+beside the block it was in; **Move** to another canvas puts it at that
+canvas's top level. Making a block with notes inside it a task (**Make
+task**, ⌘⇧Enter) moves those notes into the new task's stream; the block stays
+behind as the link to it. The quick switcher (⌘K / Go to…) lists the pages
+you opened lately first.
+
+**Hide** on a block collapses it (with what is inside it) into a "1 hidden block"
 stub so a busy stream reads cleanly; click the stub to look inside and
 **Unhide** to bring it back. Nothing is deleted; hidden blocks stay in the
 file (`hidden=1` in the marker), in search and in the review counts.
 
 **Drag to reorder.** Hover a block and drag the grip at its left edge to
-another spot in the same day; the day's order is the file's order, so this
-is the same operation as insert-between. Timestamps do not change: the
+another spot among the blocks beside it (on a canvas, within the same day;
+on a page, among the blocks inside the same block); the order is the file's
+order, so this is the same operation as insert-between. Timestamps do not change: the
 time on a block is when it was written, its position is where you keep it.
 Blocks cannot be dragged across days, because a day is a file; move them
 with **Move** instead.
@@ -247,27 +251,42 @@ repository as sensitive, because it is.
 
 ## Todos
 
+A todo is a block with a checkbox. Post `[ ] Call Dana` (or several
+`[ ] …` lines, or `- [ ]` ones pasted from anywhere) and each line becomes a
+todo, wherever you are writing: on a canvas, on a block's page, on another
+todo's page. Ask for a review, paste the list of findings inside that block,
+and work through them one by one, writing notes inside each as you go; when
+something new comes up, add it right there.
+
 The **To do** panel on the right stays put whatever the stream is doing, and
 collapses to a thin strip showing the open count.
 
-- **Adding.** Type in the box at the top and press Enter. Paste a list (from
-  an email, Slack, a Markdown file) and each line becomes a todo; bullets,
-  numbers and `- [ ]` checkboxes are stripped. New todos go to the canvas on
-  screen, or to the journal from the other views.
-- **Scope.** *Here* shows the canvas on screen and everything inside it,
-  grouped by canvas when there is more than one; *All* shows every open todo.
-  On the journal and on the review, summary and timeline views it is always
-  everything.
-- **Working a todo.** Click it for its comment thread, **Edit**, **Delete**
-  and **Make task** (a task canvas beneath this one, clock started). Drag to
-  reorder.
-- **Done.** Ticking the box moves it to *Done* at the bottom of the panel and
-  writes a read-only "✓ …" block into today's stream on that canvas, marked
-  with the automatic brace. Unticking the same day removes that block again.
+- **Adding.** Type in the box at the top and press Enter, or paste a list
+  (from an email, Slack, a Markdown file) and each line becomes a todo;
+  bullets, numbers and checkboxes are stripped. New todos go into the page
+  on screen: the block you have open, or the canvas.
+- **Scope.** *Here* shows the page on screen and everything inside it; *All*
+  shows every open todo. On the review, summary and timeline views it is
+  always everything.
+- **Grouping.** Todos sit under the canvases and blocks they live in, in the
+  order they appear there. A heading with nothing of its own and a single
+  heading beneath it merges into it ("Acme Corp / Website"). Click a heading
+  to open it, or its arrow to fold it (remembered). Drag a todo to reorder it
+  among the ones beside it.
+- **Working a todo.** Click it to open it as a page: its checkbox is at the
+  top, and what you write goes inside it. The count beside a todo is how
+  much is inside. **Task** on its block turns it into a task canvas and
+  starts the clock.
+- **Done.** Tick the box, in the panel or in the stream. The todo stays where
+  it is, struck through (a run of them folds into one line), and moves to
+  *Done* in the panel for two weeks. The timeline shows when it was ticked.
 
-Todos are blocks, stored per canvas in `canvases/<xx>/<id>/todos.md` (the
-journal's in `entries/todos.md`) in the same format as day files, comments
-included. They are searched along with everything else.
+Todos are ordinary blocks (`kind=todo`, with a `done` time once ticked) in
+the day files, so they are searched, moved and reordered like everything
+else. Devlogs from before 0.15 kept each canvas's todos in its own
+`todos.md`; opening one moves them into the streams (each on the day it was
+written, its comments becoming blocks inside it) and marks the devlog as
+storage format 4.
 
 ## Archiving
 
@@ -278,19 +297,30 @@ Archived canvases cannot become the active task or receive commits. The
 sidebar's collapsible **Archived** section lists everything archived so it is
 never lost.
 
+The journal (a canvas-less notebook in earlier versions) is retired. If your
+devlog has notes in it, it is listed under **Archived** as *Journal*, read
+only; **Move** the blocks worth keeping onto a canvas.
+
 ## Time tracking
 
-There is one active task at a time, and a task is a canvas with the task
-flag. The workflow: write a line or two to wrap up what you were doing, then
+Time tracking is the built-in **Time tracking** extension (devlog-time):
+without it Devlog has no tasks, no clock, no Summary and no Timesheet. A
+devlog that tracked time before 0.17 gets it added and allowed on each
+machine that tracked time, with the active task and idle setting carried
+over, so nothing changes. Its settings (Settings → Time tracking) are the
+idle minutes and whether its log is synced with the devlog.
+
+There is one active task at a time, and a task is a canvas of the task
+type. The workflow: write a line or two to wrap up what you were doing, then
 either post on the task you are picking up (that makes it active), pick it
 from **Start ▾** in the status bar, or write the next thing as a new block
 and post it with ⌘⇧Enter so it becomes a task of its own. The status bar shows the active
 task with a running clock and a **Stop** button (also ⌘⇧. and in the tray
-menu). Posting on the journal or on a canvas that is not a task never
-touches the clock: those are just notes.
+menu). Posting on a canvas that is not a task never touches the clock:
+those are just notes.
 
 Time stops accruing while the screen is locked, the machine sleeps, or there
-has been no input for a while (default 10 minutes, adjustable), and resumes on
+has been no input for a while (default 10 minutes, in the extension's settings), and resumes on
 the same task afterwards. Each of those pauses the clock independently, so a
 laptop that wakes in the background while still locked stays paused until
 you unlock it. On Windows and macOS the lock state is also polled every 15
@@ -318,10 +348,13 @@ folded into the window you were actually working in. So a 20-minute Outlook
 session that you alt-tabbed out of and back into five times shows as 20
 minutes of Outlook.
 
-Everything the tracker sees goes to an append-only activity log, one JSON
-file per day and one folder per machine
-(`activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl`, where `<machine>` is the host
-name plus a short id kept in the app's data folder). By default it lives in
+What the clock does (start, task switches, stop, heartbeats) goes to the
+extension's own append-only log, and what the machine does (lock, idle,
+sleep) and git events go to the app's; both are one JSON file per day and one
+folder per machine (`extensions/builtin.devlog-time/<machine>/…` and
+`activity/<machine>/YYYY/MM/YYYY-MM-DD.jsonl`, where `<machine>` is the host
+name plus a short id kept in the app's data folder). Older time, from before
+the extension, stays in `activity/` and still counts. By default it lives in
 the devlog repository, so the review and timeline add up time from every
 machine you work on (window titles included, so consider what they contain);
 Settings can keep it on this machine only. Each machine only appends to its
@@ -331,15 +364,23 @@ machines both tracked time at once, the task picked or machine woken most
 recently wins, so no minute is counted twice. Removing time in the review
 applies whichever machine tracked it. Recorded events:
 task switches, lock/unlock, idle/active, sleep/wake, app start/stop, a
-heartbeat, foreground-window changes (process name and window title, which
-for browsers is the active tab), and git events from watched repositories. Focus tracking uses a small PowerShell helper
-on Windows, `osascript` on macOS (window titles need the Accessibility
-permission) and `xdotool` on Linux if present.
+heartbeat every five minutes (only while the clock can run: nothing is
+written, and so nothing committed, while the machine is locked, idle or
+asleep), and git events from watched repositories.
+
+**Window tracking** (which app and window title is in front, for screen
+time in the timeline, review and summary) is the built-in **Window
+tracking** extension (devlog-focus): add it in Settings → Extensions and allow it.
+It runs unrestricted, so you are asked whether you trust it: it starts a
+small helper to read the window in front (PowerShell on Windows, `osascript`
+on macOS, where window titles need the Accessibility permission, `xdotool`
+on Linux if present). It records only while the machine is unlocked and
+awake, into `extensions/builtin.devlog-focus/<machine>/` in the devlog.
 
 ## Working copies: commits as blocks, branches as events
 
 Every canvas header has a **Link a repository…** button (also under
-**Edit → Git repositories**). Pick the folder of a working copy you code in,
+**Properties → Repositories**). Pick the folder of a working copy you code in,
 not the devlog repository. Devlog checks it is a git repository first (a
 subfolder resolves to its repository root) and refuses anything else. Each
 linked repository shows as a chip; ✕ on the chip unlinks it, keeping the
@@ -378,6 +419,9 @@ timestamps instead (each note counts until the next one, capped at an hour).
 
 ## Summary
 
+The Summary and the Timesheet are pages of the Time tracking extension,
+listed in the sidebar with the app's own views (and in the quick switcher).
+
 **Summary** (⌘⇧H) is the timesheet view: one row per top-level canvas
 (client) with hours for the chosen range (this week, last week, this month,
 last month, or any two dates), a share bar, the block count and the exact
@@ -386,6 +430,69 @@ change the granularity in the header and it is remembered. Expand a client to
 see its projects and tasks rounded the same way; click a name to open the
 canvas. Rounding happens per row, so the rounded rows may not add up to the
 rounded total.
+
+## Timesheet
+
+**Timesheet** (sidebar) turns a week of tracked time into what you report:
+sessions on the same task (gaps up to 30 minutes count as work), each
+rounded once to quarter hours (anything above zero is at least 15 minutes),
+starting on quarter hours. Days with no tracking use the review's estimate.
+
+It is a grid: a column per day, a row per task, tasks grouped under their
+client with a total row for each client, and at the bottom the day's total
+reported (and, muted, what was actually worked). Click a cell to open its
+entries below the grid and change start times, durations (15-minute steps),
+the task, the day or the note, remove one, or add one; click an empty cell to
+add time there, and **+ Add a task…** for a task with no time yet. When
+rounding inflates a client's day, its row shows the suggested trim (−0:45)
+on that day; click it to apply. **Mark final** approves the week.
+
+**Hour targets.** Give any canvas a weekly or a monthly target (right-click
+→ Properties → Time tracking: *Hours per week*, *Hours per month*). The
+Timesheet lists the targets that apply to the week on screen, each against
+the timesheet hours under its canvas (it and everything inside it) for its
+own period: this week, and each month the week touches (other weeks count
+as saved, or as drafted from tracked time). Targets overlap and each applies
+on its own: 168 h for a client in September and 20 h a week for a task under
+that client are two separate measures, and a target is not taken on by the
+canvases inside.
+
+**Sending to Jira.** Add the built-in **Jira worklogs** extension in
+Settings → Extensions and allow it (it is sandboxed: it only talks to Jira).
+It gets a page of its own in Settings, marked until it is set up: the Jira
+address and your account email (saved in the devlog), and an API token
+(kept on this computer only; for Data Center leave the email empty and use a
+personal access token). **Save and test** checks the connection. Put
+the Jira issue key on the task canvases (right-click → Properties → Jira worklogs), or on a
+client or project canvas for everything beneath it. On a final week,
+**Send to Jira…** shows what would be created, changed or removed, then
+sends it: one worklog per entry, with its start time, duration and note.
+Sending again only sends what changed since the last time, from any
+machine. **Check the Jira connection** (quick switcher) tests the settings.
+
+**Sending to CMS.** The built-in **CMS timesheets** extension fills in the
+Technology Partners consultant timesheet the way the browser does (CMS has
+no API): it logs in with your username and password, reads the week, and
+sets each day's hours (decimal, `7.5`). Add it in Settings → Extensions,
+allow it, and on its page enter your CMS username (saved in the devlog) and
+password (kept on this computer only, never in the repository). **List my
+CMS assignments** (quick switcher) shows your assignments as
+`number: Client / Project`; put the number (or the project name) on each
+client canvas (right-click → Properties → CMS timesheets). On a final week, **Send to CMS…**
+shows the hours per assignment per day against what CMS has now, and only
+changes the days that differ; a day this sent before that no longer has
+time goes back to 0, and days you typed into CMS yourself are left alone.
+The note is sent as the day's description when there is one; otherwise the
+description CMS has is kept. CMS only opens a day on that day, so time on
+days still ahead (typically the week's Sunday) waits: send again then.
+
+Timesheets are saved in a **Timesheets** canvas the Time tracking extension
+keeps (made on first use): one block per week on its Monday, a readable
+table with the exact data underneath, read-only in the stream; every change
+is an edit record, so the history of the adjustments is kept, and what was
+sent where is written inside the week. Sending goes through the app to the
+Jira or CMS extension, so each keeps its own credentials. See
+`docs/TIMESHEETS.md`.
 
 ## Timeline
 
@@ -409,7 +516,7 @@ Started on the git sync. Pull before push, rebase on conflicts.
 ![shot](assets/2026-09-19-143201-a1b2.png)
 
 <!-- devlog:add id=p0q1r2s3 parent=k3j9d2ab pos=a0 at=2026-09-19T15:02:00.000Z -->
-A reply in the thread under the first note.
+A block written inside the first one (its page).
 
 <!-- devlog:add id=q8v1m0zz pos=a1 at=2026-09-19T17:45:00.000Z -->
 Fix the login redirect
@@ -433,7 +540,7 @@ blocks you see are what you get by replaying the records in order.
 
 - **Order** comes from the `pos` keys, which sort as text: reordering a block
   appends one `set` with a new key between its neighbours' keys, and
-  threading, unthreading and inserting work the same way. Nothing else moves.
+  nesting a block inside another and inserting work the same way. Nothing else moves.
 - **Safety.** A bug can add a wrong record, but it cannot overwrite what is
   there: everything ever written stays in the file (and in git). A crash
   mid-write leaves at most a torn last record, which is skipped.
@@ -461,6 +568,40 @@ write, and it re-reads files that changed on disk when a devlog is opened,
 after a pull, and when the window regains focus (so edits made outside the
 app show up too). Delete it any time; it is rebuilt from the files.
 
+## Extensions
+
+Integrations (time export, calendars, …) come as extensions that a devlog
+opts into. Open **Extensions** from the quick switcher or Settings:
+
+- **Add** one from a GitHub repository's releases (`owner/repo` and a version
+  range such as `^1.0.0`), from a single `https://…/x.devlog-ext.zip`, or one
+  built into Devlog (`builtin`). It is recorded in `devlog.json`, and the
+  exact file it resolved to is pinned by hash in `devlog.lock.json`, so every
+  machine runs the same code.
+- **Allow** it before it runs, on each machine: the dialog shows what it
+  says it talks to and lets you choose what it may **read** and **add
+  blocks to**: the whole devlog, or chosen canvases (with everything inside
+  them). A new version asks again.
+- It runs in its own process with **no access to your files or other
+  programs**, and cannot see other extensions. An extension that needs more
+  (such as window tracking) says so, and runs unrestricted only if you tick
+  "I trust it" when allowing it. Its own data lives in
+  `extensions/<id>/` in the devlog (synced) and in user data on this
+  machine. Network access is not restricted, so only grant read access you
+  are comfortable sending to what it talks to.
+- **Settings** it declares go into `devlog.json`; **secrets** (tokens,
+  passwords) are encrypted with the OS keychain on each machine and never
+  written to the devlog. Per-canvas values (a Jira issue, a client id) appear
+  as fields in the canvas dialog, are stored in `canvas.md`, and are
+  inherited by canvases inside.
+- Its **commands** appear in the quick switcher; blocks it writes are marked
+  as its own and are read-only.
+- **Check for updates** re-resolves the version ranges and pins what
+  changed. **Remove** takes it out of the devlog (its data stays).
+
+Writing one: `packages/extension-api/README.md`; the design:
+`docs/EXTENSIONS.md`.
+
 ## Sync behaviour
 
 | Trigger                       | What happens                                                  |
@@ -468,7 +609,7 @@ app show up too). Delete it any time; it is rebuilt from the files.
 | Post / edit / delete / paste  | File written immediately; a commit is scheduled (default 30s) |
 | Every N minutes (default 5)   | Commit if dirty, fetch, pull `--rebase` if behind, push        |
 | **Sync now** (⌘⇧S)            | Same, immediately                                             |
-| App start                     | Pull (if a remote is configured); upgrade an older layout first |
+| App start                     | Pull (if a remote is configured)                              |
 | App quit                      | Commit and push pending changes (up to 20s)                   |
 
 The status bar shows the current state (uncommitted changes, committing,
@@ -478,8 +619,15 @@ conflicts is backed out (never left half-rebased) and reported. Errors such as a
 shown and retried on the next tick; nothing is ever lost because the files are
 already on disk.
 
-All settings (sync interval, debounce, push/pull toggles, commit author,
-remote URL) live under **Settings** (⌘,).
+All settings live under **Settings** (⌘,, or the foot of the sidebar), a
+page per topic: Repository (folder, remote, commit author), Sync,
+Appearance, Activity and Updates, then Extensions: **Manage** to
+add them, and a page for each one this devlog uses (what it may do, its
+settings, its secrets on this computer, its own test). Save lights up only
+once something changed, and each page with unsaved changes is marked in the
+navigation; closing with unsaved changes asks first. Canvas properties work
+the same way, with a page for the canvas, its repositories, and each
+extension that adds fields to canvases.
 
 ## Updates and releases
 
@@ -514,12 +662,11 @@ macOS builds still run but will not self-update.
 npm run typecheck   # main + renderer
 npm test            # unit tests: file format, store, git sync (uses a local bare remote)
 npm run smoke       # builds, then drives the real app with Playwright (needs a display; use xvfb-run on Linux)
-node scripts/smoke-migrate.mjs  # after a build: opens a Devlog 0.3 repository and checks the upgrade
 npm run screens     # builds, seeds a demo devlog and screenshots every view in light and dark mode
 ```
 
-The window remembers its size and position, closes to the tray while tracking
-is on, and shows the current canvas in its title. Failed background actions
+The window remembers its size and position, closes to the tray while an
+extension asks it to (time tracking does), and shows the current canvas in its title. Failed background actions
 (a move, an archive, a sync) surface as a toast in the corner rather than
 disappearing into the console.
 
@@ -531,13 +678,19 @@ Code map:
 | `packages/core/src/format/`       | Block and canvas file formats, ids, hierarchy helpers          |
 | `packages/core/src/node/store.ts` | `DevlogStore`: canvases, blocks, todos, assets                 |
 | `packages/core/src/node/repoIndex.ts` | `RepoIndex`: SQLite cache for listings and full-text search |
-| `packages/core/src/node/migrate.ts` | Storage format upgrades, including across machines         |
+| `packages/core/src/node/manifest.ts` | `devlog.json` (format check, extensions, settings) and `devlog.lock.json` |
+| `packages/core/src/extensions.ts` | Extension manifests, sources and ids, version ranges, grants |
+| `packages/core/src/node/extensionFiles.ts` | The file broker behind an extension's private folders |
+| `packages/extension-api/`         | Types, wire protocol and test harness for extension authors   |
+| `src/main/extensions/`            | Installer, sandboxed extension process, manager (consent, API) |
 | `packages/core/src/node/sync.ts`  | `SyncManager`: commit / pull / push scheduler on `simple-git`  |
 | `packages/core/src/node/activityLog.ts` | Per-machine append-only activity log                   |
 | `src/shared/theme.ts`             | Colour presets and derived theme variables                     |
 | `src/shared/activity.ts`          | Pure event → segment logic, app classification, roll-ups       |
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
-| `src/main/activity/`              | Tracker (lock/idle/focus), commit watcher                      |
+| `src/main/activity/`              | Commit watcher                                                 |
+| `builtin-extensions/`             | Extensions that ship with Devlog (devlog-time, devlog-focus, Jira, CMS) |
+| `packages/ui/`                    | `@devlog/ui`: React components and the view bridge for extension views |
 | `src/main/updates.ts`             | Silent auto-update via electron-updater and GitHub Releases    |
 | `src/shared/updates.ts`           | Pure "is now a good moment to restart" policy                  |
 | `src/main/protocol.ts`            | `devlog://asset/…` scheme serving images from the repo         |

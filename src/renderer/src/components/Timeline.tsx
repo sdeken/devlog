@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { localDate, previewText } from '@devlog/core'
 import { canvasLabel } from '@devlog/core'
 import { APP_KIND_LABEL, bucketizeDay, buildFocusSegments, buildTrackedSegments, cleanFocusSegments, type TimelineBucket } from '@shared/activity'
@@ -13,7 +13,8 @@ interface Props {
   /** Focus flips shorter than this are folded into their neighbours (alt-tab noise). */
   focusMinSeconds: number
   onChangeDate: (date: string) => void
-  onJumpTo: (canvasId: string, date: string) => void
+  /** Open a canvas at a date, or (given the block) the block where it was written. */
+  onJumpTo: (canvasId: string, date: string, entry?: Entry) => void
 }
 
 const longDay = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })
@@ -66,6 +67,8 @@ const INTERVAL_KEY = 'devlog:timeline:interval'
 
 export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate, onJumpTo }: Props): React.JSX.Element {
   const [notes, setNotes] = useState<Array<{ canvasId: string; entry: Entry }> | null>(null)
+  // Which day file each block came from (a block written inside an older block lives in that block's file).
+  const fileDates = useRef(new Map<string, string>())
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [showApps, setShowApps] = useState(true)
   const [showSystem, setShowSystem] = useState(true)
@@ -86,8 +89,20 @@ export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate,
     void Promise.all([api.blocks.range(addDays(date, -1), date), api.activity.range(date, date)]).then(([chunks, evs]) => {
       if (cancelled) return
       const flat: Array<{ canvasId: string; entry: Entry }> = []
+      fileDates.current.clear()
       for (const { canvasId, day } of chunks) {
-        for (const entry of day.entries) if (localDate(new Date(entry.createdAt)) === date) flat.push({ canvasId, entry })
+        for (const entry of day.entries) {
+          // A todo ticked off shows at the time it was ticked, as "✓ …".
+          const done = entry.kind === 'todo' ? entry.meta?.done : undefined
+          if (done && localDate(new Date(done)) === date) {
+            const tick: Entry = { ...entry, kind: 'done', createdAt: done, markdown: `✓ ${previewText(entry.markdown, 120)}` }
+            flat.push({ canvasId, entry: tick })
+            fileDates.current.set(`${canvasId}/${tick.id}/${tick.createdAt}`, day.date)
+          }
+          if (localDate(new Date(entry.createdAt)) !== date) continue
+          flat.push({ canvasId, entry })
+          fileDates.current.set(`${canvasId}/${entry.id}/${entry.createdAt}`, day.date)
+        }
       }
       setNotes(flat)
       setEvents(evs)
@@ -178,8 +193,8 @@ export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate,
         {b.notes.length > 0 && (
           <ul className="tlb-notes">
             {b.notes.map((n) => (
-              <li key={n.entry.id}>
-                <button type="button" className={`tl-link${n.entry.kind === 'commit' ? ' tlb-commit' : ''}`} onClick={() => onJumpTo(n.canvasId, date)}>
+              <li key={`${n.entry.id}/${n.entry.createdAt}`}>
+                <button type="button" className={`tl-link${n.entry.kind === 'commit' ? ' tlb-commit' : ''}`} onClick={() => onJumpTo(n.canvasId, fileDates.current.get(`${n.canvasId}/${n.entry.id}/${n.entry.createdAt}`) ?? date, n.entry)}>
                   <time>{timeFmt.format(new Date(n.entry.createdAt))}</time>
                   <span className="tl-page">{pageLabel(n.canvasId)}</span>
                   <span className="tl-text">

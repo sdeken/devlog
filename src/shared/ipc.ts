@@ -31,25 +31,32 @@ export const IPC = {
   entryUpdate: 'entry:update',
   entryDelete: 'entry:delete',
   entryMove: 'entry:move',
-  entryPromote: 'entry:promote',
   entryHide: 'entry:hide',
+  extList: 'ext:list',
+  extAdd: 'ext:add',
+  extRemove: 'ext:remove',
+  extAllow: 'ext:allow',
+  extRevoke: 'ext:revoke',
+  extRestart: 'ext:restart',
+  extUpdate: 'ext:update',
+  extSetSettings: 'ext:setSettings',
+  extSetSecret: 'ext:setSecret',
+  extRun: 'ext:run',
+  extGithubToken: 'ext:githubToken',
+  extBuiltins: 'ext:builtins',
   todosList: 'todos:list',
   todosAdd: 'todos:add',
-  todoReply: 'todo:reply',
-  todoUpdate: 'todo:update',
-  todoDelete: 'todo:delete',
-  todoReorder: 'todo:reorder',
   todoSetDone: 'todo:setDone',
-  todoPromote: 'todo:promote',
+  extViewCall: 'ext:viewCall',
+  extAppState: 'ext:appState',
+  extAnswerPick: 'ext:answerPick',
   entryReorder: 'entry:reorder',
   entrySearch: 'entry:search',
   assetSave: 'asset:save',
-  // activity / tracker
+  // activity
   activityRange: 'activity:range',
   activityExclude: 'activity:exclude',
   activityRestore: 'activity:restore',
-  trackerStatus: 'tracker:status',
-  trackerSetTask: 'tracker:setTask',
   // updates
   updateStatus: 'updates:status',
   updateCheck: 'updates:check',
@@ -68,8 +75,13 @@ export const IPC = {
   evRepoChanged: 'ev:repoChanged',
   evMenu: 'ev:menu',
   evAttachImages: 'ev:attachImages',
-  evTrackerStatus: 'ev:trackerStatus',
-  evUpdateStatus: 'ev:updateStatus'
+  evUpdateStatus: 'ev:updateStatus',
+  evExtensionsChanged: 'ev:extensionsChanged',
+  evNotify: 'ev:notify',
+  evExtViewMessage: 'ev:extViewMessage',
+  evExtAppState: 'ev:extAppState',
+  evExtPick: 'ev:extPick',
+  evExtOpen: 'ev:extOpen'
 } as const
 
-export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'summary' | 'switcher' | 'timeline' | 'stopTask'
+export type MenuCommand = 'openSettings' | 'focusComposer' | 'search' | 'syncNow' | 'newCanvas' | 'review' | 'switcher' | 'timeline' | 'back' | 'forward'

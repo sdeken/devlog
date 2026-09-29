@@ -1,0 +1,78 @@
+{
+  "name": "probe",
+  "displayName": "Probe",
+  "version": "1.0.0",
+  "description": "Test extension: exercises the API and checks the sandbox.",
+  "api": "^1.0.0",
+  "main": "main.js",
+  "contributes": {
+    "canvasFields": [
+      {
+        "key": "code",
+        "label": "Probe code",
+        "placeholder": "P-1"
+      }
+    ],
+    "settings": [
+      {
+        "key": "greeting",
+        "label": "Greeting"
+      }
+    ],
+    "secrets": [
+      {
+        "key": "token",
+        "label": "Token"
+      }
+    ],
+    "commands": [
+      {
+        "id": "probe",
+        "label": "Probe the sandbox"
+      },
+      {
+        "id": "hello",
+        "label": "Say hello"
+      }
+    ],
+    "views": [
+      {
+        "id": "status",
+        "title": "Probe status",
+        "entry": "views/status.html",
+        "placement": "statusbar"
+      },
+      {
+        "id": "pop",
+        "title": "Probe popover",
+        "entry": "views/pop.html",
+        "placement": "popover"
+      },
+      {
+        "id": "page",
+        "title": "Probe page",
+        "entry": "views/page.html",
+        "placement": "page",
+        "icon": "\ud83e\uddea"
+      }
+    ],
+    "nodeTypes": [
+      {
+        "id": "thing",
+        "label": "Probe thing",
+        "icon": "\ud83e\uddea",
+        "placeholder": "Probe it\u2026"
+      }
+    ]
+  },
+  "permissions": {
+    "read": true,
+    "write": true,
+    "network": [
+      "example.com"
+    ]
+  },
+  "appendOnly": [
+    "log/*.jsonl"
+  ]
+}

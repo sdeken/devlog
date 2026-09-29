@@ -1,0 +1,66 @@
+.tt-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 2px;
+  white-space: nowrap;
+}
+
+.tt-header {
+  height: 26px;
+}
+
+.tt-link {
+  display: inline-flex;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tt-link:hover .tt-label {
+  text-decoration: underline;
+}
+
+.tt-label,
+.tt-title {
+  display: inline-block;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+}
+
+.tt-split {
+  display: inline-flex;
+}
+
+.tt-split .dl-btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.tt-split .dl-btn:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 0;
+  padding: 1px 5px;
+}
+
+.tt-picker {
+  padding: 8px;
+}
+
+.tt-picker .dl-menu {
+  max-height: 300px;
+}
+
+/* The canvas header's slot is a little taller than the status bar's. */
+body.dl-slot:has(.tt-header) {
+  height: 26px;
+}

@@ -1,24 +1,27 @@
-import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, powerMonitor, screen, shell } from 'electron'
+import { app, BrowserWindow, Menu, Tray, dialog, nativeImage, net, powerMonitor, safeStorage, screen, shell } from 'electron'
 import path from 'node:path'
 import { mkdirSync, readFileSync, writeFileSync, promises as fs } from 'node:fs'
 import os from 'node:os'
 import { createHash, randomBytes } from 'node:crypto'
 import { IPC, type MenuCommand } from '@shared/ipc'
-import type { AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus, TrackerStatus } from '@shared/types'
-import { JOURNAL_ID, canvasLabel, isWithin } from '@devlog/core'
+import type { ActivityEvent, AttachedImage, CanvasMeta, Entry, RepoInfo, Settings, SyncStatus } from '@shared/types'
+import { EXTENSIONS_DIR, isWithin } from '@devlog/core'
 import { resolveTheme } from '@shared/theme'
-import { localDate, parseDurationMarker } from '@devlog/core'
-import { DevlogStore, RepoIndex, upgradeRepository } from '@devlog/core/node'
+import { localDate } from '@devlog/core'
+import { DevlogStore, RepoIndex, assertSupportedFormat, readManifest, updateManifest } from '@devlog/core/node'
 import { ACTIVITY_DIR, ActivityLog, machineFolder } from '@devlog/core/node'
-import { Tracker } from './activity/tracker'
 import { CommitWatcher, commitMarkdown, listRecentCommits, type CommitInfo, type GitEventInfo } from './activity/commits'
 import { TRAY_ICON_PNG_BASE64 } from './tray-icon'
 import { Updater } from './updates'
 import { SyncManager, type SyncOptions } from '@devlog/core/node'
 import { SettingsStore } from './settings'
-import { installAssetHandler, registerAssetScheme } from './protocol'
+import { installAssetHandler, installViewHandler, registerAssetScheme } from './protocol'
 import { buildMenu } from './menu'
 import { registerIpc } from './ipc'
+import { ExtensionManager } from './extensions/manager'
+import type { PickItem } from '@devlog/extension-api'
+import { ExtensionInstaller, sha256 } from './extensions/install'
+import { ConsentStore, SecretStore, devlogKey } from './extensions/localState'
 
 // Packaged macOS apps inherit a minimal PATH; make sure git from Homebrew etc. is found.
 if (process.platform === 'darwin') {
@@ -40,20 +43,66 @@ let store: DevlogStore | null = null
 let sync: SyncManager | null = null
 let repoIndex: RepoIndex | null = null
 let lastIndexRefresh = 0
-let tracker: Tracker | null = null
 let commits: CommitWatcher | null = null
 let tray: Tray | null = null
 let quitting = false
 /** Canvas id → "Client / Project / Task", for the tray. */
-let canvasLabels = new Map<string, string>()
 /** Canvas id → task flag, so posting on a non-task never starts the clock. */
-let taskCanvases = new Set<string>()
 /** Every canvas, for routing commits to the active task beneath the linked canvas. */
 let allCanvases: CanvasMeta[] = []
 let updater: Updater | null = null
-let screenLocked = false
 /** Editors with unsaved text, as reported by the renderer. */
 let editorBusyCount = 0
+let extensions: ExtensionManager | null = null
+
+/** Machine-local extension services (created on first use, once the app is ready). */
+let extServices: { installer: ExtensionInstaller; consent: ConsentStore; secrets: SecretStore } | null = null
+const GITHUB_SECRET = { id: 'devlog.github', key: 'token' }
+function extensionServices(): NonNullable<typeof extServices> {
+  if (extServices) return extServices
+  const userData = app.getPath('userData')
+  // Tests on Linux boxes without a keyring opt into Electron's weak in-memory key; never a default.
+  if (process.platform === 'linux' && process.env.DEVLOG_PLAINTEXT_SECRETS === '1') safeStorage.setUsePlainTextEncryption(true)
+  const secrets = new SecretStore(path.join(userData, 'extension-secrets'), {
+    available: () => safeStorage.isEncryptionAvailable(),
+    encrypt: (plain) => safeStorage.encryptString(plain),
+    decrypt: (data) => safeStorage.decryptString(data)
+  })
+  extServices = {
+    secrets,
+    consent: new ConsentStore(path.join(userData, 'extension-consent.json')),
+    installer: new ExtensionInstaller({
+      cacheDir: path.join(userData, 'extensions'),
+      builtinDir: app.isPackaged ? path.join(process.resourcesPath, 'extensions') : path.join(app.getAppPath(), 'builtin-extensions'),
+      devOverrides: async () => JSON.parse(await fs.readFile(path.join(userData, 'extension-dev.json'), 'utf8')) as Record<string, string>,
+      githubToken: () => secrets.get(GITHUB_SECRET.id, GITHUB_SECRET.key).catch(() => undefined),
+      fetch: (input, init) => net.fetch(input as string, init)
+    })
+  }
+  return extServices
+}
+
+/**
+ * The extension process may read exactly one file: its host script. The
+ * packaged copy sits inside app.asar, so it is copied out to user data
+ * (named by its hash, so an update brings its own).
+ */
+let hostScriptPath: Promise<string> | null = null
+function extensionHostScript(): Promise<string> {
+  hostScriptPath ??= (async () => {
+    const code = await fs.readFile(path.join(__dirname, 'extensionHost.js'), 'utf8')
+    const dir = path.join(app.getPath('userData'), 'extension-host')
+    const file = path.join(dir, `host-${sha256(code).slice(0, 16)}.js`)
+    await fs.mkdir(dir, { recursive: true })
+    const current = await fs.readFile(file, 'utf8').catch(() => null)
+    if (current !== code) await fs.writeFile(file, code)
+    return file
+  })()
+  hostScriptPath.catch(() => {
+    hostScriptPath = null
+  })
+  return hostScriptPath
+}
 
 /** This installation's activity-log folder name, created once and kept in user data. */
 function machineId(): string {
@@ -88,8 +137,8 @@ const MIME_BY_EXT: Record<string, string> = {
   avif: 'image/avif'
 }
 
-function send(channel: string, payload?: unknown): void {
-  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, payload)
+function send(channel: string, ...payload: unknown[]): void {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...payload)
 }
 
 function syncOptionsFrom(s: Settings): SyncOptions {
@@ -100,15 +149,15 @@ function syncOptionsFrom(s: Settings): SyncOptions {
     pullOnStart: s.pullOnStart,
     authorName: s.authorName,
     authorEmail: s.authorEmail,
-    quietPaths: [`${ACTIVITY_DIR}/`]
+    quietPaths: [`${ACTIVITY_DIR}/`, `${EXTENSIONS_DIR}/`]
   }
 }
 
 export async function closeRepo(): Promise<void> {
-  if (tracker) {
-    await tracker.stop()
-    tracker.removeAllListeners()
-    tracker = null
+  if (extensions) {
+    await extensions.stopAll()
+    extensions = null
+    send(IPC.evExtensionsChanged)
   }
   if (commits) {
     commits.stop()
@@ -170,6 +219,10 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
     throw new Error('That folder is not a git repository. Use "Create a new devlog" to initialise one.')
   }
   await nextStore.initLayout()
+  // Format 3 → 4: todo lists move into the streams (a one-time rewrite, committed by the next sync).
+  const upgraded = await nextStore.upgradeStorage()
+  if (upgraded) console.log(`devlog: upgraded storage format ${upgraded} → current`)
+  await assertSupportedFormat(root)
   if (!isRepo || create) await SyncManager.initRepo(root, syncOptionsFrom(s))
 
   const nextSync = new SyncManager(root, syncOptionsFrom(s))
@@ -177,16 +230,10 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   nextSync.on('remote-changes', () => {
     send(IPC.evEntriesChanged)
     void refreshIndex()
+    // Another machine may have added, removed or updated an extension.
+    void extensions?.load().catch((err) => console.error('extensions reload failed', err))
   })
   nextStore.on('change', () => nextSync.noteChange())
-
-  // Bring an older storage layout up to date (pulling or merging other machines' work as needed).
-  const upgrade = await upgradeRepository(root, nextSync)
-  if (upgrade.report) {
-    console.log(`migrated storage format ${upgrade.report.from} → ${upgrade.report.to}: ${Object.keys(upgrade.report.canvases).length} canvases, ${upgrade.report.files} files (remote: ${upgrade.remote})`)
-    void nextSync.syncNow('startup')
-  }
-  if (upgrade.error) console.error('storage upgrade: remote not merged', upgrade.error)
 
   const nextIndex = openIndex(root)
   if (nextIndex) nextStore.attachIndex(nextIndex)
@@ -195,30 +242,55 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   repoIndex = nextIndex
   void refreshIndex()
 
-  // Activity logged on this machine before it went into the repository joins this machine's folder there.
-  if (s.activityInRepo) {
-    const moved = await activityLog.adoptLegacyLog(path.join(app.getPath('userData'), 'activity')).catch((err) => {
-      console.error('could not move the local activity log into the repository', err)
-      return 0
-    })
-    if (moved) console.log(`moved ${moved} days of activity into ${root}`)
-  }
   await settings.set({ repoPath: root })
   await nextSync.start()
 
-  // Activity tracking and commit capture live alongside the open repo.
-  const nextTracker = new Tracker(activityLog, path.join(app.getPath('userData'), 'tracker-state.json'), settings.get())
-  nextTracker.on('status', (st: TrackerStatus) => {
-    send(IPC.evTrackerStatus, st)
-    updateTray(st)
+  // Extensions named in devlog.json: installed, then run once allowed.
+  const svc = extensionServices()
+  extensions = new ExtensionManager({
+    root,
+    machine: machineId(),
+    store: nextStore,
+    userData: app.getPath('userData'),
+    installer: svc.installer,
+    consent: svc.consent,
+    secrets: svc.secrets,
+    hostScript: extensionHostScript,
+    notify: (text) => send(IPC.evNotify, text),
+    onViewMessage: (key, viewId, message) => send(IPC.evExtViewMessage, key, viewId, message),
+    confirm: async (title, message) => {
+      const opts: Electron.MessageBoxOptions = { type: 'question', buttons: ['OK', 'Cancel'], defaultId: 0, cancelId: 1, title, message: title, detail: message }
+      const res = mainWindow ? await dialog.showMessageBox(mainWindow, opts) : await dialog.showMessageBox(opts)
+      return res.response === 0
+    },
+    onChange: () => {
+      send(IPC.evExtensionsChanged)
+      void refreshTrayCommands()
+    },
+    onBlockAdded: () => send(IPC.evEntriesChanged),
+    onCanvasesChanged: () => {
+      send(IPC.evEntriesChanged)
+      void refreshCommitWatchers().catch(() => undefined)
+    },
+    onAppState: () => onExtensionAppState(),
+    pick: (title, items, placeholder) => askPick(title, items, placeholder),
+    activity: (from, to) => activityRange(from, to),
+    open: (target) => {
+      showWindow()
+      send(IPC.evExtOpen, target)
+    }
   })
-  tracker = nextTracker
-  await nextTracker.start((id) => nextStore.resolveCanvasId(id))
+  void switchTimeTracking(root, nextStore)
+    .catch((err) => console.error('time tracking switch failed', err))
+    .then(() => extensions?.load())
+    .catch((err) => console.error('extensions failed to load', err))
+  void noticeFocusMoved(root)
 
   const nextCommits = new CommitWatcher((r) => path.resolve(r) === path.resolve(root))
   nextCommits.on('commit', (canvasId: string, info: CommitInfo) => void onCommit(canvasId, info))
   nextCommits.on('event', (canvasId: string, info: GitEventInfo) => {
-    if (!settings.get().trackingEnabled) return
+    // Git events feed the timeline next to tracked time; nothing is logged while no extension tracks time.
+    if (!extensions?.providesActivity()) return
     void activityLog
       .append({ t: new Date().toISOString(), type: 'git', canvasId: routeCommit(canvasId), repo: info.repoName, action: info.action, branch: info.branch, from: info.from, detail: info.detail })
       .catch((err) => console.error('git event log failed', err))
@@ -231,6 +303,57 @@ export async function openRepo(root: string, { create = false } = {}): Promise<R
   return info!
 }
 
+/**
+ * 0.17 moved time tracking into the devlog-time extension. If this machine
+ * tracked time, add the extension to the devlog and allow it (once per
+ * machine), carrying over the active task and the idle setting, so nothing
+ * changes for you.
+ */
+async function switchTimeTracking(root: string, s: DevlogStore): Promise<void> {
+  const cur = settings.get()
+  if (cur.timeSwitched || !cur.trackingEnabled) return
+  const KEY = 'devlog-time'
+  const ID = 'builtin.devlog-time'
+  const manifest = await readManifest(root)
+  if (manifest.extensions?.[KEY] !== 'builtin')
+    await updateManifest(root, (m) => {
+      m.extensions = { ...(m.extensions ?? {}), [KEY]: 'builtin' }
+      const prev = m.settings?.[ID] ?? {}
+      m.settings = { ...(m.settings ?? {}), [ID]: { idle_minutes: String(cur.idleMinutes), ...(cur.activityInRepo ? {} : { in_repo: 'false' }), ...prev } }
+    })
+  // The task that was active, where the extension keeps it.
+  try {
+    const old = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'tracker-state.json'), 'utf8')) as { activeCanvasId?: unknown }
+    if (typeof old.activeCanvasId === 'string') {
+      const active = await s.resolveCanvasId(old.activeCanvasId).catch(() => null)
+      const dir = path.join(app.getPath('userData'), 'extension-data', ID, devlogKey(root))
+      await fs.mkdir(dir, { recursive: true })
+      await fs.writeFile(path.join(dir, 'state.json'), JSON.stringify({ active }))
+    }
+  } catch {
+    // No task was active.
+  }
+  // Allowed, like before: it may read and write everything (it makes task canvases).
+  const svc = extensionServices()
+  const installed = await svc.installer.install(KEY, 'builtin').catch(() => null)
+  if (installed) await svc.consent.set(root, ID, { sha256: installed.sha256, grant: { read: { all: true }, write: { all: true } }, at: new Date().toISOString() })
+  await settings.set({ timeSwitched: true })
+  setTimeout(() => send(IPC.evNotify, 'Time tracking is now the devlog-time extension (Settings → Extensions). Your tasks and time are where they were.'), 3_000)
+}
+
+/**
+ * 0.8 moved window tracking into the devlog-focus extension. Tell someone
+ * who had it on, once, where it went.
+ */
+async function noticeFocusMoved(root: string): Promise<void> {
+  if (!settings.get().trackFocus) return
+  const manifest = await readManifest(root).catch(() => null)
+  const enabled = Object.entries(manifest?.extensions ?? {}).some(([k, v]) => k === 'devlog-focus' && v === 'builtin')
+  await settings.set({ trackFocus: false })
+  if (enabled) return
+  setTimeout(() => send(IPC.evNotify, 'Window tracking is now the devlog-focus extension. Open Extensions (from the quick switcher or Settings) and add it to keep recording focused windows.'), 3_000)
+}
+
 /** Refreshes run one at a time so a repository linked during a refresh is backfilled exactly once. */
 let refreshChain: Promise<void> = Promise.resolve()
 function refreshCommitWatchers(): Promise<void> {
@@ -241,18 +364,12 @@ function refreshCommitWatchers(): Promise<void> {
 async function refreshCommitWatchersNow(): Promise<void> {
   if (!store || !commits) return
   if (!settings.get().captureCommits) {
-    const canvases = await store.listCanvases()
-    canvasLabels = new Map(canvases.map((c) => [c.id, canvasLabel(canvases, c.id)]))
-    taskCanvases = new Set(canvases.filter((c) => c.task && !c.archived).map((c) => c.id))
-    updateTray(tracker?.getStatus() ?? null)
+    allCanvases = await store.listCanvases()
     await commits.setRepos([])
     return
   }
   const canvases = await store.listCanvases()
   allCanvases = canvases
-  canvasLabels = new Map(canvases.map((c) => [c.id, canvasLabel(canvases, c.id)]))
-  taskCanvases = new Set(canvases.filter((c) => c.task && !c.archived).map((c) => c.id))
-  updateTray(tracker?.getStatus() ?? null)
   const list: Array<{ canvasId: string; path: string }> = []
   for (const c of canvases) {
     if (c.archived) continue // a finished project's repo should not feed an archived canvas
@@ -264,13 +381,13 @@ async function refreshCommitWatchersNow(): Promise<void> {
 
 /**
  * Where a commit from a repository linked to `canvasId` belongs: the active
- * task when it lies beneath that canvas (one branch per client, so the task
- * you are on is the work the commit is for), otherwise the canvas itself.
+ * task (the canvas an extension marks as current) when it lies beneath that
+ * canvas (one branch per client, so the task you are on is the work the
+ * commit is for), otherwise the canvas itself.
  */
 function routeCommit(canvasId: string): string {
-  const active = tracker?.getStatus().activeCanvasId
-  if (active && active !== canvasId && isWithin(allCanvases, active, canvasId)) return active
-  return canvasId
+  const active = extensions?.appState().highlighted.find((id) => id !== canvasId && isWithin(allCanvases, id, canvasId))
+  return active ?? canvasId
 }
 
 /** Import the user's recent commits from a linked repository, dated when they were made. Returns how many were added. */
@@ -317,23 +434,112 @@ async function onCommit(linkedCanvasId: string, info: CommitInfo): Promise<void>
   }
 }
 
-/** A user block was posted: on a task canvas that task becomes active; elsewhere it is just a note. */
-async function onEntryAdded(canvasId: string, entry: Entry): Promise<void> {
-  if (!tracker) return
-  if (canvasId === JOURNAL_ID || !taskCanvases.has(canvasId)) return
-  if (entry.kind && entry.kind !== 'note') return
-  // A block with an explicit duration records the past; it does not start a task.
-  if (parseDurationMarker(entry.markdown) !== null) return
-  await tracker.setTask(canvasId, entry.id)
+/** A user block was posted: extensions that listen hear of it (posting on a task starts it, in devlog-time). */
+async function onEntryAdded(canvasId: string, date: string, entry: Entry): Promise<void> {
+  void extensions?.blockAdded(canvasId, date, entry).catch(() => undefined)
 }
 
-function updateTray(st: TrackerStatus | null): void {
+// ---------------------------------------------------------------------------
+// What extensions ask of the app around the window (1.6)
+// ---------------------------------------------------------------------------
+
+/** The app's activity log, plus focus changes and time-tracking events kept by extensions (devlog-focus, devlog-time); old canvas ids resolved. */
+async function activityRange(from: string, to: string): Promise<ActivityEvent[]> {
+  const [core, focus, time] = await Promise.all([
+    activityLog.read(from, to),
+    extensions?.focusEvents(from, to).catch(() => []) ?? [],
+    extensions?.activityEvents(from, to).catch(() => []) ?? []
+  ])
+  const events = focus.length || time.length ? [...core, ...focus, ...time].sort((a, b) => a.t.localeCompare(b.t)) : core
+  const aliases = store ? await store.aliasMap() : new Map<string, string>()
+  if (aliases.size === 0) return events
+  return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))
+}
+
+// ---------------------------------------------------------------------------
+// Machine state: locked, idle, asleep. Told to extensions as pause/resume,
+// and logged (for time) while an extension tracks time.
+// ---------------------------------------------------------------------------
+
+const machinePaused = new Set<'locked' | 'idle' | 'suspended'>()
+
+function machineState(state: 'locked' | 'idle' | 'asleep', on: boolean): void {
+  const reason = state === 'asleep' ? 'suspended' : state
+  if (on === machinePaused.has(reason)) return
+  if (on) machinePaused.add(reason)
+  // Unlocking means someone is back: idle is over too.
+  else if (reason === 'locked') machinePaused.clear()
+  else machinePaused.delete(reason)
+  const type: ActivityEvent['type'] = on ? ({ locked: 'lock', idle: 'idle', suspended: 'suspend' } as const)[reason] : ({ locked: 'unlock', idle: 'active', suspended: 'resume' } as const)[reason]
+  if (extensions?.providesActivity()) void activityLog.append({ t: new Date().toISOString(), type }).catch((err) => console.error('activity log write failed', err))
+  extensions?.setSystemState(state, on)
+}
+
+/**
+ * Every 15 s: idle past the minutes an extension asked for, and (Windows and
+ * macOS, which report it) a lock whose event was missed.
+ */
+function pollMachine(): void {
+  const minutes = extensions?.appState().idleMinutes ?? 0
+  let state: string
+  try {
+    // With idle detection off, a huge threshold still reports "locked".
+    state = powerMonitor.getSystemIdleState(minutes > 0 ? minutes * 60 : 7 * 24 * 3600)
+  } catch {
+    return
+  }
+  if (process.platform === 'win32' || process.platform === 'darwin') {
+    if (state === 'locked') return machineState('locked', true)
+    if (state !== 'unknown' && machinePaused.has('locked')) machineState('locked', false)
+  }
+  if (minutes === 0) {
+    if (machinePaused.has('idle')) machineState('idle', false)
+    return
+  }
+  if (state === 'idle') machineState('idle', true)
+  else if (state === 'active') machineState('idle', false)
+}
+/** Commands extensions put in the tray menu. */
+let trayCommands: Array<{ key: string; id: string; label: string }> = []
+
+async function refreshTrayCommands(): Promise<void> {
+  const list = (await extensions?.list().catch(() => [])) ?? []
+  const next = list.flatMap((e) => (e.state === 'running' ? e.commands.filter((c) => c.ready && c.menus?.includes('tray')).map((c) => ({ key: e.key, id: c.id, label: c.label })) : []))
+  if (JSON.stringify(next) === JSON.stringify(trayCommands)) return
+  trayCommands = next
+  updateTray()
+}
+
+function onExtensionAppState(): void {
+  const st = extensions?.appState()
+  if (st) send(IPC.evExtAppState, st)
+  updateTray()
+}
+
+let nextPickId = 1
+const pendingPicks = new Map<number, (choice: string | null) => void>()
+
+/** Show an extension's quick pick in the window and wait for the choice (null if dismissed or the window is gone). */
+function askPick(title: string, items: PickItem[], placeholder?: string): Promise<string | null> {
+  if (!mainWindow || mainWindow.isDestroyed()) return Promise.resolve(null)
+  showWindow()
+  const id = nextPickId++
+  return new Promise((resolve) => {
+    pendingPicks.set(id, resolve)
+    send(IPC.evExtPick, { id, title, items, ...(placeholder ? { placeholder } : {}) })
+  })
+}
+
+function answerPick(id: number, choice: string | null): void {
+  const done = pendingPicks.get(id)
+  pendingPicks.delete(id)
+  done?.(choice && typeof choice === 'string' ? choice : null)
+}
+
+function updateTray(): void {
   if (!tray) return
-  const label = !st || !st.tracking
-    ? 'Devlog'
-    : st.activeCanvasId
-      ? `Devlog · ${canvasLabels.get(st.activeCanvasId) ?? st.activeCanvasId}${st.paused ? ' (paused)' : ''}`
-      : 'Devlog · no active task'
+  const extLabel = extensions?.appState().trayLabel
+  const label = extLabel ? `Devlog · ${extLabel}` : 'Devlog'
   const up = updater?.getStatus()
   const upLabel =
     up?.state === 'downloaded'
@@ -348,7 +554,7 @@ function updateTray(st: TrackerStatus | null): void {
       ...(upLabel ? [{ label: upLabel, enabled: false } as Electron.MenuItemConstructorOptions] : []),
       { type: 'separator' },
       { label: 'Open Devlog', click: () => showWindow() },
-      { label: 'Stop Active Task', enabled: !!st?.activeCanvasId, click: () => void tracker?.setTask(null) },
+      ...trayCommands.map((c): Electron.MenuItemConstructorOptions => ({ label: c.label, click: () => void extensions?.runCommand(c.key, c.id, { source: 'tray' }).catch((err) => send(IPC.evNotify, err instanceof Error ? err.message : String(err))) })),
       { label: 'Sync Now', click: () => void sync?.syncNow('manual') },
       { type: 'separator' },
       { label: 'Quit Devlog', click: () => quitApp() }
@@ -375,7 +581,7 @@ function createTray(): void {
     tray = new Tray(process.platform === 'darwin' ? icon.resize({ width: 16, height: 16 }) : icon)
     tray.on('click', () => showWindow())
     tray.on('double-click', () => showWindow())
-    updateTray(tracker?.getStatus() ?? null)
+    updateTray()
   } catch (err) {
     console.error('tray unavailable', err)
   }
@@ -509,7 +715,7 @@ function createWindow(): BrowserWindow {
   }
   // Closing the window keeps tracking in the tray; quitting is explicit.
   win.on('close', (event) => {
-    if (quitting || !settings.get().trackingEnabled || !tray) return
+    if (quitting || !tray || !extensions?.appState().keepRunning) return
     event.preventDefault()
     win.hide()
   })
@@ -538,9 +744,16 @@ if (!gotLock) {
     app.setAppUserModelId('com.sdeken.devlog')
     await settings.load()
     installAssetHandler(() => store)
+    installViewHandler((key) => extensions?.viewRoot(key) ?? null)
 
     registerIpc({
       settings,
+      getExtensions: () => extensions,
+      builtinExtensions: () => extensionServices().installer.listBuiltins(),
+      githubToken: {
+        has: () => extensionServices().secrets.has(GITHUB_SECRET.id, GITHUB_SECRET.key),
+        set: (token) => extensionServices().secrets.set(GITHUB_SECRET.id, GITHUB_SECRET.key, token)
+      },
       getStore: () => store,
       getSync: () => sync,
       openRepo,
@@ -556,23 +769,14 @@ if (!gotLock) {
       },
       onSettingsChanged: (s) => {
         sync?.updateOptions(syncOptionsFrom(s))
-        void tracker?.updateSettings(s)
         void refreshCommitWatchers()
         applyTheme()
       },
       onEntryAdded,
+      answerPick,
       onCanvasesChanged: refreshCommitWatchers,
-      activityRange: async (from, to) => {
-        const events = await activityLog.read(from, to)
-        const aliases = store ? await store.aliasMap() : new Map<string, string>()
-        if (aliases.size === 0) return events
-        return events.map((ev) => (ev.canvasId && aliases.has(ev.canvasId) ? { ...ev, canvasId: aliases.get(ev.canvasId) } : ev))
-      },
+      activityRange,
       activityAppend: (ev) => activityLog.append(ev),
-      trackerStatus: () => tracker?.getStatus() ?? null,
-      trackerSetTask: async (canvasId) => {
-        await tracker?.setTask(canvasId)
-      },
       updateStatus: () => updater?.getStatus() ?? { state: 'unavailable', currentVersion: app.getVersion(), availableVersion: null, checkedAt: null, error: null },
       importCommitHistory: (canvasId, repoPath, days) => backfillCommits(canvasId, repoPath, days),
       updateInstall: async () => {
@@ -605,10 +809,10 @@ if (!gotLock) {
       search: menuCmd('search'),
       newCanvas: menuCmd('newCanvas'),
       review: menuCmd('review'),
-      summary: menuCmd('summary'),
       switcher: menuCmd('switcher'),
       timeline: menuCmd('timeline'),
-      stopTask: () => void tracker?.setTask(null),
+      back: menuCmd('back'),
+      forward: menuCmd('forward'),
       quit: quitApp,
       attachImage: async () => {
         const opts: Electron.OpenDialogOptions = {
@@ -670,19 +874,24 @@ if (!gotLock) {
     quitting = true
     quitHandled = true
     updater?.stop()
-    await tracker?.stop().catch(() => undefined)
+    // Extensions stop first, so what they write on the way out (the clock stopping) is in the last commit.
+    await extensions?.stopAll().catch(() => undefined)
     commits?.stop()
     if (sync && settings.get().commitOnQuit) await sync.syncNow('quit')
   }
 
   app.whenReady().then(() => {
-    powerMonitor.on('lock-screen', () => (screenLocked = true))
-    powerMonitor.on('unlock-screen', () => (screenLocked = false))
+    // Extensions hear about locks and sleep straight from the OS, whether or not time tracking is on.
+    powerMonitor.on('lock-screen', () => machineState('locked', true))
+    powerMonitor.on('unlock-screen', () => machineState('locked', false))
+    powerMonitor.on('suspend', () => machineState('asleep', true))
+    powerMonitor.on('resume', () => machineState('asleep', false))
+    setInterval(pollMachine, 15_000).unref?.()
     updater = new Updater({
       enabled: () => settings.get().autoUpdate,
       windowVisible: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() && !mainWindow.isMinimized(),
       windowFocused: () => !!mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused(),
-      locked: () => screenLocked,
+      locked: () => machinePaused.has('locked'),
       syncBusy: () => {
         const st = sync?.getStatus().state
         return st === 'committing' || st === 'pulling' || st === 'pushing'
@@ -692,7 +901,7 @@ if (!gotLock) {
     })
     updater.on('status', (st) => {
       send(IPC.evUpdateStatus, st)
-      updateTray(tracker?.getStatus() ?? null)
+      updateTray()
     })
     updater.start()
   })

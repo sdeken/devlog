@@ -1,0 +1,5 @@
+const n = document.getElementById('n')
+window.probe.send({ type: 'resize', width: 90 })
+window.probe.call('count').then((v) => (n.textContent = String(v)))
+window.probe.on((m) => (n.textContent = String(m.count)))
+document.getElementById('b').addEventListener('click', () => window.probe.send({ type: 'popover', view: 'pop', width: 240, height: 180 }))

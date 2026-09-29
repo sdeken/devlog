@@ -54,21 +54,4 @@ describe('ActivityLog', () => {
     expect(await fs.readFile(desk.fileFor('2026-09-14'), 'utf8')).not.toContain('machine')
   })
 
-  it('adopts a log written in the old layout into this machine folder', async () => {
-    const local = path.join(root, 'userData', 'activity')
-    const repo = path.join(root, 'repo')
-    const log = new ActivityLog(() => repo, 'desk-1a2b')
-    const line = (h: number, type: string): string => `${JSON.stringify({ t: new Date(2026, 8, 14, h).toISOString(), type })}\n`
-    await fs.mkdir(path.join(local, '2026/09'), { recursive: true })
-    await fs.writeFile(path.join(local, '2026/09/2026-09-14.jsonl'), line(8, 'start') + line(9, 'lock'))
-    await fs.mkdir(path.join(local, 'desk-1a2b/2026/09'), { recursive: true })
-    await fs.writeFile(path.join(local, 'desk-1a2b/2026/09/2026-09-15.jsonl'), line(33, 'unlock'))
-    await log.append({ t: new Date(2026, 8, 14, 11).toISOString(), type: 'unlock' })
-
-    expect(await log.adoptLegacyLog(local)).toBe(2)
-    expect((await log.read('2026-09-14', '2026-09-15')).map((e) => e.type)).toEqual(['start', 'lock', 'unlock', 'unlock'])
-    await expect(fs.stat(path.join(local, '2026/09/2026-09-14.jsonl'))).rejects.toThrow()
-    expect(await log.adoptLegacyLog(local)).toBe(0)
-    expect(await log.adoptLegacyLog(path.join(repo, 'activity'))).toBe(0) // never onto itself
-  })
 })

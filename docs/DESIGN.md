@@ -27,7 +27,7 @@
 │    RepoIndex     SQLite cache: listings + full-text search│
 │    SyncManager   simple-git: commit / fetch / rebase / push│
 │    ActivityLog   per-machine JSON-lines log               │
-│    migrate       storage format upgrades                  │
+│    manifest      storage format check                     │
 │  Tracker, CommitWatcher, protocol, SettingsStore, updater │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -35,7 +35,7 @@
 The data layer is its own package, `@devlog/core`, with no Electron
 dependency: a pure entry (types, file formats, hierarchy helpers, also used
 by the renderer) and a Node entry (store, index, sync, activity log,
-migrations). The desktop app is one client of it; an API server or CLI could
+manifest). The desktop app is one client of it; an API server or CLI could
 be another. Keeping every file-format rule and every write in one unit-tested
 package is the point: nothing else opens a day file.
 
@@ -50,6 +50,8 @@ outside the open repository.
 - `devlog.json` – `{ "format": 3 }`, the storage format version.
 - `.gitattributes` – `merge=union` for block files and activity logs.
 - `entries/YYYY/MM/YYYY-MM-DD.md` – the journal, one file per local day.
+  Retired in 0.13.0: the app no longer offers it as a place to write, and
+  lists it (read-only, under Archived) only while it still holds blocks.
 - `entries/YYYY/MM/assets/<date>-<hhmmss>-<rand>.<ext>` – pasted images.
 - `canvases/<xx>/<id>/canvas.md` + `…/entries/…` + `…/todos.md` – every
   other canvas, in the same day-file layout (see **Canvases** below).
@@ -116,8 +118,7 @@ Reasons for this over alternatives:
   on concurrent inserts after the same block and on deleted predecessors.
 - **Compaction, built but not applied.** Files grow with every edit.
   `DevlogStore.compact({ quietSince, dryRun })` rewrites a file as one `add`
-  per live block carrying its current state (exactly what the migrations
-  write), dropping superseded edits, moves and deleted blocks. It is the
+  per live block carrying its current state, dropping superseded edits, moves and deleted blocks. It is the
   only operation that rewrites a block file, so it only touches format 3
   files whose newest record is older than `quietSince` (another machine
   must not still be appending to a file rewritten under it), replays the
@@ -125,9 +126,9 @@ Reasons for this over alternatives:
   deterministic (two machines compacting the same file agree), holds the
   file's lock, and keeps the index current. Git history keeps every dropped
   record. The app does not call it yet.
-- Parsing tolerates hand edits: missing ids get generated (format 1/2),
-  CRLF is fine, and anything before the first record is ignored rather than
-  destroyed. Format 1 and 2 files are still read.
+- Parsing tolerates hand edits: CRLF is fine, and anything before the first
+  record is ignored rather than destroyed. Records without an id are
+  skipped.
 
 ### Notes as nodes
 
@@ -205,17 +206,15 @@ the anchor's thread. Timestamps are untouched, which is the answer to the
 written and its position is where it is kept; the file already separated the
 two. Dropping is refused across days because a day is a file.
 
-**Todos** are blocks of kind `todo` in a per-canvas block file, `todos.md`,
-not in the dated stream: they outlive the day they were written, and their
-order is priority, not time. The file uses the same block format as a day
-file (`parseBlockFile` / `serializeBlockFile`, which day files now go
-through as well), so comments are ordinary replies and reordering is the same
-`moveSubtree`. `meta.done` is when a todo was ticked off; ticking also
-writes a `done` block into today's stream (`meta.todo` links back), which is
-how completions reach the log, the timeline and the review. Unticking the
-same day removes that block; on a later day it is left as history. The panel
-reads one small file per canvas in scope, so it stays cheap regardless of
-how long the log gets.
+**Todos** are blocks of kind `todo` in the day files, at any depth (storage
+format 4; see `BLOCK-PAGES.md`). `meta.done` is when one was ticked off; the
+date range query finds day files by that time too, so the timeline shows
+ticks on the day they happened. The panel asks the index for the day files
+holding a todo (`todoDays`), reads those, and groups the open todos under the
+canvases and blocks above them. Format 3 kept a per-canvas `todos.md`;
+`upgradeStorage` moves each old todo (with its comments) into the day file
+of the day it was written. "✓" blocks written by earlier versions when a
+todo was ticked stay as history.
 
 **Moving** a block (with its thread) to another canvas rewrites nothing but
 the file it lives in: assets stay put and the serialised link becomes
@@ -235,38 +234,14 @@ returns archived hits with a badge. Archiving a canvas flags every canvas
 beneath it; unarchiving reverses the same set. Keeping it a flag means git
 history stays linear and a mistaken archive is a one-line change.
 
-**Migrations** (`packages/core/src/node/migrate.ts`) run when a repository
-is opened, before anything reads it. Devlog 0.2's `pages/` + `categories/`
-become format 1 canvases (category paths become chains of canvases, wikis
-become surfaces); format 1 goes straight to format 3 (sharded layout and
-append-only block files), and format 2 (0.4) has its block files rewritten
-in place, one atomic write each, manifest last, so it resumes if
-interrupted. The format 1 layout step is:
-
-- **Staged and swapped.** The new `canvases/` and `entries/` trees are built
-  in `.devlog-migrate/` (git-ignored); the old ones are moved aside to
-  `.devlog-migrate-old/`, the new ones moved in, and `devlog.json` written
-  last. On the next open, leftovers are rolled back (no manifest yet) or
-  cleaned up (manifest present), so an interrupted upgrade never leaves a
-  half-migrated tree.
-- **Deterministic.** A migrated canvas's id is a hash of its old folder name
-  (collisions resolved in sorted order), and every file is re-serialised
-  canonically, so two machines migrating the same history get byte-identical
-  trees. That is what makes the multi-machine story work:
-  `upgradeRepository` pulls first when the remote is still on an older
-  format; pulls only, when another machine already pushed the upgrade and
-  this one has nothing unsynced; and otherwise merges the remote's last
-  pre-upgrade commit (found with `git log -G` on the manifest)
-  (an ordinary merge), migrates, records the remote's migration commit as
-  merged with `-s ours` (our tree is the same migration of a superset of its
-  history) and merges the remote. The obvious alternative, rebasing old
-  commits onto the migrated remote, "succeeds" because git follows the
-  renames, and splices old-format text into new files; tests cover it for
-  both older formats.
-- **References rewritten**: parents, task and todo links, and root-relative
-  image paths into moved canvases; old ids become `alias` lines, which the
-  store (`resolveCanvasId`, `aliasMap`), the tracker's persisted task and the
-  activity reader follow.
+**Older formats.** Devlog 0.5 upgraded formats 1 and 2 (and 0.2's `pages/`
++ `categories/`) to format 3 when it opened a repository; that code was
+removed once every devlog had been upgraded (it is in git history, up to
+release 0.5.3). The app now checks `devlog.json` on open
+(`assertSupportedFormat`) and refuses anything but format 3 with a message
+saying which Devlog version to use. Canvases that had slug ids keep them as
+`alias` lines, which the store (`resolveCanvasId`, `aliasMap`), the
+tracker's persisted task and the activity reader still follow.
 
 ### The local index
 
@@ -297,11 +272,11 @@ running, which is why the window closes to the tray when tracking is on.
 
 Signals come from Electron's `powerMonitor`: `lock-screen`/`unlock-screen`,
 `suspend`/`resume`, and a 15-second poll of `getSystemIdleState` for idle.
-Each is written as an event. Foreground windows come from a long-running
-helper process per platform (`src/main/activity/foreground.ts`): PowerShell
-with `GetForegroundWindow` on Windows, an `osascript` loop on macOS, `xdotool`
-on Linux. They emit only on change; the tracker writes a `focus` event with
-process name and title. There are no native modules.
+Each is written as an event. Foreground windows are not the core's: the
+devlog-focus extension (`builtin-extensions/devlog-focus`, see
+`docs/EXTENSIONS.md`) runs its own helper and keeps `focus` events in its
+own folder, and the app merges them back into the activity the views read.
+There are no native modules.
 
 Events go to `ActivityLog`: JSON lines, one file per local day, one folder
 per machine (`activity/<host>-<id>/…`, the folder name kept in
@@ -317,7 +292,9 @@ not count as unsaved work in the status (`quietPaths`); the interval sync
 commits them. A `heartbeat` every
 five minutes is the liveness signal: segment building treats a gap of more
 than two heartbeats as "the app was not running", so a crash cannot inflate a
-task by a weekend.
+task by a weekend. Heartbeats are skipped while paused:
+the lock/idle/suspend event already closed the segment, and a locked machine
+that kept writing would also commit and push every five minutes.
 
 Pauses are tracked per reason (locked, idle, suspended) both in the tracker
 and in the replay. The clock runs only when none applies: waking from sleep

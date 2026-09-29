@@ -12,7 +12,7 @@
  * read-only), `task` (a note that was turned into a task; `meta.canvas` is
  * the task canvas it opened).
  */
-export const ENTRY_KINDS = ['note', 'commit', 'task', 'todo', 'done'] as const
+export const ENTRY_KINDS = ['note', 'commit', 'task', 'todo', 'done', 'timesheet'] as const
 /**
  * `todo` blocks live in a canvas's todo list (`todos.md`), not in the dated
  * stream; `meta.done` is the ISO time they were ticked off, `meta.task` the
@@ -61,6 +61,21 @@ export interface EntryPosition {
   beforeId?: string
 }
 
+/**
+ * A todo somewhere in the devlog: a block with `kind: 'todo'`, at any depth,
+ * with the blocks it sits inside (outermost first) so it can be grouped and
+ * opened where it lives.
+ */
+export interface TodoRef {
+  canvasId: string
+  /** The day file it lives in. */
+  date: string
+  entry: Entry
+  trail: Array<{ id: string; title: string; kind?: EntryKind }>
+  /** Blocks written inside it. */
+  inside: number
+}
+
 export interface DaySummary {
   date: string
   count: number
@@ -78,8 +93,13 @@ export interface CanvasMeta {
   title: string
   /** Enclosing canvas, or null at the top level. */
   parentId: string | null
-  /** Tasks are what the tracker times. Posting on a task makes it the active task. */
+  /** Tasks are what the tracker times. Posting on a task makes it the active task. Same as `type === TASK_TYPE`. */
   task: boolean
+  /**
+   * A node type an extension contributes ("<extension id>/<type id>"): its
+   * icon and label come from that extension; without it, a plain canvas.
+   */
+  type?: string
   createdAt: string
   /** Last surface edit. */
   updatedAt: string
@@ -91,6 +111,11 @@ export interface CanvasMeta {
   hasSurface: boolean
   /** Former ids (e.g. the folder name before storage format 2); references to them resolve here. */
   aliases?: string[]
+  /**
+   * Other front-matter keys, kept as written: extension fields such as
+   * `ext.sdeken.devlog-jira.issue`. Keys are lowercase.
+   */
+  fields?: Record<string, string>
 }
 
 export interface Canvas extends CanvasMeta {
@@ -102,7 +127,11 @@ export interface CanvasInput {
   title: string
   parentId?: string | null
   task?: boolean
+  /** A node type ("<extension id>/<type id>"), or null for a plain canvas. Wins over `task`. */
+  type?: string | null
   repos?: string[]
+  /** Extra front-matter fields to set; an empty string or null removes one. */
+  fields?: Record<string, string | null>
 }
 
 /** A slice of a canvas's stream: whole days, oldest first. */

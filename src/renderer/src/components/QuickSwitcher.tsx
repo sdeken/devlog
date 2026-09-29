@@ -1,11 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
+import { buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
+import type { ExtensionInfo } from '@shared/extensions'
+import type { PickItem } from '@devlog/extension-api'
+import { typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
-export type SwitchTarget = { kind: 'canvas'; canvasId: string } | { kind: 'view'; view: 'review' | 'timeline' | 'summary' }
+export type SwitchTarget =
+  | { kind: 'canvas'; canvasId: string }
+  | { kind: 'view'; view: 'review' | 'timeline' }
+  | { kind: 'page'; page: string }
+  | { kind: 'settings'; page?: string }
+  | { kind: 'block'; canvasId: string; date: string; id: string }
+  | { kind: 'command'; extension: string; command: string }
 
 interface Props {
   canvases: CanvasMeta[]
+  /** Running extensions contribute their commands. */
+  extensions?: ExtensionInfo[]
+  /** Block pages opened lately, newest first. */
+  recentPages?: Array<{ canvasId: string; date: string; id: string; title: string }>
+  /** The node type of the canvas on screen: commands for another type are left out. */
+  canvasType?: string
   onPick: (target: SwitchTarget) => void
   onClose: () => void
 }
@@ -15,6 +30,8 @@ interface Item {
   label: string
   hint: string
   target: SwitchTarget
+  /** Listed first when nothing is typed yet (recent pages, newest first). */
+  recent?: number
 }
 
 function score(query: string, label: string): number {
@@ -29,34 +46,54 @@ function score(query: string, label: string): number {
   return i === q.length ? 1 : 0
 }
 
-export function QuickSwitcher({ canvases, onPick, onClose }: Props): React.JSX.Element {
+export function QuickSwitcher({ canvases, extensions = [], recentPages = [], canvasType, onPick, onClose }: Props): React.JSX.Element {
+  const types = useNodeTypes()
   const [query, setQuery] = useState('')
   const [index, setIndex] = useState(0)
   const input = useRef<HTMLInputElement>(null)
 
   const items = useMemo<Item[]>(() => {
     const out: Item[] = [
-      { key: 'canvas:journal', label: 'Journal', hint: 'journal', target: { kind: 'canvas', canvasId: JOURNAL_ID } },
-      { key: 'view:summary', label: 'Summary', hint: 'view', target: { kind: 'view', view: 'summary' } },
       { key: 'view:review', label: 'Weekly review', hint: 'view', target: { kind: 'view', view: 'review' } },
-      { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } }
+      { key: 'view:timeline', label: 'Timeline', hint: 'view', target: { kind: 'view', view: 'timeline' } },
+      { key: 'settings', label: 'Settings', hint: 'settings', target: { kind: 'settings' } },
+      { key: 'extensions', label: 'Extensions', hint: 'settings', target: { kind: 'settings', page: 'extensions' } }
     ]
+    recentPages.forEach((p, i) => {
+      if (!canvases.some((c) => c.id === p.canvasId)) return
+      out.push({
+        key: `page:${p.canvasId}/${p.date}/${p.id}`,
+        label: `${canvasLabel(canvases, p.canvasId)} / ${p.title}`,
+        hint: 'page',
+        target: { kind: 'block', canvasId: p.canvasId, date: p.date, id: p.id },
+        recent: recentPages.length - i
+      })
+    })
+    for (const e of extensions) {
+      // Pages extensions bring (Timesheet, Summary) are views like the app's own.
+      for (const v of e.views) if (v.placement === 'page') out.push({ key: `page:${e.key}/${v.id}`, label: v.title, hint: 'view', target: { kind: 'page', page: `${e.key}/${v.id}` } })
+      for (const c of e.commands) {
+        // Note-box commands post first; commands for a node type show on canvases of that type.
+        if (c.post || (c.nodeType && c.nodeType !== canvasType)) continue
+        if (e.state === 'running' && c.ready) out.push({ key: `cmd:${e.key}:${c.id}`, label: `${e.displayName}: ${c.label}`, hint: 'command', target: { kind: 'command', extension: e.key, command: c.id } })
+      }
+    }
     for (const { canvas: c } of flattenTree(buildCanvasTree(canvases, { includeArchived: true }))) {
       out.push({
         key: `canvas:${c.id}`,
         label: canvasLabel(canvases, c.id),
-        hint: `${c.task ? 'task' : 'canvas'}${c.archived ? ' · archived' : ''}`,
+        hint: `${typeOf(types, c)?.label.toLowerCase() ?? 'canvas'}${c.archived ? ' · archived' : ''}`,
         target: { kind: 'canvas', canvasId: c.id }
       })
     }
     return out
-  }, [canvases])
+  }, [canvases, extensions, recentPages, types, canvasType])
 
   const results = useMemo(() => {
     return items
       .map((it) => ({ it, s: score(query, it.label) }))
       .filter((x) => x.s > 0)
-      .sort((a, b) => b.s - a.s || a.it.label.localeCompare(b.it.label))
+      .sort((a, b) => (query ? 0 : (b.it.recent ?? 0) - (a.it.recent ?? 0)) || b.s - a.s || a.it.label.localeCompare(b.it.label))
       .slice(0, 12)
       .map((x) => x.it)
   }, [items, query])
@@ -95,6 +132,64 @@ export function QuickSwitcher({ canvases, onPick, onClose }: Props): React.JSX.E
               <button type="button" className={`switcher-item${i === index ? ' is-active' : ''}`} onMouseEnter={() => setIndex(i)} onClick={() => onPick(r.target)}>
                 <span className="switcher-label">{r.label}</span>
                 <span className="switcher-hint">{r.hint}</span>
+              </button>
+            </li>
+          ))}
+          {results.length === 0 && <li className="switcher-empty">No matches</li>}
+        </ul>
+      </div>
+    </div>
+  )
+}
+
+/** An extension's quick pick (1.6): the switcher's list with the extension's items. */
+export function ExtensionPick({ title, items, placeholder, onDone }: { title: string; items: PickItem[]; placeholder?: string; onDone: (id: string | null) => void }): React.JSX.Element {
+  const [query, setQuery] = useState('')
+  const [index, setIndex] = useState(0)
+  const input = useRef<HTMLInputElement>(null)
+  const results = useMemo(
+    () =>
+      items
+        .map((it, i) => ({ it, i, s: score(query, it.label) }))
+        .filter((x) => x.s > 0)
+        .sort((a, b) => (query ? b.s - a.s : 0) || a.i - b.i)
+        .slice(0, 50)
+        .map((x) => x.it),
+    [items, query]
+  )
+  useEffect(() => {
+    input.current?.focus()
+  }, [])
+  useEffect(() => setIndex(0), [query])
+  return (
+    <div className="modal-backdrop switcher-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && onDone(null)}>
+      <div className="switcher" role="dialog" aria-label={title}>
+        <input
+          ref={input}
+          type="text"
+          placeholder={placeholder ?? `${title}: choose…`}
+          value={query}
+          onChange={(ev) => setQuery(ev.target.value)}
+          onKeyDown={(ev) => {
+            if (ev.key === 'Escape') onDone(null)
+            else if (ev.key === 'ArrowDown') {
+              ev.preventDefault()
+              setIndex((i) => Math.min(results.length - 1, i + 1))
+            } else if (ev.key === 'ArrowUp') {
+              ev.preventDefault()
+              setIndex((i) => Math.max(0, i - 1))
+            } else if (ev.key === 'Enter' && results[index]) {
+              ev.preventDefault()
+              onDone(results[index].id)
+            }
+          }}
+        />
+        <ul>
+          {results.map((r, i) => (
+            <li key={r.id}>
+              <button type="button" className={`switcher-item${i === index ? ' is-active' : ''}`} onMouseEnter={() => setIndex(i)} onClick={() => onDone(r.id)}>
+                <span className="switcher-label">{r.label}</span>
+                {r.hint && <span className="switcher-hint">{r.hint}</span>}
               </button>
             </li>
           ))}

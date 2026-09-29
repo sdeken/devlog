@@ -314,6 +314,44 @@ describe('several machines', () => {
     ])
   })
 
+  it('flattens exactly like the straightforward quadratic version, only fast', () => {
+    // The original all-pairs implementation, kept here as the reference.
+    const naive = <S extends { start: string; end: string }>(segments: S[]): S[] => {
+      const t = (x: string): number => new Date(x).getTime()
+      const sorted = [...segments].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end))
+      let out: S[] = []
+      for (const seg of sorted) {
+        const next: S[] = []
+        for (const r of out) {
+          if (t(r.end) <= t(seg.start) || t(r.start) >= t(seg.end)) next.push(r)
+          else {
+            if (t(r.start) < t(seg.start)) next.push({ ...r, end: seg.start })
+            if (t(r.end) > t(seg.end)) next.push({ ...r, start: seg.end })
+          }
+        }
+        next.push(seg)
+        out = next
+      }
+      return out.sort((a, b) => a.start.localeCompare(b.start))
+    }
+    let seed = 11
+    const rnd = (): number => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+    for (let run = 0; run < 300; run++) {
+      const segs = Array.from({ length: 1 + Math.floor(rnd() * 12) }, (_, i) => {
+        const a = Math.floor(rnd() * 40)
+        const b = a + 1 + Math.floor(rnd() * 15)
+        return { id: i, start: T(9, a), end: T(9, b) }
+      })
+      expect(flattenOverlaps(segs)).toEqual(naive(segs))
+    }
+    // Big and fast: 20,000 segments from two interleaved machines.
+    const many = Array.from({ length: 20_000 }, (_, i) => ({ id: i, start: new Date(Date.UTC(2026, 8, 14) + i * 30_000).toISOString(), end: new Date(Date.UTC(2026, 8, 14) + i * 30_000 + 45_000).toISOString() }))
+    const t0 = performance.now()
+    const flat = flattenOverlaps(many)
+    expect(performance.now() - t0).toBeLessThan(2000)
+    expect(flat).toHaveLength(20_000)
+  })
+
   it('flattens overlapping segments generically', () => {
     expect(flattenOverlaps([])).toEqual([])
     const r = flattenOverlaps([

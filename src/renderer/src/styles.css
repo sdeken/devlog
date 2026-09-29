@@ -141,20 +141,23 @@ button:disabled {
 /* ------------------------------------------------------------------ feed */
 
 .feed {
+  --feed-pad: 28px;
   flex: 1;
   overflow-y: auto;
-  padding: 0 28px 16px;
+  padding: 0 var(--feed-pad) 16px;
   min-height: 0;
 }
 
 .feed-head {
   position: sticky;
   top: 0;
-  z-index: 1;
+  /* Above blocks, including hovered ones (z-index 3), so nothing scrolls over it. */
+  z-index: 4;
   background: var(--bg);
-  padding: 16px 0 10px;
+  /* Span the feed's side padding too, where block braces sit, so they scroll under it. */
+  margin: 0 calc(-1 * var(--feed-pad)) 8px;
+  padding: 16px var(--feed-pad) 10px;
   border-bottom: 1px solid var(--border);
-  margin-bottom: 8px;
   display: flex;
   align-items: baseline;
   gap: 10px;
@@ -874,7 +877,11 @@ button:disabled {
 .card input,
 .modal input[type='text'],
 .modal input[type='email'],
-.modal input[type='number'] {
+.modal input[type='url'],
+.modal input[type='password'],
+.modal input[type='number'],
+.modal select,
+.modal textarea {
   padding: 6px 10px;
   border: 1px solid var(--border-strong);
   border-radius: 6px;
@@ -2292,154 +2299,6 @@ button:disabled {
   padding: 8px 10px;
 }
 
-/* ---- Summary ---- */
-.sum-list,
-.sum-children {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.sum-list {
-  margin: 8px 0 16px;
-}
-
-.sum-row {
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border);
-}
-
-.sum-top,
-.sum-child {
-  display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 160px) 70px 70px 64px;
-  align-items: center;
-  gap: 8px;
-}
-
-.sum-child {
-  grid-template-columns: minmax(0, 1fr) 70px 70px 64px;
-  padding: 3px 0 3px 30px;
-  font-size: 13px;
-  color: var(--fg-muted);
-}
-
-.sum-child .sum-children .sum-child {
-  padding-left: 0;
-}
-
-.sum-child > .sum-children {
-  grid-column: 1 / -1;
-}
-
-.sum-children {
-  margin-top: 4px;
-}
-
-.sum-toggle {
-  width: 22px;
-  height: 22px;
-  border: 0;
-  background: transparent;
-  color: var(--fg-muted);
-  font: inherit;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.sum-toggle:disabled {
-  opacity: 0.3;
-  cursor: default;
-}
-
-.sum-toggle:not(:disabled):hover {
-  background: var(--bg-3);
-}
-
-.sum-label {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.sum-child .sum-label {
-  font-weight: 400;
-}
-
-.sum-bar {
-  height: 8px;
-  background: var(--bg-3);
-  border-radius: 4px;
-  overflow: hidden;
-}
-
-.sum-bar > span {
-  display: block;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 4px;
-}
-
-.sum-notes,
-.sum-exact {
-  font-size: 12px;
-  color: var(--fg-muted);
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.sum-hours {
-  text-align: right;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.sum-child .sum-hours {
-  font-weight: 500;
-}
-
-.sum-total {
-  border-bottom: 0;
-  border-top: 2px solid var(--border-strong);
-}
-
-.sum-total .sum-bar {
-  background: transparent;
-}
-
-.sum-gran {
-  width: 52px;
-  margin: 0 4px;
-  padding: 2px 4px;
-  font: inherit;
-  font-size: 12px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-}
-
-.sum-custom {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--fg-muted);
-}
-
-.sum-custom input {
-  font: inherit;
-  font-size: 12px;
-  padding: 2px 4px;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-}
-
 /* ---- Timeline: git events ---- */
 .tlb-git {
   list-style: none;
@@ -2465,7 +2324,6 @@ button:disabled {
 .tlb-git-icon {
   color: var(--accent);
 }
-
 
 /* ---------------------------------------------------------------- top bar */
 
@@ -3042,6 +2900,69 @@ body[data-platform='darwin'] .topbar-left {
   opacity: 0.6;
 }
 
+/* Completed todos ticked off in a row: one quiet line, like an automatic block. */
+.done-stub {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 13px;
+  text-align: left;
+  /* Lines up with ordinary blocks (.entry). */
+  padding: 8px 10px;
+  margin: 0 -10px;
+  width: calc(100% + 20px);
+  border-radius: 8px;
+}
+
+.done-stub .entry-brace {
+  top: 6px;
+  bottom: 6px;
+}
+
+.done-stub:hover {
+  color: var(--fg);
+  background: var(--bg-2);
+}
+
+.done-count {
+  flex: none;
+  font-weight: 600;
+}
+
+.done-titles {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  opacity: 0.85;
+}
+
+.done-toggle {
+  flex: none;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.done-stub:hover .done-toggle {
+  text-decoration: underline;
+}
+
+/* Expanded: the line becomes a header over the blocks it folded. */
+.done-stub.is-open {
+  color: var(--fg);
+}
+
+.done-run .note-slot.is-done-run {
+  margin-left: 14px;
+}
+
 /* ---- Start menu in the status bar ---- */
 .start-wrap {
   position: relative;
@@ -3359,7 +3280,9 @@ body[data-platform='darwin'] .topbar-left {
 /* ---------------------------------------------------------------- todos */
 
 .todo-panel {
+  position: relative;
   width: 300px;
+  max-width: 50vw;
   min-height: 0;
   display: flex;
   flex-direction: column;
@@ -3370,6 +3293,31 @@ body[data-platform='darwin'] .topbar-left {
 
 .todo-panel.is-collapsed {
   width: 30px;
+}
+
+/* The drag handle on the panel's left edge. */
+.todo-resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  cursor: col-resize;
+  z-index: 5;
+  touch-action: none;
+}
+
+.todo-resize:hover,
+.todo-resize:focus-visible,
+body.is-resizing .todo-resize {
+  background: color-mix(in srgb, var(--accent) 45%, transparent);
+  outline: none;
+}
+
+/* While dragging: no text selection, the resize cursor everywhere. */
+body.is-resizing {
+  cursor: col-resize;
+  user-select: none;
 }
 
 .todo-expand {
@@ -3614,8 +3562,67 @@ body[data-platform='darwin'] .topbar-left {
 }
 
 .todo-comment-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   font-size: 11px;
   color: var(--fg-muted);
+}
+
+.todo-comment.is-hidden > .markdown-body {
+  opacity: 0.6;
+}
+
+/* Comment actions: quiet, shown on hover or keyboard focus. */
+.todo-comment-actions {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+
+.todo-comment-meta:hover .todo-comment-actions,
+.todo-comment:hover > .todo-comment-meta .todo-comment-actions,
+.todo-comment-actions:focus-within {
+  opacity: 1;
+}
+
+.todo-comment-action {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  padding: 0 4px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.todo-comment-action:hover {
+  color: var(--fg);
+  background: var(--bg-2);
+}
+
+.todo-comment-action.is-danger {
+  color: var(--danger);
+}
+
+.todo-comment-edit .composer-editor {
+  font-size: 13px;
+}
+
+.todo-hidden-toggle {
+  display: block;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 11px;
+  padding: 0 0 4px 10px;
+  cursor: pointer;
+}
+
+.todo-hidden-toggle:hover {
+  color: var(--fg);
 }
 
 .todo-reply .composer-editor {
@@ -3648,12 +3655,6 @@ body[data-platform='darwin'] .topbar-left {
   color: var(--fg-muted);
   font-size: 12px;
   padding: 4px 6px;
-}
-
-@media (max-width: 1000px) {
-  .todo-panel:not(.is-collapsed) {
-    width: 240px;
-  }
 }
 
 /* Status bar at narrow widths: text shrinks and truncates, controls keep their size. */
@@ -3696,4 +3697,761 @@ body[data-platform='darwin'] .topbar-left {
   .statusbar > .status-branch {
     display: none;
   }
+}
+
+/* ---- Extensions ---- */
+.modal-extensions {
+  width: min(640px, 94vw);
+}
+
+.ext-empty {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.ext-list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ext-item {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.ext-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.ext-name {
+  font-weight: 600;
+}
+
+.ext-version,
+.ext-source,
+.ext-perms {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.ext-source code,
+.consent-meta code {
+  font-size: 11px;
+}
+
+.ext-state {
+  margin-left: auto;
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--fg-muted);
+}
+
+.ext-state.state-running {
+  background: color-mix(in srgb, var(--ok) 18%, transparent);
+  color: var(--ok);
+}
+
+.ext-state.state-needs-consent {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.ext-state.state-error,
+.ext-state.state-failed {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.ext-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+}
+
+.ext-perms {
+  margin: 6px 0 0;
+}
+
+.ext-error {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+}
+
+.ext-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.ext-actions .spacer {
+  flex: 1;
+}
+
+.ext-settings {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border);
+}
+
+.ext-add .field-row {
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ext-add input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ext-token-label {
+  font-size: 12px;
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.consent-backdrop {
+  z-index: 60;
+}
+
+.modal-consent {
+  width: min(520px, 92vw);
+}
+
+.consent-meta {
+  margin: -6px 0 10px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.consent-note {
+  margin: 0 0 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 14%, transparent);
+  font-size: 13px;
+}
+
+.consent-facts {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.scope-picker {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 10px;
+  margin: 0 0 10px;
+}
+
+.scope-picker legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.scope-canvases {
+  list-style: none;
+  margin: 4px 0 6px 22px;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ext-fields {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.ext-fields legend {
+  padding: 0 4px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.consent-trust {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  font-size: 13px;
+}
+
+.consent-trust p {
+  margin: 0 0 6px;
+}
+
+/* ---- Extension settings page ---- */
+.modal-ext-settings {
+  width: min(560px, 94vw);
+}
+
+.ext-settings-section {
+  margin: 12px 0 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.ext-settings-section h3 {
+  margin: 0 0 2px;
+  font-size: 13px;
+}
+
+.ext-settings-section > .hint {
+  margin: 0 0 8px;
+}
+
+.ext-field {
+  margin-bottom: 10px;
+}
+
+.ext-field input:not([type='checkbox']),
+.ext-field select,
+.ext-field textarea {
+  width: 100%;
+}
+
+.ext-field .hint {
+  margin: 3px 0 0;
+}
+
+.ext-field.has-problem input,
+.ext-field.has-problem select {
+  border-color: var(--danger);
+}
+
+.ext-field-problem {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
+
+.ext-required {
+  color: var(--danger);
+}
+
+.ext-secret-set {
+  gap: 6px;
+  align-items: center;
+}
+
+.ext-secret-dots {
+  flex: 1;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.ext-missing {
+  margin: 6px 0 0;
+  font-size: 12px;
+  color: var(--warn);
+}
+
+.ext-check-ok {
+  color: var(--ok);
+  font-size: 13px;
+}
+
+/* ---- Paged dialogs (settings, canvas properties): nav on the left, one page on the right ---- */
+.modal.modal-paged {
+  width: min(920px, 94vw);
+  height: min(640px, 88vh);
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: 200px minmax(0, 1fr);
+}
+
+.modal-paged.modal-page {
+  width: min(760px, 94vw);
+  height: min(560px, 88vh);
+}
+
+.paged-nav {
+  background: var(--bg-2);
+  border-right: 1px solid var(--border);
+  padding: 16px 8px;
+  overflow-y: auto;
+}
+
+.paged-title {
+  font-size: 15px !important;
+  margin: 0 8px 12px !important;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paged-group + .paged-group {
+  margin-top: 12px;
+}
+
+.paged-group-name {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 8px 4px;
+}
+
+.paged-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+}
+
+.paged-link:hover {
+  background: var(--bg-3);
+}
+
+.paged-link.is-selected {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.paged-link-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paged-badge {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--fg-muted);
+}
+
+.paged-badge.is-dirty {
+  background: #d69e2e;
+}
+
+.paged-badge.is-attention {
+  background: #e05252;
+}
+
+.paged-link.is-selected .paged-badge {
+  box-shadow: 0 0 0 2px var(--accent-fg);
+}
+
+.paged-main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+}
+
+.paged-close {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 14px;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  z-index: 1;
+}
+
+.paged-close:hover {
+  background: var(--bg-3);
+  color: var(--fg);
+}
+
+.paged-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px 12px;
+}
+
+.paged-footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+
+.paged-footer .form-error {
+  margin: 0;
+  flex-basis: 100%;
+}
+
+.settings-page h3 {
+  margin-top: 4px;
+}
+
+.settings-page h3 ~ h3 {
+  margin-top: 20px;
+}
+
+.settings-page .field-grid {
+  grid-template-columns: 1fr 180px;
+}
+
+.page-row {
+  display: flex;
+  gap: 8px;
+  margin: 8px 0 16px;
+}
+
+/* An extension page's own Save sits at its foot, like the dialog footer. */
+.page-actions {
+  position: sticky;
+  bottom: -12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 16px -24px -12px;
+  padding: 12px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.ext-page-head {
+  padding-right: 32px;
+}
+
+.ext-page-title {
+  font-size: 17px !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  color: var(--fg) !important;
+  margin: 0 !important;
+}
+
+.ext-page .ext-settings-section {
+  margin-top: 18px;
+}
+
+.settings-page .ext-actions {
+  flex-wrap: wrap;
+}
+
+/* ---- Sidebar foot: settings ---- */
+.sidebar-foot {
+  padding: 6px 8px 8px;
+  border-top: 1px solid color-mix(in srgb, var(--sidebar-fg) 12%, transparent);
+  flex: none;
+}
+
+.sidebar-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #e05252;
+  flex: none;
+}
+
+/* ---- Context menu ---- */
+.context-menu {
+  position: fixed;
+  z-index: 50;
+  min-width: 200px;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 4px;
+  font-size: 13px;
+}
+
+.context-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  padding: 6px 10px;
+  border-radius: 5px;
+}
+
+.context-item:hover:not(:disabled),
+.context-item:focus-visible {
+  background: var(--accent);
+  color: var(--accent-fg);
+  outline: none;
+}
+
+.context-item:disabled {
+  color: var(--fg-muted);
+}
+
+.context-item.is-danger {
+  color: #c53030;
+}
+
+.context-hint {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.context-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ---- Split Start button ---- */
+.split-btn {
+  display: inline-flex;
+}
+
+.split-btn .split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.split-btn .split-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  border-left: 1px solid color-mix(in srgb, currentColor 25%, transparent);
+  padding-left: 5px;
+  padding-right: 5px;
+}
+
+.split-title {
+  font-weight: 600;
+}
+
+.task-start,
+.task-stop {
+  flex: none;
+}
+
+/* ---- No canvases yet ---- */
+.empty-home {
+  flex: 1;
+  margin: 0 auto;
+  padding-top: 12vh;
+  max-width: 420px;
+  text-align: center;
+  color: var(--fg-muted);
+}
+
+.empty-home h2 {
+  color: var(--fg);
+  margin-bottom: 8px;
+}
+
+.settings-page.ext-fields {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+/* ---- Block pages: the block is the page's surface; what is inside it is the stream ---- */
+.block-surface {
+  margin: 10px 0 4px;
+}
+
+.block-surface .entry.entry-surface {
+  background: var(--bg-2);
+  border: 1px solid transparent;
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.block-surface .entry.entry-surface:hover {
+  border-color: var(--border);
+}
+
+/* On the surface the header (time, actions) is always there, above the text. */
+.block-surface .entry-surface > .entry-meta {
+  position: static;
+  visibility: visible;
+  opacity: 1;
+  margin-bottom: 4px;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.block-surface .entry-surface .entry-body {
+  font-size: 14.5px;
+  line-height: 1.55;
+}
+
+.crumb-block {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+  font-weight: 400;
+}
+
+.entry-inside {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 12px;
+}
+
+.entry-inside:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* ---- Todo panel headings: canvases and blocks, foldable ---- */
+.todo-group-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+
+.todo-group-head .todo-group-label {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+  padding-left: 2px;
+}
+
+.todo-group-caret {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 10px;
+  width: 16px;
+  padding: 6px 0 2px;
+  flex: none;
+}
+
+.todo-group-count {
+  font-size: 11px;
+  color: var(--fg-muted);
+  padding: 4px 6px 0;
+}
+
+.todo-group .todo-group {
+  margin-left: 10px;
+  margin-bottom: 4px;
+}
+
+/* ---- Todos in the stream ---- */
+.entry-todo-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.entry-check {
+  margin-top: 4px;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  accent-color: var(--accent);
+}
+
+.entry-todo-row > .entry-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-todo.is-done .entry-todo-row > .entry-body {
+  color: var(--fg-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--fg-muted);
+}
+
+/* Dropping on the middle of a block puts the dragged one inside it. */
+.note-slot.drop-inside > .note > .entry {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* ---- Extension views (sandboxed frames) ---- */
+.ext-view {
+  display: block;
+  border: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+  color-scheme: normal;
+}
+
+.ext-page-view {
+  flex: 1;
+  min-height: 0;
+}
+
+.statusbar .status-ext {
+  flex: none;
+  height: 22px;
+  display: inline-block;
+  overflow: hidden;
+}
+
+.ext-popover {
+  position: fixed;
+  z-index: 40;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+
+/* An extension's view in a canvas's header (1.6): the header's height, the width it asks for. */
+.canvas-header-ext {
+  display: inline-flex;
+  height: 26px;
+  flex: none;
+  max-width: 480px;
+  margin-left: 8px;
+}
+
+.canvas-header-ext .ext-view {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  background: transparent;
 }

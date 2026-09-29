@@ -2,10 +2,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { JOURNAL_ID, ancestorIds, canvasLabel } from '@devlog/core'
 import type { Canvas, CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { api } from '@renderer/api'
+import type { ViewContext } from '@devlog/extension-api/view'
+import { ExtensionView } from './ExtensionView'
 import { renderMarkdown } from '@renderer/markdown'
 import { Composer } from './Composer'
 import { Feed } from './Feed'
 import { Lightbox } from './Lightbox'
+import { canvasIcon, typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 interface Props {
   canvas: CanvasMeta
@@ -16,27 +19,60 @@ interface Props {
   loading: boolean
   editRequest: string | null
   activeCanvasId: string | null
+  onCanvasMenu: (canvasId: string, x: number, y: number) => void
+  onOpenBlock: (canvasId: string, date: string, id: string) => void
   onLoadMore: () => Promise<void>
   onAdd: (canvasId: string, markdown: string, position: EntryPosition) => Promise<void>
   onUpdate: (canvasId: string, date: string, id: string, markdown: string) => Promise<void>
   onDelete: (canvasId: string, date: string, id: string) => Promise<void>
   onMove: (canvasId: string, date: string, id: string, toCanvasId: string) => Promise<void>
-  onPromote: (canvasId: string, date: string, id: string) => Promise<void>
+  onNest: (canvasId: string, date: string, id: string, to: { date: string; parentId?: string; afterId?: string }) => Promise<void>
   onOpenCanvas: (id: string) => void
   onEditCanvas: () => void
-  onNewCanvasHere: (task: boolean) => void
+  onNewCanvasHere: () => void
   onArchive: (archived: boolean) => Promise<void>
   onSetHidden: (canvasId: string, date: string, id: string, hidden: boolean) => Promise<void>
+  onSetDone: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   /** Link another working copy to this canvas (folder picker, then update). */
   onLinkRepo: () => void
   onUnlinkRepo: (path: string) => void
   onReorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }) => Promise<void>
+  /** Extension views for this canvas's header (1.6). */
+  headerViews?: Array<{ extKey: string; viewId: string; title: string; url: string }>
+  onExtPopover?: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext) => void
+  onExtOpen?: (target: { canvasId: string; date?: string; blockId?: string }) => void
 }
 
-/**
- * One canvas: breadcrumbs and actions, the surface (free markdown, read
- * mode by default so links work), then the stream of blocks.
- */
+/** An extension's view in a canvas's header: the header's height; it asks for a width (1.6). */
+export function HeaderSlot({
+  view,
+  canvasId,
+  onPopover,
+  onOpen
+}: {
+  view: { extKey: string; viewId: string; title: string; url: string }
+  canvasId: string
+  onPopover?: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext) => void
+  onOpen?: (target: { canvasId: string; date?: string; blockId?: string }) => void
+}): React.JSX.Element {
+  const [width, setWidth] = useState(120)
+  const context = useMemo(() => ({ canvasId }), [canvasId])
+  return (
+    <span className="canvas-header-ext" style={{ width }} data-ext-view={`${view.extKey}/${view.viewId}`}>
+      <ExtensionView
+        extKey={view.extKey}
+        viewId={view.viewId}
+        url={view.url}
+        title={view.title}
+        context={context}
+        onResize={(s) => s.width && setWidth(Math.round(Math.min(Math.max(s.width, 24), 480)))}
+        onPopover={(id, anchor, size) => onPopover?.(view.extKey, id, anchor, size, context)}
+        onOpen={onOpen}
+      />
+    </span>
+  )
+}
+
 export function CanvasView({
   canvas,
   canvases,
@@ -46,21 +82,28 @@ export function CanvasView({
   loading,
   editRequest,
   activeCanvasId,
+  onCanvasMenu,
+  onOpenBlock,
   onLoadMore,
   onAdd,
   onUpdate,
   onDelete,
   onMove,
-  onPromote,
+  onNest,
   onOpenCanvas,
   onEditCanvas,
   onNewCanvasHere,
   onArchive,
   onSetHidden,
+  onSetDone,
   onLinkRepo,
   onUnlinkRepo,
-  onReorder
+  onReorder,
+  headerViews,
+  onExtPopover,
+  onExtOpen
 }: Props): React.JSX.Element {
+  const types = useNodeTypes()
   const isJournal = canvas.id === JOURNAL_ID
   const [full, setFull] = useState<Canvas | null>(null)
   const [editing, setEditing] = useState(false)
@@ -105,7 +148,6 @@ export function CanvasView({
 
   const crumbs = useMemo(() => ancestorIds(canvases, canvas.id).reverse(), [canvases, canvas.id])
   const children = useMemo(() => canvases.filter((c) => c.parentId === canvas.id), [canvases, canvas.id])
-  const isActive = activeCanvasId === canvas.id
 
   const save = async (markdown: string): Promise<void> => {
     if (markdown === lastSaved.current) return
@@ -125,25 +167,32 @@ export function CanvasView({
   const surfaceText = full ? lastSaved.current || full.surface : ''
   const showSurface = !isJournal && (editing || surfaceText.trim().length > 0)
 
+  const menuFor =
+    (id: string) =>
+    (ev: React.MouseEvent): void => {
+      ev.preventDefault()
+      onCanvasMenu(id, ev.clientX, ev.clientY)
+    }
+
   const header = (
     <header className="feed-head page-head">
       <div className="page-head-row">
         <h2 className="breadcrumbs">
           {crumbs.map((id) => (
             <span key={id}>
-              <button type="button" className="crumb" onClick={() => onOpenCanvas(id)}>
+              <button type="button" className="crumb" onClick={() => onOpenCanvas(id)} onContextMenu={menuFor(id)}>
                 {canvasLabel(canvases, id).split(' / ').pop()}
               </button>
               <span className="crumb-sep"> / </span>
             </span>
           ))}
-          <span className="crumb is-current">{canvas.title}</span>
-        </h2>
-        {canvas.task && (
-          <span className={`task-badge${isActive ? ' is-active' : ''}`} title={isActive ? 'This is the active task' : 'Task: time is tracked against it'}>
-            {isActive ? '◉ active' : 'task'}
+          <span className="crumb is-current" onContextMenu={isJournal ? undefined : menuFor(canvas.id)}>
+            {canvas.title}
           </span>
-        )}
+        </h2>
+        {headerViews?.map((v) => (
+          <HeaderSlot key={`${v.extKey}/${v.viewId}`} view={v} canvasId={canvas.id} onPopover={onExtPopover} onOpen={onExtOpen} />
+        ))}
         <span className="spacer" />
         {!isJournal && (
           <>
@@ -160,8 +209,8 @@ export function CanvasView({
                 </button>
               </>
             )}
-            <button type="button" className="btn btn-quiet btn-xs" onClick={onEditCanvas} title="Rename, move, mark as task, repositories…">
-              Edit
+            <button type="button" className="btn btn-quiet btn-xs canvas-props" onClick={onEditCanvas} title="Rename, move, mark as task, repositories, extension fields… (or right-click the canvas in the sidebar)">
+              Properties
             </button>
             {confirm ? (
               <>
@@ -195,6 +244,9 @@ export function CanvasView({
           </>
         )}
       </div>
+      {isJournal && (
+        <div className="archived-banner">The journal is retired: nothing new goes here. Move what is worth keeping onto a canvas (hover a block → Move).</div>
+      )}
       {canvas.archived && <div className="archived-banner">This canvas is archived. It stays searchable and readable; unarchive it to post again.</div>}
       {showSurface && (
         <div className="surface">
@@ -262,15 +314,21 @@ export function CanvasView({
         <div className="canvas-children">
           {children
             .filter((c) => !c.archived)
-            .sort((a, b) => Number(a.task) - Number(b.task) || a.title.localeCompare(b.title))
+            .sort((a, b) => Number(Boolean(typeOf(types, a))) - Number(Boolean(typeOf(types, b))) || a.title.localeCompare(b.title))
             .map((c) => (
-              <button key={c.id} type="button" className={`child-chip${c.task ? ' is-task' : ''}${activeCanvasId === c.id ? ' is-active' : ''}`} onClick={() => onOpenCanvas(c.id)}>
-                {c.task ? '◉ ' : '▤ '}
+              <button
+                key={c.id}
+                type="button"
+                className={`child-chip${c.task ? ' is-task' : ''}${activeCanvasId === c.id ? ' is-active' : ''}`}
+                onClick={() => onOpenCanvas(c.id)}
+                onContextMenu={menuFor(c.id)}
+              >
+                {canvasIcon(types, c)}{' '}
                 {c.title}
               </button>
             ))}
           {!isJournal && !canvas.archived && (
-            <button type="button" className="child-chip child-add" onClick={() => onNewCanvasHere(false)} title="New canvas inside this one">
+            <button type="button" className="child-chip child-add" onClick={() => onNewCanvasHere()} title="New canvas inside this one">
               +
             </button>
           )}
@@ -297,11 +355,13 @@ export function CanvasView({
       onUpdate={onUpdate}
       onDelete={onDelete}
       onMove={onMove}
-      onPromote={onPromote}
+      onNest={onNest}
       onSetHidden={onSetHidden}
+      onSetDone={onSetDone}
       onReorder={onReorder}
       onJumpTo={(id) => onOpenCanvas(id)}
       onOpenCanvas={onOpenCanvas}
+      onOpenBlock={onOpenBlock}
     />
   )
 }

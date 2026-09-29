@@ -9,10 +9,10 @@ export interface MenuActions {
   attachImage: () => void
   newCanvas: () => void
   review: () => void
-  summary: () => void
   switcher: () => void
   timeline: () => void
-  stopTask: () => void
+  back: () => void
+  forward: () => void
   quit: () => void
 }
 
@@ -46,7 +46,6 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
       { label: 'Open Devlog Repository…', accelerator: 'CmdOrCtrl+O', click: actions.openRepo },
       { type: 'separator' },
       { label: 'Sync Now', accelerator: 'CmdOrCtrl+Shift+S', click: actions.syncNow },
-      { label: 'Stop Active Task', accelerator: 'CmdOrCtrl+Shift+.', click: actions.stopTask },
       { type: 'separator' },
       ...(isMac
         ? [{ role: 'close' } as MenuItemConstructorOptions]
@@ -79,9 +78,12 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
     label: 'View',
     submenu: [
       { label: 'Weekly Review', accelerator: 'CmdOrCtrl+Shift+R', click: actions.review },
-      { label: 'Summary', accelerator: 'CmdOrCtrl+Shift+H', click: actions.summary },
       { label: 'Go to Canvas…', accelerator: 'CmdOrCtrl+P', click: actions.switcher },
       { label: 'Day Timeline', accelerator: 'CmdOrCtrl+Shift+T', click: actions.timeline },
+      { type: 'separator' },
+      // The keys are handled in the page (App.tsx) so they work inside the editor; the menu only shows them.
+      { label: 'Back', accelerator: isMac ? 'Cmd+[' : 'Alt+Left', registerAccelerator: false, click: actions.back },
+      { label: 'Forward', accelerator: isMac ? 'Cmd+]' : 'Alt+Right', registerAccelerator: false, click: actions.forward },
       { type: 'separator' },
       { role: 'reload' },
       { role: 'toggleDevTools' },

@@ -1,0 +1,138 @@
+{
+  "name": "devlog-time",
+  "displayName": "Time tracking",
+  "version": "1.1.0",
+  "description": "Tasks you record time against: one active task at a time, paused while the computer is locked, idle or asleep. Brings the Start/Stop item, the task type, posting as a task, and the time behind the timeline, review, summary and timesheet.",
+  "api": "^1.7.0",
+  "main": "dist/main.js",
+  "contributes": {
+    "nodeTypes": [
+      {
+        "id": "task",
+        "label": "Task",
+        "icon": "◉",
+        "placeholder": "posting here makes it the active task"
+      }
+    ],
+    "settings": [
+      {
+        "key": "idle_minutes",
+        "label": "Pause after this many minutes without input",
+        "type": "number",
+        "placeholder": "10",
+        "description": "0 never pauses for idleness (locking the screen or sleep still does)."
+      },
+      {
+        "key": "in_repo",
+        "label": "Keep time in the devlog",
+        "type": "checkbox",
+        "description": "On: synced with the devlog, so every machine's time adds up. Off: kept on this machine only."
+      }
+    ],
+    "commands": [
+      {
+        "id": "stop",
+        "label": "Stop the clock",
+        "keybinding": "Mod+Shift+.",
+        "menus": [
+          "tray"
+        ]
+      },
+      {
+        "id": "switch",
+        "label": "Start a task…",
+        "menus": [
+          "tray"
+        ]
+      },
+      {
+        "id": "start",
+        "label": "Start this task",
+        "nodeType": "task",
+        "menus": [
+          "canvas"
+        ]
+      },
+      {
+        "id": "posttask",
+        "label": "Posts as a task",
+        "keybinding": "Mod+Shift+Enter",
+        "post": true,
+        "tag": "task"
+      },
+      {
+        "id": "maketask",
+        "label": "Make task",
+        "menus": [
+          "block"
+        ]
+      },
+      {
+        "id": "open-summary",
+        "label": "Open the Summary",
+        "keybinding": "Mod+Shift+H"
+      }
+    ],
+    "views": [
+      {
+        "id": "timesheet",
+        "title": "Timesheet",
+        "entry": "dist/views/timesheet.html",
+        "placement": "page",
+        "icon": "▤"
+      },
+      {
+        "id": "summary",
+        "title": "Summary",
+        "entry": "dist/views/summary.html",
+        "placement": "page",
+        "icon": "Σ"
+      },
+      {
+        "id": "status",
+        "title": "Time tracking",
+        "entry": "dist/views/status.html",
+        "placement": "statusbar"
+      },
+      {
+        "id": "picker",
+        "title": "Start a task",
+        "entry": "dist/views/picker.html",
+        "placement": "popover"
+      },
+      {
+        "id": "header",
+        "title": "Start or stop this task",
+        "entry": "dist/views/header.html",
+        "placement": "canvasHeader",
+        "nodeType": "task"
+      }
+    ],
+    "canvasFields": [
+      {
+        "key": "target_week",
+        "label": "Hours per week",
+        "type": "number",
+        "placeholder": "20",
+        "description": "A weekly target for the hours under this canvas, shown on the Timesheet. Canvases inside it keep their own targets.",
+        "inherited": false
+      },
+      {
+        "key": "target_month",
+        "label": "Hours per month",
+        "type": "number",
+        "placeholder": "168",
+        "description": "A monthly target for the hours under this canvas, shown on the Timesheet.",
+        "inherited": false
+      }
+    ]
+  },
+  "permissions": {
+    "read": true,
+    "write": true,
+    "send": true
+  },
+  "appendOnly": [
+    "**/*.jsonl"
+  ]
+}

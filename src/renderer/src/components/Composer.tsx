@@ -8,11 +8,12 @@ import type { EditorView } from '@tiptap/pm/view'
 import { isBlankMarkdown, localDate } from '@devlog/core'
 import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
-import { clearActiveComposer, setActiveComposer } from '@renderer/editor/active'
-import { kbd } from '@renderer/keys'
+import { clearActiveComposer, setActiveComposer, setDockEditor } from '@renderer/editor/active'
+import { kbd, matchesKeybinding } from '@renderer/keys'
 import { detectCodePaste } from '@renderer/editor/smartPaste'
 import type { CanvasMeta } from '@shared/types'
-import { JOURNAL_ID, buildCanvasTree, flattenTree } from '@devlog/core'
+import { buildCanvasTree, flattenTree } from '@devlog/core'
+import { typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
 export type ComposerMode = 'new' | 'edit' | 'reply' | 'insert' | 'document'
 
@@ -27,8 +28,10 @@ export interface ComposerProps {
   assetDate?: string
   /** Custom image sink (e.g. a wiki's asset folder). */
   saveImage?: (bytes: Uint8Array, mime: string, name: string) => Promise<{ src: string }>
-  /** Called with markdown when the user posts. Resolve to clear the editor. `task` is set for Mod+Shift+Enter. */
-  onSubmit: (markdown: string, opts?: { task?: boolean }) => Promise<void>
+  /** Called with markdown when the user posts. Resolve to clear the editor. `open` is set for Alt+Enter, `action` for a post command's keybinding. */
+  onSubmit: (markdown: string, opts?: SubmitOpts) => Promise<void>
+  /** Extension post commands (1.6): their keybinding posts, then runs the command (`action` is its key). New mode only. */
+  postActions?: Array<{ key: string; keybinding: string }>
   /** Document mode: called (debounced) whenever the content changes. */
   onChange?: (markdown: string) => Promise<void> | void
   onCancel?: () => void
@@ -37,14 +40,22 @@ export interface ComposerProps {
   /** Persist draft under this key in localStorage (new mode). */
   draftKey?: string
   focusToken?: number
+  /** This is the dock composer: typing with nothing focused lands here. */
+  dock?: boolean
   /** New mode: offer a canvas picker so a block can be posted anywhere from here. */
   canvases?: CanvasMeta[]
   targetCanvasId?: string
   onTargetChange?: (canvasId: string) => void
 }
 
+export interface SubmitOpts {
+  open?: boolean
+  /** An extension post command's key. */
+  action?: string
+}
+
 const PLACEHOLDER: Record<ComposerMode, string> = {
-  new: `Write a block…  Enter posts, ${kbd('mod', 'shift', 'Enter')} posts as a task, Shift+Enter new line`,
+  new: 'Write a block…  Enter posts, Alt+Enter posts and opens it',
   edit: 'Edit block…  Enter saves, Esc cancels',
   reply: 'Reply…  Enter posts, Esc cancels',
   insert: 'New block here…  Enter posts, Esc cancels',
@@ -84,15 +95,18 @@ export function Composer({
   assetDate,
   saveImage,
   onSubmit,
+  postActions,
   onChange,
   onCancel,
   onEditLast,
   draftKey,
   focusToken,
+  dock = false,
   canvases,
   targetCanvasId,
   onTargetChange
 }: ComposerProps): React.JSX.Element {
+  const types = useNodeTypes()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(0)
@@ -100,7 +114,9 @@ export function Composer({
   const [linkUrl, setLinkUrl] = useState('')
   const [, forceRender] = useState(0)
   const renderQueued = useRef(false)
-  const submitRef = useRef<(opts?: { task?: boolean }) => boolean>(() => false)
+  const submitRef = useRef<(opts?: SubmitOpts) => boolean>(() => false)
+  const postActionsRef = useRef(postActions)
+  postActionsRef.current = postActions
   const cancelRef = useRef<() => boolean>(() => false)
   const linkRef = useRef<() => boolean>(() => false)
   const editLastRef = useRef<(() => void) | undefined>(onEditLast)
@@ -184,7 +200,7 @@ export function Composer({
       Placeholder.configure({ placeholder: placeholder ?? PLACEHOLDER[mode] }),
       SubmitKeymap.configure({
         onSubmit: () => (isDocument ? false : submitRef.current()),
-        onSubmitTask: () => (isDocument || mode !== 'new' ? false : submitRef.current({ task: true })),
+        onSubmitOpen: () => (isDocument || mode !== 'new' ? false : submitRef.current({ open: true })),
         onCancel: () => (isDocument ? false : cancelRef.current()),
         onLink: () => linkRef.current(),
         onEditLast: () => {
@@ -199,6 +215,14 @@ export function Composer({
     autofocus: autoFocus ? 'end' : false,
     editorProps: {
       attributes: { class: 'composer-editor', spellcheck: 'true' },
+      // Extension post commands' keybindings come before the editor's own keys.
+      handleKeyDown: (_view, event) => {
+        if (isDocument || mode !== 'new') return false
+        const hit = postActionsRef.current?.find((a) => matchesKeybinding(event, a.keybinding))
+        if (!hit) return false
+        event.preventDefault()
+        return submitRef.current({ action: hit.key })
+      },
       handlePaste: (view, event) => {
         const files = Array.from(event.clipboardData?.files ?? []).filter(isImageFile)
         if (files.length > 0) {
@@ -311,7 +335,7 @@ export function Composer({
     }
   }, [isDocument])
 
-  const submit = useCallback((opts?: { task?: boolean }): boolean => {
+  const submit = useCallback((opts?: SubmitOpts): boolean => {
     const e = editorRef.current
     if (!e || busy || uploading > 0) return true
     const markdown = e.getMarkdown().trim()
@@ -352,6 +376,26 @@ export function Composer({
   useEffect(() => {
     if (focusToken !== undefined && editor) editor.commands.focus('end')
   }, [focusToken, editor])
+
+  useEffect(() => {
+    if (!dock || !editor) return
+    return setDockEditor({
+      type: (text) => {
+        if (editor.isDestroyed) return
+        // Insert in the same transaction that moves the caret to the end;
+        // focus itself lands a frame later, and keys typed before then come
+        // back through here.
+        editor
+          .chain()
+          .focus('end')
+          .command(({ tr }) => {
+            tr.insertText(text)
+            return true
+          })
+          .run()
+      }
+    })
+  }, [dock, editor])
 
   const openLink = (): void => {
     if (!editor) return
@@ -448,12 +492,16 @@ export function Composer({
           {mode === 'new' && canvases && onTargetChange && (
             <label className="composer-target" title="Which canvas this block posts to">
               <span className="composer-target-icon">▤</span>
-              <select value={targetCanvasId ?? JOURNAL_ID} onChange={(ev) => onTargetChange(ev.target.value)}>
-                <option value={JOURNAL_ID}>Journal</option>
+              <select value={targetCanvasId ?? ''} onChange={(ev) => onTargetChange(ev.target.value)}>
+                {!targetCanvasId && (
+                  <option value="" disabled>
+                    Choose a canvas…
+                  </option>
+                )}
                 {flattenTree(buildCanvasTree(canvases)).map(({ canvas: c, depth }) => (
                   <option key={c.id} value={c.id}>
                     {'\u00a0\u00a0'.repeat(depth)}
-                    {c.task ? '◉ ' : ''}
+                    {typeOf(types, c) ? `${typeOf(types, c)?.icon} ` : ''}
                     {c.title}
                   </option>
                 ))}

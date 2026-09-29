@@ -96,7 +96,10 @@ export interface SegmentOptions {
  * most recently) wins, so the same hour is never counted twice.
  */
 export function buildTaskSegments(events: ActivityEvent[], opts: SegmentOptions = {}): TaskSegment[] {
-  return flattenOverlaps(byMachine(events).flatMap((evs) => replayTasks(evs, opts)))
+  const groups = byMachine(events)
+  // One machine's segments never overlap: nothing to merge.
+  if (groups.length <= 1) return groups.length ? replayTasks(groups[0], opts) : []
+  return flattenOverlaps(groups.flatMap((evs) => replayTasks(evs, opts)))
 }
 
 function replayTasks(events: ActivityEvent[], opts: SegmentOptions): TaskSegment[] {
@@ -198,28 +201,74 @@ function byMachine(events: ActivityEvent[]): ActivityEvent[][] {
  * Make segments non-overlapping: a segment that starts later overrides the
  * part of any earlier one it covers; what is left of the earlier one on
  * either side remains. Sorted by start.
+ *
+ * A sweep over the segments' boundaries: at each point the covering segment
+ * that comes last in (start, end) order wins. O(n log n), so a week of
+ * window-focus changes from several machines stays fast.
  */
 export function flattenOverlaps<T extends { start: string; end: string }>(segments: T[]): T[] {
-  const sorted = [...segments].sort((a, b) => a.start.localeCompare(b.start) || a.end.localeCompare(b.end))
-  let out: T[] = []
-  for (const seg of sorted) {
-    const s = ms(seg.start)
-    const e = ms(seg.end)
-    const next: T[] = []
-    for (const r of out) {
-      const rs = ms(r.start)
-      const re = ms(r.end)
-      if (re <= s || rs >= e) {
-        next.push(r)
-        continue
-      }
-      if (rs < s) next.push({ ...r, end: seg.start })
-      if (re > e) next.push({ ...r, start: seg.end })
-    }
-    next.push(seg)
-    out = next
+  const items = segments
+    .map((seg) => ({ seg, s: ms(seg.start), e: ms(seg.end), rank: 0 }))
+    .filter((x) => x.e > x.s)
+    .sort((a, b) => a.seg.start.localeCompare(b.seg.start) || a.seg.end.localeCompare(b.seg.end))
+  items.forEach((x, i) => (x.rank = i))
+  // Reuse the original strings for boundaries so untouched edges are unchanged.
+  const label = new Map<number, string>()
+  for (const x of items) {
+    if (!label.has(x.s)) label.set(x.s, x.seg.start)
+    if (!label.has(x.e)) label.set(x.e, x.seg.end)
   }
-  return out.sort((a, b) => a.start.localeCompare(b.start))
+  const points = [...label.keys()].sort((a, b) => a - b)
+
+  // Max-heap on rank; ended segments are dropped lazily when they reach the top.
+  const heap: typeof items = []
+  const push = (x: (typeof items)[number]): void => {
+    heap.push(x)
+    for (let i = heap.length - 1; i > 0; ) {
+      const p = (i - 1) >> 1
+      if (heap[p].rank >= heap[i].rank) break
+      ;[heap[p], heap[i]] = [heap[i], heap[p]]
+      i = p
+    }
+  }
+  const pop = (): void => {
+    const last = heap.pop()!
+    if (heap.length === 0) return
+    heap[0] = last
+    for (let i = 0; ; ) {
+      const l = 2 * i + 1
+      const r = l + 1
+      let m = i
+      if (l < heap.length && heap[l].rank > heap[m].rank) m = l
+      if (r < heap.length && heap[r].rank > heap[m].rank) m = r
+      if (m === i) break
+      ;[heap[m], heap[i]] = [heap[i], heap[m]]
+      i = m
+    }
+  }
+
+  const out: T[] = []
+  let open: { rank: number; piece: T } | null = null
+  let k = 0
+  for (let pi = 0; pi < points.length - 1; pi++) {
+    const p = points[pi]
+    const q = points[pi + 1]
+    while (k < items.length && items[k].s <= p) push(items[k++])
+    while (heap.length && heap[0].e <= p) pop()
+    if (!heap.length) {
+      open = null
+      continue
+    }
+    const top = heap[0]
+    if (open && open.rank === top.rank) {
+      open.piece.end = label.get(q)!
+    } else {
+      const piece = { ...top.seg, start: label.get(p)!, end: label.get(q)! }
+      out.push(piece)
+      open = { rank: top.rank, piece }
+    }
+  }
+  return out
 }
 
 export interface ExclusionWindow {
@@ -305,7 +354,9 @@ export function applyExplicitDurations(segments: TaskSegment[], explicit: Explic
  * pause, stop or app death. Replayed per machine and merged like task segments.
  */
 export function buildFocusSegments(events: ActivityEvent[], opts: SegmentOptions = {}): FocusSegment[] {
-  return flattenOverlaps(byMachine(events).flatMap((evs) => replayFocus(evs, opts)))
+  const groups = byMachine(events)
+  if (groups.length <= 1) return groups.length ? replayFocus(groups[0], opts) : []
+  return flattenOverlaps(groups.flatMap((evs) => replayFocus(evs, opts)))
 }
 
 function replayFocus(events: ActivityEvent[], opts: SegmentOptions): FocusSegment[] {

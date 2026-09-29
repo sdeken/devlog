@@ -1,0 +1,9 @@
+{
+  "name": "trusted",
+  "displayName": "Trusted probe",
+  "version": "1.0.0",
+  "api": "^1.2.0",
+  "main": "main.js",
+  "contributes": { "commands": [{ "id": "probe", "label": "Probe" }] },
+  "permissions": { "unrestricted": true }
+}

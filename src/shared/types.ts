@@ -1,4 +1,4 @@
-/** App-level types (settings, window, tracker, updates). Data types come from @devlog/core. */
+/** App-level types (settings, window, updates). Data types come from @devlog/core. */
 export * from '@devlog/core/types'
 export interface AttachedImage {
   name: string
@@ -17,16 +17,16 @@ export interface Settings {
   commitOnQuit: boolean
   authorName: string
   authorEmail: string
-  /** Record task, lock/idle and focus events while the app runs. */
+  /** Time was tracked on this machine before 0.17 (it is now the devlog-time extension); only used to switch over once. */
   trackingEnabled: boolean
-  /** Record the foreground window (app + title). */
+  /** The switch to devlog-time has been made on this machine. */
+  timeSwitched: boolean
+  /** Window tracking was on before 0.8 (it is now the devlog-focus extension); only used to say so once. */
   trackFocus: boolean
-  /** Minutes without input before the active task is paused. 0 disables. */
+  /** Before 0.17: minutes without input before the active task paused (carried over to devlog-time). */
   idleMinutes: number
-  /** Keep the activity log inside the devlog repository (synced) instead of locally. */
+  /** Keep the app's activity log (locks, idle, sleep, git events) inside the devlog repository (synced) instead of locally. */
   activityInRepo: boolean
-  /** Bumped when a release changes a default for existing installs (see SettingsStore.load). */
-  settingsRevision: number
   /** Capture commits from canvas repositories as read-only blocks. */
   captureCommits: boolean
   /** Days offered when importing a linked repository's history (the import itself is opt-in per link). */
@@ -58,10 +58,10 @@ export const DEFAULT_SETTINGS: Settings = {
   authorName: '',
   authorEmail: '',
   trackingEnabled: true,
-  trackFocus: true,
+  timeSwitched: false,
+  trackFocus: false,
   idleMinutes: 10,
   activityInRepo: true,
-  settingsRevision: 2,
   captureCommits: true,
   commitBackfillDays: 30,
   autoUpdate: true,
@@ -78,21 +78,6 @@ export interface RepoInfo {
 /** Scheme used by the renderer to load files from inside the devlog repo. */
 export const ASSET_SCHEME = 'devlog'
 export const ASSET_HOST = 'asset'
-
-// ---------------------------------------------------------------------------
-// Activity tracking
-// ---------------------------------------------------------------------------
-
-export interface TrackerStatus {
-  tracking: boolean
-  activeCanvasId: string | null
-  /** When the current task segment started (after the last pause). */
-  since: string | null
-  paused: boolean
-  pausedReason: 'locked' | 'idle' | 'suspended' | null
-  focusAvailable: boolean
-  lastFocus: { app: string; title: string } | null
-}
 
 // ---------------------------------------------------------------------------
 // Auto-update

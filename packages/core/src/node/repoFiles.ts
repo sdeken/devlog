@@ -1,4 +1,4 @@
-/** Small repository housekeeping files the store and the migrations share. */
+/** Small repository housekeeping files, and the list of block files. */
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 
@@ -9,7 +9,7 @@ import path from 'node:path'
  */
 export const GITATTRIBUTES_LINES = ['**/entries/**/*.md merge=union', '**/todos.md merge=union', 'activity/**/*.jsonl merge=union']
 
-export const GITIGNORE_LINES = ['.DS_Store', 'Thumbs.db', '.devlog-migrate/', '.devlog-migrate-old/']
+export const GITIGNORE_LINES = ['.DS_Store', 'Thumbs.db']
 
 /** Append any of `lines` missing from `file` (created if needed). Leaves everything else as it is. */
 export async function ensureLines(file: string, lines: string[], comment?: string): Promise<void> {
@@ -27,6 +27,16 @@ export async function ensureRepoFiles(root: string): Promise<void> {
   await ensureLines(path.join(root, '.gitattributes'), GITATTRIBUTES_LINES, '# Devlog: append-only files merge by keeping both sides')
 }
 
+/**
+ * Union-merge an extension's append-only files (`appendOnly` globs in its
+ * manifest, relative to its `extensions/<id>/` folder).
+ */
+export async function ensureExtensionAttributes(root: string, id: string, globs: string[]): Promise<void> {
+  if (globs.length === 0) return
+  const lines = globs.map((g) => `extensions/${id}/${g.replace(/^\/+/, '')} merge=union`)
+  await ensureLines(path.join(root, '.gitattributes'), lines, '# Devlog extensions: append-only files')
+}
+
 /** A block file in the sharded layout: a day file or a todo list. */
 export interface BlockFileRef {
   /** Repo-relative POSIX path. */
@@ -40,7 +50,7 @@ export interface BlockFileRef {
 const YEAR_RE = /^\d{4}$/
 const DAY_FILE_RE = /^(\d{4}-\d{2}-\d{2})\.md$/
 
-/** Every block file in a sharded (format 2+) repository: the journal's and each canvas's. */
+/** Every block file in the repository: the journal's and each canvas's. */
 export async function listBlockFiles(root: string): Promise<BlockFileRef[]> {
   const out: BlockFileRef[] = []
   const stream = async (base: string): Promise<void> => {

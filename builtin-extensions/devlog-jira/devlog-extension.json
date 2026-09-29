@@ -1,0 +1,61 @@
+{
+  "name": "devlog-jira",
+  "displayName": "Jira worklogs",
+  "version": "1.1.0",
+  "description": "Sends a finished timesheet to Jira as worklogs, one per entry, on the issue set on the task (or a canvas above it). Sending again only creates, updates or deletes what changed.",
+  "api": "^1.3.0",
+  "main": "main.js",
+  "contributes": {
+    "canvasFields": [
+      {
+        "key": "issue",
+        "label": "Jira issue",
+        "placeholder": "ACME-123",
+        "description": "Time on this canvas, and on canvases inside it that don't set their own, is logged on this issue."
+      }
+    ],
+    "settings": [
+      {
+        "key": "baseurl",
+        "label": "Jira address",
+        "type": "url",
+        "required": true,
+        "placeholder": "https://yourcompany.atlassian.net",
+        "description": "The address you open Jira at."
+      },
+      {
+        "key": "email",
+        "label": "Account email",
+        "type": "email",
+        "placeholder": "you@example.com",
+        "description": "Jira Cloud: the email you sign in with. Jira Data Center: leave empty and use a personal access token below."
+      }
+    ],
+    "secrets": [
+      {
+        "key": "token",
+        "label": "API token",
+        "required": true,
+        "description": "Jira Cloud: create one at id.atlassian.com \u2192 Security \u2192 API tokens. Data Center: a personal access token from your Jira profile."
+      }
+    ],
+    "commands": [
+      {
+        "id": "check",
+        "label": "Check the Jira connection"
+      }
+    ],
+    "destinations": [
+      {
+        "id": "worklogs",
+        "label": "Jira"
+      }
+    ],
+    "check": "check"
+  },
+  "permissions": {
+    "network": [
+      "*.atlassian.net"
+    ]
+  }
+}

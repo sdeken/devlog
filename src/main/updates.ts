@@ -15,7 +15,7 @@ export interface UpdaterSignals {
   locked: () => boolean
   syncBusy: () => boolean
   editorBusy: () => boolean
-  /** Runs the normal shutdown work (stop tracker, final sync) before the restart. */
+  /** Runs the normal shutdown work (stop extensions, final sync) before the restart. */
   prepareQuit: () => Promise<void>
 }
 

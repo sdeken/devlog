@@ -6,7 +6,13 @@ export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
     resolve: {
-      alias: { '@shared': resolve('src/shared'), '@devlog/core': resolve('packages/core/src') }
+      alias: { '@shared': resolve('src/shared'), '@devlog/core': resolve('packages/core/src'), '@devlog/extension-api': resolve('packages/extension-api/src') }
+    },
+    build: {
+      rollupOptions: {
+        // The extension process is its own, self-contained file (see hostProcess.ts).
+        input: { index: resolve('src/main/index.ts'), extensionHost: resolve('src/main/extensions/hostProcess.ts') }
+      }
     }
   },
   preload: {

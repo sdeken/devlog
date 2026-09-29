@@ -22,7 +22,7 @@ await fs.mkdir(out, { recursive: true })
 execFileSync('git', ['init', '--initial-branch=main'], { cwd: repo })
 await fs.writeFile(
   path.join(userData, 'settings.json'),
-  JSON.stringify({ repoPath: repo, syncIntervalMinutes: 60, commitDebounceSeconds: 600, autoPush: false, pullOnStart: false, commitOnQuit: false, authorName: 'Dev', authorEmail: 'd@e.com', trackingEnabled: true, trackFocus: false, idleMinutes: 0, activityInRepo: false, captureCommits: false })
+  JSON.stringify({ repoPath: repo, syncIntervalMinutes: 60, commitDebounceSeconds: 600, autoPush: false, pullOnStart: false, commitOnQuit: false, authorName: 'Dev', authorEmail: 'd@e.com', trackingEnabled: true, trackFocus: false, idleMinutes: 0, activityInRepo: true, captureCommits: false })
 )
 
 const app = await electron.launch({ args: [appRoot, '--no-sandbox', '--disable-gpu'], env: { ...process.env, DEVLOG_USER_DATA: userData } })

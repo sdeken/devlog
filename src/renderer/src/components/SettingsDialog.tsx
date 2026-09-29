@@ -1,11 +1,29 @@
-import { useEffect, useState } from 'react'
-import type { RepoInfo, Settings, ThemeSettings, UpdateStatus } from '@shared/types'
+import { useEffect, useRef, useState } from 'react'
+import type { CanvasMeta, RepoInfo, Settings, ThemeSettings, UpdateStatus } from '@shared/types'
+import type { ExtensionInfo } from '@shared/extensions'
 import { THEME_PRESETS, resolveTheme } from '@shared/theme'
 import { api } from '@renderer/api'
+import { PagedDialog, type DialogPage } from './PagedDialog'
+import { ExtensionPage, ExtensionsPage, needsAttention } from './ExtensionPages'
+
+/** The app's own pages, and which settings each one edits (for its unsaved-changes marker). */
+const APP_PAGES: Array<{ id: string; label: string; keys: Array<keyof Settings | 'remote'> }> = [
+  { id: 'repository', label: 'Repository', keys: ['remote', 'authorName', 'authorEmail'] },
+  { id: 'sync', label: 'Sync', keys: ['commitDebounceSeconds', 'syncIntervalMinutes', 'autoPush', 'pullOnStart', 'commitOnQuit'] },
+  { id: 'appearance', label: 'Appearance', keys: ['theme'] },
+  { id: 'tracking', label: 'Activity', keys: ['focusMinSeconds', 'activityInRepo', 'captureCommits', 'commitBackfillDays'] },
+  { id: 'updates', label: 'Updates', keys: ['autoUpdate'] }
+]
+
+export type SettingsPage = string
 
 interface Props {
   settings: Settings
   repo: RepoInfo | null
+  canvases: CanvasMeta[]
+  extensions: ExtensionInfo[]
+  /** The page to open on: an app page id, 'extensions', or 'ext:<key>'. */
+  initialPage?: SettingsPage
   onClose: () => void
   onSaved: (s: Settings) => void
   onRepoChanged: (r: RepoInfo | null) => void
@@ -13,28 +31,49 @@ interface Props {
   onPreview?: (s: Settings) => void
 }
 
-export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged, onPreview }: Props): React.JSX.Element {
+const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/**
+ * Settings: the app's own pages and, under Extensions, a page for each
+ * extension this devlog uses. App settings save together; Save only lights
+ * up once something changed, and each page with unsaved changes is marked.
+ */
+export function SettingsDialog({ settings, repo, canvases, extensions, initialPage, onClose, onSaved, onRepoChanged, onPreview }: Props): React.JSX.Element {
+  const [page, setPage] = useState<SettingsPage>(initialPage ?? 'repository')
   const [form, setForm] = useState<Settings>(settings)
   const [remote, setRemote] = useState(repo?.remoteUrl ?? '')
   const [saving, setSaving] = useState(false)
+  const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
+  const [extDirty, setExtDirty] = useState<Record<string, boolean>>({})
+  const [confirmClose, setConfirmClose] = useState(false)
 
   useEffect(() => {
     void api.updates.status().then(setUpdate)
     return api.updates.onStatus(setUpdate)
   }, [])
 
+  // An extension that went away (removed here, or by a pull) loses its page;
+  // one just added may not be listed yet, so its page waits for it.
+  const seen = useRef(new Set<string>())
+  for (const e of extensions) seen.current.add(e.key)
+  const pageExt = page.startsWith('ext:') ? page.slice(4) : null
   useEffect(() => {
-    const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape') close()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (pageExt && seen.current.has(pageExt) && !extensions.some((e) => e.key === pageExt)) setPage('extensions')
+  }, [extensions, pageExt])
 
-  const set = <K extends keyof Settings>(k: K, v: Settings[K]): void => setForm((f) => ({ ...f, [k]: v }))
-  const setTheme = (patch: Partial<ThemeSettings>): void =>
+  const changed = (key: keyof Settings | 'remote'): boolean => (key === 'remote' ? remote.trim() !== (repo?.remoteUrl ?? '') : !same(form[key], settings[key]))
+  const pageDirty = (id: string): boolean => APP_PAGES.find((p) => p.id === id)?.keys.some(changed) ?? false
+  const dirty = APP_PAGES.some((p) => pageDirty(p.id))
+  const anyDirty = dirty || Object.values(extDirty).some(Boolean)
+
+  const set = <K extends keyof Settings>(k: K, v: Settings[K]): void => {
+    setSaved(false)
+    setForm((f) => ({ ...f, [k]: v }))
+  }
+  const setTheme = (patch: Partial<ThemeSettings>): void => {
+    setSaved(false)
     setForm((f) => {
       const theme: ThemeSettings = { ...f.theme, ...patch }
       if (patch.sidebar === undefined && 'sidebar' in patch) delete theme.sidebar
@@ -43,10 +82,23 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
       onPreview?.(next)
       return next
     })
+  }
   const resolved = resolveTheme(form.theme)
-  const close = (): void => {
+
+  const close = (force = false): void => {
+    if (anyDirty && !force) {
+      setConfirmClose(true)
+      return
+    }
     onPreview?.(settings) // drop any unsaved preview
     onClose()
+  }
+
+  const revert = (): void => {
+    setForm(settings)
+    setRemote(repo?.remoteUrl ?? '')
+    onPreview?.(settings)
+    setError(null)
   }
 
   const save = async (): Promise<void> => {
@@ -55,11 +107,13 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
     try {
       const next = await api.settings.set(form)
       onSaved(next)
+      setForm(next)
       if (repo && remote.trim() !== (repo.remoteUrl ?? '')) {
         const info = await api.repo.setRemote(remote.trim())
         onRepoChanged(info)
       }
-      onClose()
+      setSaved(true)
+      setConfirmClose(false)
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -80,12 +134,53 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
     }
   }
 
-  return (
-    <div className="modal-backdrop" onMouseDown={(ev) => ev.target === ev.currentTarget && close()}>
-      <div className="modal" role="dialog" aria-modal="true" aria-labelledby="settings-title">
-        <h2 id="settings-title">Settings</h2>
+  const pages: DialogPage[] = [
+    ...APP_PAGES.map((p) => ({ id: p.id, label: p.label, group: 'Devlog', badge: pageDirty(p.id) ? ('dirty' as const) : null })),
+    ...(repo
+      ? [
+          { id: 'extensions', label: 'Manage', group: 'Extensions', badge: null },
+          ...extensions.map((e) => ({
+            id: `ext:${e.key}`,
+            label: e.displayName,
+            group: 'Extensions',
+            badge: extDirty[e.key] ? ('dirty' as const) : needsAttention(e) ? ('attention' as const) : null
+          }))
+        ]
+      : [])
+  ]
+  const onAppPage = APP_PAGES.some((p) => p.id === page)
 
-        <section>
+  const footer = confirmClose ? (
+    <>
+      <span className="entry-confirm">Close without saving your changes?</span>
+      <span className="spacer" />
+      <button type="button" className="btn btn-quiet" onClick={() => setConfirmClose(false)}>
+        Keep editing
+      </button>
+      <button type="button" className="btn btn-danger" onClick={() => close(true)}>
+        Discard changes
+      </button>
+    </>
+  ) : onAppPage ? (
+    <>
+      {error && <p className="form-error">{error}</p>}
+      <span className="spacer" />
+      {dirty ? <span className="hint">Unsaved changes</span> : saved ? <span className="hint state-saved">Saved</span> : null}
+      {dirty && (
+        <button type="button" className="btn btn-quiet" onClick={revert} disabled={saving}>
+          Revert
+        </button>
+      )}
+      <button type="button" className="btn btn-primary settings-save" onClick={() => void save()} disabled={saving || !dirty}>
+        {saving ? 'Saving…' : 'Save'}
+      </button>
+    </>
+  ) : null
+
+  return (
+    <PagedDialog title="Settings" className="modal-settings" pages={pages} page={page} onPage={setPage} onClose={() => close()} footer={footer}>
+      {page === 'repository' && (
+        <div className="settings-page">
           <h3>Repository</h3>
           <div className="field">
             <label>Folder</label>
@@ -103,12 +198,52 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
           </div>
           <div className="field">
             <label htmlFor="remote">Remote URL (origin)</label>
-            <input id="remote" type="text" placeholder="git@github.com:you/devlog.git" value={remote} onChange={(ev) => setRemote(ev.target.value)} />
+            <input
+              id="remote"
+              type="text"
+              placeholder="git@github.com:you/devlog.git"
+              value={remote}
+              onChange={(ev) => {
+                setSaved(false)
+                setRemote(ev.target.value)
+              }}
+            />
             <p className="hint">Pushes use your existing git credentials (SSH agent or credential helper). Leave blank to keep the log local.</p>
           </div>
-        </section>
+          <h3>Commit author</h3>
+          <p className="hint">Optional. Overrides the git config for this app only; leave blank to use your global git identity.</p>
+          <div className="field-grid">
+            <label htmlFor="authorName">Name</label>
+            <input id="authorName" type="text" value={form.authorName} onChange={(ev) => set('authorName', ev.target.value)} />
+            <label htmlFor="authorEmail">Email</label>
+            <input id="authorEmail" type="email" value={form.authorEmail} onChange={(ev) => set('authorEmail', ev.target.value)} />
+          </div>
+        </div>
+      )}
 
-        <section>
+      {page === 'sync' && (
+        <div className="settings-page">
+          <h3>Automatic sync</h3>
+          <div className="field-grid">
+            <label htmlFor="debounce">Commit after edits (seconds)</label>
+            <input id="debounce" type="number" min={1} max={3600} value={form.commitDebounceSeconds} onChange={(ev) => set('commitDebounceSeconds', Number(ev.target.value))} />
+            <label htmlFor="interval">Sync every (minutes)</label>
+            <input id="interval" type="number" min={1} max={1440} value={form.syncIntervalMinutes} onChange={(ev) => set('syncIntervalMinutes', Number(ev.target.value))} />
+          </div>
+          <label className="check">
+            <input type="checkbox" checked={form.autoPush} onChange={(ev) => set('autoPush', ev.target.checked)} /> Push to the remote after committing
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={form.pullOnStart} onChange={(ev) => set('pullOnStart', ev.target.checked)} /> Pull from the remote when the app starts
+          </label>
+          <label className="check">
+            <input type="checkbox" checked={form.commitOnQuit} onChange={(ev) => set('commitOnQuit', ev.target.checked)} /> Commit and push when quitting
+          </label>
+        </div>
+      )}
+
+      {page === 'appearance' && (
+        <div className="settings-page">
           <h3>Appearance</h3>
           <div className="theme-presets">
             {THEME_PRESETS.map((p) => (
@@ -145,41 +280,17 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             </span>
           </div>
           <p className="hint">Text, hover and selection colours follow from these two. Light and dark mode for the content area follow the system.</p>
-        </section>
+        </div>
+      )}
 
-        <section>
-          <h3>Automatic sync</h3>
-          <div className="field-grid">
-            <label htmlFor="debounce">Commit after edits (seconds)</label>
-            <input id="debounce" type="number" min={1} max={3600} value={form.commitDebounceSeconds} onChange={(ev) => set('commitDebounceSeconds', Number(ev.target.value))} />
-            <label htmlFor="interval">Sync every (minutes)</label>
-            <input id="interval" type="number" min={1} max={1440} value={form.syncIntervalMinutes} onChange={(ev) => set('syncIntervalMinutes', Number(ev.target.value))} />
-          </div>
-          <label className="check">
-            <input type="checkbox" checked={form.autoPush} onChange={(ev) => set('autoPush', ev.target.checked)} /> Push to the remote after committing
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={form.pullOnStart} onChange={(ev) => set('pullOnStart', ev.target.checked)} /> Pull from the remote when the app starts
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={form.commitOnQuit} onChange={(ev) => set('commitOnQuit', ev.target.checked)} /> Commit and push when quitting
-          </label>
-        </section>
-
-        <section>
-          <h3>Activity tracking</h3>
-          <label className="check">
-            <input type="checkbox" checked={form.trackingEnabled} onChange={(ev) => set('trackingEnabled', ev.target.checked)} /> Track the active task
-            and machine activity (lock, idle, sleep)
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={form.trackFocus} disabled={!form.trackingEnabled} onChange={(ev) => set('trackFocus', ev.target.checked)} /> Record the
-            focused window (app and title)
-          </label>
-          <div className="field-grid">
-            <label htmlFor="idle">Pause the task after idle (minutes, 0 = never)</label>
-            <input id="idle" type="number" min={0} max={240} value={form.idleMinutes} onChange={(ev) => set('idleMinutes', Number(ev.target.value))} />
-          </div>
+      {page === 'tracking' && (
+        <div className="settings-page">
+          <h3>Activity</h3>
+          <p className="hint">
+            Time tracking (tasks, Start and Stop, the timesheet) is the <strong>devlog-time</strong> extension, and recording the focused window is{' '}
+            <strong>devlog-focus</strong>: add them under Extensions. While time is tracked, Devlog notes when this machine is locked, idle or asleep, and keeps
+            running in the tray when the window is closed (quit from the tray or the File menu).
+          </p>
           <div className="field-grid">
             <label htmlFor="focusMin" title="Alt-tab flips shorter than this are folded into the surrounding window. Raw data is always kept.">
               Ignore window switches shorter than (seconds)
@@ -190,14 +301,14 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
               min={0}
               max={120}
               value={form.focusMinSeconds}
-              disabled={!form.trackingEnabled || !form.trackFocus}
               onChange={(ev) => set('focusMinSeconds', Number(ev.target.value))}
             />
           </div>
           <label className="check">
-            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Keep the activity log in the devlog
-            repository, one folder per machine, so time tracked on every machine adds up (synced; window titles included). Off: this machine only
+            <input type="checkbox" checked={form.activityInRepo} onChange={(ev) => set('activityInRepo', ev.target.checked)} /> Keep this machine's activity (locks,
+            idle, sleep, git events) in the devlog repository, one folder per machine (synced). Off: this machine only
           </label>
+          <h3>Commits</h3>
           <label className="check">
             <input type="checkbox" checked={form.captureCommits} onChange={(ev) => set('captureCommits', ev.target.checked)} /> Capture commits from canvas
             repositories as read-only blocks
@@ -208,14 +319,15 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
             </label>
             <input id="backfill" type="number" min={1} max={3650} value={form.commitBackfillDays} disabled={!form.captureCommits} onChange={(ev) => set('commitBackfillDays', Number(ev.target.value))} />
           </div>
-          <p className="hint">With tracking on, closing the window keeps Devlog running in the tray. Quit from the tray or the File menu.</p>
-        </section>
+        </div>
+      )}
 
-        <section>
+      {page === 'updates' && (
+        <div className="settings-page">
           <h3>Updates</h3>
           <label className="check">
-            <input type="checkbox" checked={form.autoUpdate} onChange={(ev) => set('autoUpdate', ev.target.checked)} /> Update automatically in the
-            background and restart at a quiet moment
+            <input type="checkbox" checked={form.autoUpdate} onChange={(ev) => set('autoUpdate', ev.target.checked)} /> Update automatically in the background and
+            restart at a quiet moment
           </label>
           <p className="hint update-line">
             Version {update?.currentVersion ?? '…'}
@@ -235,30 +347,24 @@ export function SettingsDialog({ settings, repo, onClose, onSaved, onRepoChanged
               </>
             )}
           </p>
-        </section>
-
-        <section>
-          <h3>Commit author</h3>
-          <p className="hint">Optional. Overrides the git config for this app only; leave blank to use your global git identity.</p>
-          <div className="field-grid">
-            <label htmlFor="authorName">Name</label>
-            <input id="authorName" type="text" value={form.authorName} onChange={(ev) => set('authorName', ev.target.value)} />
-            <label htmlFor="authorEmail">Email</label>
-            <input id="authorEmail" type="email" value={form.authorEmail} onChange={(ev) => set('authorEmail', ev.target.value)} />
-          </div>
-        </section>
-
-        {error && <p className="form-error">{error}</p>}
-
-        <div className="modal-actions">
-          <button type="button" className="btn btn-quiet" onClick={close}>
-            Cancel
-          </button>
-          <button type="button" className="btn btn-primary" onClick={() => void save()} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
-          </button>
         </div>
-      </div>
-    </div>
+      )}
+
+      {page === 'extensions' && <ExtensionsPage list={extensions} onOpen={(key) => setPage(`ext:${key}`)} />}
+
+      {pageExt && !extensions.some((e) => e.key === pageExt) && <p className="hint">Installing…</p>}
+
+      {/* Every extension page stays mounted, so switching pages keeps what you typed. */}
+      {extensions.map((e) => (
+        <div key={e.key} hidden={page !== `ext:${e.key}`}>
+          <ExtensionPage
+            ext={e}
+            canvases={canvases}
+            onDirty={(d) => setExtDirty((cur) => (Boolean(cur[e.key]) === d ? cur : { ...cur, [e.key]: d }))}
+            onRemoved={() => setPage('extensions')}
+          />
+        </div>
+      ))}
+    </PagedDialog>
   )
 }

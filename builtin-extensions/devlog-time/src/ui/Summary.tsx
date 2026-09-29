@@ -2,19 +2,18 @@ import { useEffect, useMemo, useState } from 'react'
 import { localDate } from '@devlog/core'
 import { addDays, buildReviewRows, computeWeekTime, formatHours, formatMinutes, roundMinutes, weekStart, type ReviewNote, type ReviewRow } from '@shared/review'
 import type { ActivityEvent, CanvasMeta } from '@shared/types'
-import { api } from '@renderer/api'
+import { devlog } from '@devlog/ui'
+import { api } from './api'
 
 interface Props {
   canvases: CanvasMeta[]
   today: string
-  focusMinSeconds: number
-  onOpenCanvas: (id: string, date?: string) => void
 }
 
 type RangeKind = 'week' | 'lastWeek' | 'month' | 'lastMonth' | 'custom'
 
 const rangeFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' })
-const GRAN_KEY = 'devlog:summary:granularity'
+const GRAN_KEY = 'summary.granularity'
 
 function parseLocal(date: string): Date {
   const [y, m, d] = date.split('-').map(Number)
@@ -40,16 +39,15 @@ function datesBetween(from: string, to: string): string[] {
   return out
 }
 
-export function Summary({ canvases, today, focusMinSeconds, onOpenCanvas }: Props): React.JSX.Element {
+export function Summary({ canvases, today }: Props): React.JSX.Element {
+  const onOpenCanvas = (canvasId: string, date?: string): void => devlog.open({ canvasId, ...(date ? { date } : {}) })
   const [kind, setKind] = useState<RangeKind>('week')
   const [custom, setCustom] = useState<{ from: string; to: string }>({ from: weekStart(today), to: today })
-  const [granularity, setGranularity] = useState<number>(() => {
-    try {
-      return Number(localStorage.getItem(GRAN_KEY)) || 15
-    } catch {
-      return 15
-    }
-  })
+  const [granularity, setGranularity] = useState<number>(15)
+  // Remembered by the extension, on this machine.
+  useEffect(() => {
+    void api.pref(GRAN_KEY).then((v) => v && setGranularity(Number(v) || 15), () => undefined)
+  }, [])
   const [notes, setNotes] = useState<ReviewNote[] | null>(null)
   const [events, setEvents] = useState<ActivityEvent[]>([])
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -75,11 +73,11 @@ export function Summary({ canvases, today, focusMinSeconds, onOpenCanvas }: Prop
   useEffect(() => {
     let cancelled = false
     setNotes(null)
-    void Promise.all([api.blocks.range(range.from, range.to), api.activity.range(range.from, range.to)]).then(([chunks, evs]) => {
+    void Promise.all([api.range(range.from, range.to), api.activity(range.from, range.to)]).then(([chunks, evs]) => {
       if (cancelled) return
       const flat: ReviewNote[] = []
-      for (const { canvasId, day } of chunks) {
-        for (const entry of day.entries) {
+      for (const { canvasId, blocks } of chunks) {
+        for (const entry of blocks) {
           const date = localDate(new Date(entry.createdAt))
           if (date >= range.from && date <= range.to) flat.push({ canvasId, date, entry })
         }
@@ -92,7 +90,7 @@ export function Summary({ canvases, today, focusMinSeconds, onOpenCanvas }: Prop
     }
   }, [range])
 
-  const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates, focusMinSeconds }), [notes, events, dates, focusMinSeconds])
+  const time = useMemo(() => computeWeekTime(notes ?? [], events, { dates }), [notes, events, dates])
   const rows = useMemo(() => buildReviewRows(canvases, notes ?? [], time.byCanvasDay), [canvases, notes, time])
   const total = rows.reduce((n, r) => n + r.totalMinutes, 0)
   const roundedSum = rows.reduce((n, r) => n + roundMinutes(r.totalMinutes, granularity), 0)
@@ -100,11 +98,7 @@ export function Summary({ canvases, today, focusMinSeconds, onOpenCanvas }: Prop
   const changeGranularity = (v: number): void => {
     const g = Math.max(1, Math.min(120, Math.round(v) || 15))
     setGranularity(g)
-    try {
-      localStorage.setItem(GRAN_KEY, String(g))
-    } catch {
-      /* ignore */
-    }
+    void api.setPref(GRAN_KEY, String(g)).catch(() => undefined)
   }
 
   const toggle = (key: string): void =>

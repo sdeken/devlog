@@ -1,0 +1,872 @@
+/*
+ * The time pages' look: the app's own rules for its timesheet, summary and
+ * send dialog (from src/renderer/src/styles.css), on the colours the app
+ * sends each view. Keep them in step when the app's change.
+ */
+html,
+body,
+#root {
+  height: 100%;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+}
+
+body {
+  font-family: var(--sans, var(--font));
+  font-size: 15px;
+}
+
+h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+button {
+  cursor: pointer;
+}
+
+.page-error {
+  margin: 8px 28px 0;
+}
+
+.spacer {
+  flex: 1;
+}
+
+.feed {
+  --feed-pad: 28px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 var(--feed-pad) 16px;
+  min-height: 0;
+}
+
+.feed-head {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--bg);
+  margin: 0 calc(-1 * var(--feed-pad)) 8px;
+  padding: 16px var(--feed-pad) 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.feed-head h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.page-head {
+  display: block;
+}
+
+.page-head-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.move-select {
+  font: inherit;
+  font-size: 12px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg);
+  color: var(--fg);
+  max-width: 220px;
+}
+
+.feed-sub {
+  color: var(--fg-muted);
+  font-size: 13px;
+}
+
+.feed-empty {
+  color: var(--fg-muted);
+  padding: 24px 0;
+}
+
+.entry-confirm {
+  color: var(--danger);
+}
+
+.btn {
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  padding: 5px 12px;
+  background: var(--bg);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-2);
+}
+
+.btn-xs {
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.btn-quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.btn-quiet:hover:not(:disabled) {
+  color: var(--fg);
+  background: var(--bg-3);
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--accent);
+}
+
+.btn-danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.modal textarea {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  font: inherit;
+  resize: vertical;
+}
+
+.hint {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 6px 0 0;
+}
+
+.form-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin: 12px 0 0;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: grid;
+  place-items: center;
+  z-index: 10;
+}
+
+.modal {
+  width: min(560px, 92vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow);
+  padding: 20px 24px;
+}
+
+.modal h2 {
+  margin: 0 0 12px;
+  font-size: 18px;
+}
+
+.modal section {
+  margin-bottom: 18px;
+}
+
+.modal h3 {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  margin: 0 0 8px;
+}
+
+.check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 0;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.week-nav {
+  display: flex;
+  gap: 2px;
+}
+
+.review-table-wrap {
+  overflow-x: auto;
+  margin: 12px 0 6px;
+}
+
+.review-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.review-table th,
+.review-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 5px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.review-table thead th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border-strong);
+  text-align: center;
+}
+
+.review-corner {
+  text-align: left !important;
+}
+
+.review-day-name {
+  display: block;
+}
+
+.review-day-num {
+  display: block;
+  font-weight: 400;
+}
+
+.review-day.is-today .review-day-num {
+  color: var(--link);
+  font-weight: 700;
+}
+
+.review-total {
+  border-left: 1px solid var(--border-strong);
+  font-weight: 600;
+}
+
+.review-note {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 4px 0 18px;
+}
+
+.check-inline {
+  font-size: 12px;
+  color: var(--fg-muted);
+  padding: 0;
+  -webkit-app-region: no-drag;
+}
+
+.sum-list,
+.sum-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sum-list {
+  margin: 8px 0 16px;
+}
+
+.sum-row {
+  padding: 8px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.sum-top,
+.sum-child {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) minmax(0, 160px) 70px 70px 64px;
+  align-items: center;
+  gap: 8px;
+}
+
+.sum-child {
+  grid-template-columns: minmax(0, 1fr) 70px 70px 64px;
+  padding: 3px 0 3px 30px;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.sum-child .sum-children .sum-child {
+  padding-left: 0;
+}
+
+.sum-child > .sum-children {
+  grid-column: 1 / -1;
+}
+
+.sum-children {
+  margin-top: 4px;
+}
+
+.sum-toggle {
+  width: 22px;
+  height: 22px;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.sum-toggle:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.sum-toggle:not(:disabled):hover {
+  background: var(--bg-3);
+}
+
+.sum-label {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sum-child .sum-label {
+  font-weight: 400;
+}
+
+.sum-bar {
+  height: 8px;
+  background: var(--bg-3);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.sum-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 4px;
+}
+
+.sum-notes,
+.sum-exact {
+  font-size: 12px;
+  color: var(--fg-muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sum-hours {
+  text-align: right;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.sum-child .sum-hours {
+  font-weight: 500;
+}
+
+.sum-total {
+  border-bottom: 0;
+  border-top: 2px solid var(--border-strong);
+}
+
+.sum-total .sum-bar {
+  background: transparent;
+}
+
+.sum-gran {
+  width: 52px;
+  margin: 0 4px;
+  padding: 2px 4px;
+  font: inherit;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.sum-custom {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.sum-custom input {
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.modal select {
+  padding: 6px 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  width: 100%;
+}
+
+.ts-state {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.ts-state.state-pending,
+.ts-state.state-saving {
+  color: var(--warn);
+}
+
+.ts-state.state-error {
+  color: var(--danger);
+}
+
+.ts-state.is-final {
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.ts-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.ts-day-sum {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.ts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.ts-table td {
+  padding: 3px 6px 3px 0;
+  vertical-align: middle;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+}
+
+.ts-table select,
+.ts-table input {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.ts-table select:hover,
+.ts-table input:hover,
+.ts-table select:focus,
+.ts-table input:focus {
+  border-color: var(--border);
+  background: var(--bg);
+}
+
+.ts-when {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.ts-minutes {
+  white-space: nowrap;
+  width: 1%;
+}
+
+.ts-hours {
+  display: inline-block;
+  min-width: 3.2em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.ts-step {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.ts-step:hover:not(:disabled) {
+  background: var(--bg-2);
+  color: var(--fg);
+}
+
+.ts-step:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.ts-task select {
+  max-width: 190px;
+}
+
+.ts-when select {
+  width: 4.2em;
+}
+
+.ts-when input[type='time'] {
+  width: 7.4em;
+}
+
+.ts-note input {
+  width: 100%;
+  min-width: 60px;
+}
+
+.ts-worked {
+  white-space: nowrap;
+  width: 1%;
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.ts-row.source-estimated .ts-worked {
+  color: var(--warn);
+}
+
+.ts-remove {
+  width: 1%;
+}
+
+.modal-send {
+  width: min(720px, 94vw);
+}
+
+.send-counts {
+  font-size: 13px;
+  margin: 0 0 8px;
+}
+
+.send-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+
+.send-table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+  vertical-align: top;
+}
+
+.send-when,
+.send-hours,
+.send-target {
+  white-space: nowrap;
+}
+
+.send-hours {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.send-target {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 12px;
+}
+
+.send-line.action-unchanged {
+  color: var(--fg-muted);
+}
+
+.send-action {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-2);
+  color: var(--fg-muted);
+  white-space: nowrap;
+}
+
+.send-action.action-create {
+  background: color-mix(in srgb, var(--ok) 16%, transparent);
+  color: var(--ok);
+}
+
+.send-action.action-update {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.send-action.action-delete {
+  background: color-mix(in srgb, var(--danger) 14%, transparent);
+  color: var(--danger);
+}
+
+.send-skipped ul {
+  margin: 4px 0 8px;
+  padding-left: 18px;
+  font-size: 12px;
+}
+
+.send-result.send-ok {
+  color: var(--ok);
+  font-size: 13px;
+}
+
+.ts-grid {
+  table-layout: fixed;
+}
+
+.ts-col-day {
+  width: 54px;
+}
+
+.ts-col-week {
+  width: 62px;
+}
+
+.ts-grid th[scope='row'] {
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ts-grid .ts-cell {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 0;
+}
+
+.ts-client-row th,
+.ts-client-row td {
+  background: var(--bg-2);
+  font-weight: 600;
+}
+
+.ts-client-cell {
+  padding: 5px 8px !important;
+  position: relative;
+}
+
+.ts-task-label {
+  padding-left: 20px !important;
+  font-weight: 400;
+  color: var(--fg);
+}
+
+.ts-task-path {
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.ts-cell-btn {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: right;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.ts-cell.is-empty .ts-cell-btn {
+  color: transparent;
+}
+
+.ts-cell.is-empty .ts-cell-btn:hover,
+.ts-cell.is-empty .ts-cell-btn:focus-visible {
+  color: var(--fg-muted);
+}
+
+.ts-cell-btn:hover {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.ts-cell.is-selected .ts-cell-btn {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--fg);
+  outline: 1px solid color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.ts-grid .review-total {
+  font-weight: 600;
+  padding: 5px 8px;
+}
+
+.ts-total-row th,
+.ts-total-row td {
+  font-weight: 700;
+  border-top: 2px solid var(--border-strong);
+  padding: 6px 8px;
+}
+
+.ts-worked-row th,
+.ts-worked-row td {
+  color: var(--fg-muted);
+  font-size: 12px;
+  padding: 3px 8px;
+}
+
+.ts-trim {
+  display: block;
+  margin: 2px 0 0 auto;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 6px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+  color: var(--warn);
+  cursor: pointer;
+}
+
+.ts-trim.is-add {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+.ts-none {
+  color: var(--fg-muted);
+  text-align: center !important;
+  padding: 16px !important;
+}
+
+.ts-add-task {
+  margin: 4px 0 12px;
+}
+
+.ts-add-task select {
+  font: inherit;
+  font-size: 13px;
+  padding: 3px 6px;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fg-muted);
+}
+
+.ts-detail {
+  margin: 8px 0 16px;
+  padding: 8px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.ts-detail-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+/* ---- Hour targets ---- */
+.ts-targets {
+  margin: 4px 0 14px;
+}
+
+.ts-targets h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.ts-targets ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ts-target {
+  display: grid;
+  grid-template-columns: minmax(120px, 1.4fr) 130px minmax(80px, 1fr) 120px 48px;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  font-size: 13px;
+}
+
+.ts-target-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ts-target-period,
+.ts-target-pct {
+  color: var(--fg-muted);
+}
+
+.ts-target-hours,
+.ts-target-pct {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.ts-target-bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-3);
+  overflow: hidden;
+}
+
+.ts-target-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+}
+
+.ts-target.is-over .ts-target-bar > span {
+  background: var(--warn);
+}
+
+.ts-target.is-over .ts-target-pct {
+  color: var(--warn);
+  font-weight: 600;
+}

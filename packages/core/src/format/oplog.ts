@@ -44,7 +44,6 @@ import {
   blockFileFormat,
   dayDir,
   escapeMarkerLines,
-  parseLegacyBlockFile,
   parseMarkerAttrs,
   quoteAttr,
   toRelativeFrom,
@@ -284,13 +283,12 @@ export function replayOps(ops: Op[], fallbackCreatedAt = '1970-01-01T00:00:00.00
 }
 
 // ---------------------------------------------------------------------------
-// Whole files, any format
+// Whole files
 // ---------------------------------------------------------------------------
 
-/** Replay any block file. Format 1 and 2 files are read as if compacted into format 3. */
+/** Replay a block file. */
 export function readBlockLog(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): BlockLog {
-  if (blockFileFormat(text) >= 3) return replayOps(parseOps(text, dir), fallbackCreatedAt)
-  return replayOps(compactOps(parseLegacyBlockFile(text, dir, fallbackCreatedAt)), fallbackCreatedAt)
+  return replayOps(parseOps(text, dir), fallbackCreatedAt)
 }
 
 /** Parse any file of blocks (a day file, a todo list) into live blocks in display order. */
@@ -331,7 +329,7 @@ export function compactOps(entries: Entry[]): Op[] {
   })
 }
 
-/** A whole file in compacted format 3 (used by migrations; the app itself only appends). */
+/** A whole file in compacted format 3 (used by compaction; the app itself only appends). */
 export function serializeBlockFile(entries: Entry[], dir: string, title: string): string {
   return blockFileHeader(title) + serializeOps(compactOps(entries), dir)
 }
@@ -424,22 +422,58 @@ export function threadIds(log: BlockLog, id: string): string[] {
 }
 
 /**
- * Records that move a top-level block (its thread follows) after `afterId`'s
- * thread or before `beforeId`. Empty when the move would change nothing.
+ * Records that move a block (everything inside it follows) among its
+ * siblings: after `afterId` or before `beforeId`. An anchor deeper in the
+ * tree stands for its ancestor at the block's level. Empty when the move
+ * would change nothing.
  */
 export function planMove(log: BlockLog, id: string, position: { afterId?: string; beforeId?: string }, at: string): Op[] {
   const root = liveEntry(log, id)
-  if (root.parentId) throw new Error('Only top-level blocks can be reordered')
+  const parent = root.parentId ?? null
   const anchorId = position.afterId ?? position.beforeId
   if (!anchorId) throw new Error('Nowhere to move to')
   const moving = new Set(threadIds(log, id))
   if (moving.has(anchorId)) return []
   let top = liveEntry(log, anchorId)
-  while (top.parentId) top = liveEntry(log, top.parentId)
-  const sibs = siblingIds(log, null, moving)
+  while ((top.parentId ?? null) !== parent) {
+    if (!top.parentId) throw new Error('A block can only be reordered among the blocks beside it')
+    top = liveEntry(log, top.parentId)
+  }
+  const sibs = siblingIds(log, parent, moving)
   const index = sibs.indexOf(top.id) + (position.afterId ? 1 : 0)
-  const { pos, renumber } = place(log, null, index, at, moving)
-  return [...renumber, { op: 'set', id, at, attrs: { pos } }]
+  const { pos, renumber } = place(log, parent, index, at, moving)
+  const attrs: Record<string, string> = { pos }
+  if (parent) attrs.parent = parent
+  return [...renumber, { op: 'set', id, at, attrs }]
+}
+
+/**
+ * Records that put a block (everything inside it follows) inside another
+ * block of the same file, at the end of what is already there
+ * (`{ parentId }`), or beside a block, right after it (`{ afterId }`, which
+ * is how a block moves out of the one it is in). Refuses to put a block
+ * inside itself or anything inside it.
+ */
+export function planNest(log: BlockLog, id: string, target: { parentId: string } | { afterId: string }, at: string): Op[] {
+  liveEntry(log, id)
+  const moving = new Set(threadIds(log, id))
+  let parent: string | null
+  let index: number
+  if ('parentId' in target) {
+    liveEntry(log, target.parentId)
+    if (moving.has(target.parentId)) throw new Error('A block cannot go inside itself')
+    parent = target.parentId
+    index = siblingIds(log, parent, moving).length
+  } else {
+    const anchor = liveEntry(log, target.afterId)
+    if (moving.has(anchor.id)) throw new Error('A block cannot go inside itself')
+    parent = anchor.parentId ?? null
+    index = siblingIds(log, parent, moving).indexOf(anchor.id) + 1
+  }
+  const { pos, renumber } = place(log, parent, index, at, moving)
+  const attrs: Record<string, string> = { pos }
+  if (parent) attrs.parent = parent
+  return [...renumber, { op: 'set', id, at, attrs }]
 }
 
 /** Records that delete a block and its whole thread. */

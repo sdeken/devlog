@@ -15,19 +15,16 @@
  * renderer and asset server can resolve them without knowing which day they
  * belong to.
  */
-import { ENTRY_KINDS, type Entry, type EntryKind, type EntryPosition } from '../types'
+import type { Entry, EntryPosition } from '../types'
 
 export const ENTRIES_DIR = 'entries'
 export const ASSETS_DIR = 'assets'
 
-const MARKER_RE = /^<!--\s*devlog:entry\s+([^>]*?)\s*-->\s*$/
 const FORMAT_RE = /^<!--\s*devlog:format\s+(\d+)\s*-->\s*$/
-/** v1 files carry a derived `### HH:MM` heading after each marker; v2 files do not. */
-const TIME_HEADING_RE = /^#{3,6}\s+(?:↳\s+)?\d{1,2}:\d{2}(?::\d{2})?\s*$/
 /** A body line that could be mistaken for one of our markers (optionally already escaped). */
 const MARKERISH_RE = /^(\s*)(\\*)(<!--\s*devlog:)/i
 
-/** Escape body lines that look like devlog markers (formats 2 and 3). Reversible by `unescapeMarkerLines`. */
+/** Escape body lines that look like devlog markers. Reversible by `unescapeMarkerLines`. */
 export function escapeMarkerLines(body: string): string {
   return body
     .split('\n')
@@ -42,14 +39,13 @@ export function unescapeMarkerLines(body: string): string {
     .join('\n')
 }
 
-/** Format version of a block file's text: from its header line, else 1. */
+/** Format version of a block file's text, from its header line; 0 without one. */
 export function blockFileFormat(text: string): number {
   for (const line of text.split(/\r?\n/, 5)) {
     const m = FORMAT_RE.exec(line)
     if (m) return Number(m[1])
-    if (MARKER_RE.test(line)) break
   }
-  return 1
+  return 0
 }
 const TITLE_RE = /^#\s+\d{4}-\d{2}-\d{2}\s*$/
 
@@ -165,7 +161,7 @@ export function rewriteImageSrcs(markdown: string, fn: (src: string) => string):
 
 /** Root-relative image paths always start with one of the top-level content folders. */
 export function isRootRelativeSrc(src: string): boolean {
-  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('canvases/') || src.startsWith('pages/') || src.startsWith('categories/')
+  return src.startsWith(`${ENTRIES_DIR}/`) || src.startsWith('canvases/')
 }
 
 /** Convert image paths relative to the file in `dir` into repo-root-relative paths. */
@@ -206,8 +202,6 @@ export function collectImageSrcs(markdown: string): string[] {
 // Parsing & serialising day files
 // ---------------------------------------------------------------------------
 
-const RESERVED_ATTRS = new Set(['id', 'parent', 'created', 'updated', 'kind', 'hidden'])
-
 export function quoteAttr(v: string): string {
   return /[\s"]/.test(v) || v === '' ? `"${v.replace(/"/g, '&quot;')}"` : v
 }
@@ -227,64 +221,6 @@ export function trimBlankLines(lines: string[]): string[] {
   while (start < end && lines[start].trim() === '') start++
   while (end > start && lines[end - 1].trim() === '') end--
   return lines.slice(start, end)
-}
-
-/**
- * Parse a format 1 or 2 block file (a day file, a canvas's todo list). `dir`
- * is the file's repo-relative directory, used to make image paths root-relative.
- */
-export function parseLegacyBlockFile(text: string, dir: string, fallbackCreatedAt = '1970-01-01T00:00:00.000Z'): Entry[] {
-  const lines = text.split(/\r?\n/)
-  const v2 = blockFileFormat(text) >= 2
-  const entries: Entry[] = []
-  let current: { attrs: Record<string, string>; lines: string[] } | null = null
-
-  const flush = (): void => {
-    if (!current) return
-    let body = current.lines
-    if (v2) {
-      body = body.map((l) => l.replace(MARKERISH_RE, (_m, ws: string, slashes: string, rest: string) => `${ws}${slashes.slice(1)}${rest}`))
-    } else {
-      // v1: drop the derived time heading that immediately follows the marker.
-      const firstIdx = body.findIndex((l) => l.trim() !== '')
-      if (firstIdx !== -1 && TIME_HEADING_RE.test(body[firstIdx])) body = body.slice(firstIdx + 1)
-    }
-    body = trimBlankLines(body)
-    const createdAt = current.attrs.created ?? fallbackCreatedAt
-    const entry: Entry = {
-      id: current.attrs.id || newEntryId(),
-      createdAt,
-      markdown: toRootRelativeFrom(body.join('\n'), dir)
-    }
-    if (current.attrs.parent) entry.parentId = current.attrs.parent
-    if (current.attrs.updated) entry.updatedAt = current.attrs.updated
-    if (current.attrs.kind && (ENTRY_KINDS as readonly string[]).includes(current.attrs.kind)) entry.kind = current.attrs.kind as EntryKind
-    if (current.attrs.hidden && /^(1|true|yes)$/i.test(current.attrs.hidden)) entry.hidden = true
-    const meta: Record<string, string> = {}
-    for (const [k, v] of Object.entries(current.attrs)) {
-      if (!RESERVED_ATTRS.has(k)) meta[k] = v
-    }
-    if (Object.keys(meta).length > 0) entry.meta = meta
-    entries.push(entry)
-    current = null
-  }
-
-  for (const line of lines) {
-    const m = MARKER_RE.exec(line)
-    if (m) {
-      flush()
-      current = { attrs: parseMarkerAttrs(m[1]), lines: [] }
-    } else if (current) {
-      current.lines.push(line)
-    }
-    // Lines before the first marker (title, hand-written preamble) are ignored.
-  }
-  flush()
-
-  // Drop dangling parent links (hand edits, deleted parents) so they render as top-level notes.
-  const ids = new Set(entries.map((e) => e.id))
-  for (const e of entries) if (e.parentId && !ids.has(e.parentId)) delete e.parentId
-  return entries
 }
 
 // ---------------------------------------------------------------------------
@@ -366,14 +302,15 @@ export function insertEntry(entries: Entry[], entry: Entry, position: EntryPosit
 }
 
 /**
- * Move a top-level entry (with its thread) to another spot in the same day:
- * after `afterId`'s thread or before `beforeId`. Timestamps are untouched;
+ * Move an entry (with everything inside it) among its siblings: after
+ * `afterId`'s subtree or before `beforeId`. An anchor deeper in the tree
+ * stands for its ancestor at the entry's level. Timestamps are untouched;
  * file order is display order.
  */
 export function moveSubtree(entries: Entry[], id: string, position: { afterId?: string; beforeId?: string }): Entry[] {
   const root = entries.find((e) => e.id === id)
   if (!root) throw new Error(`Entry ${id} not found`)
-  if (root.parentId) throw new Error('Only top-level blocks can be reordered')
+  const parent = root.parentId ?? null
   const ids = descendantIds(entries, id)
   ids.add(id)
   const moving = entries.filter((e) => ids.has(e.id))
@@ -383,9 +320,12 @@ export function moveSubtree(entries: Entry[], id: string, position: { afterId?: 
   if (ids.has(anchorId)) return entries
   const anchor = rest.find((e) => e.id === anchorId)
   if (!anchor) throw new Error(`Entry ${anchorId} not found`)
-  // Anchor on the top of the anchor's thread so a drop next to a reply lands beside its root.
   let top = anchor
-  while (top.parentId) top = rest.find((e) => e.id === top.parentId) ?? top
+  while ((top.parentId ?? null) !== parent) {
+    const up = top.parentId ? rest.find((e) => e.id === top.parentId) : undefined
+    if (!up) throw new Error('A block can only be reordered among the blocks beside it')
+    top = up
+  }
   const at = position.afterId ? subtreeEndIndex(rest, top.id) + 1 : rest.indexOf(top)
   return [...rest.slice(0, at), ...moving, ...rest.slice(at)]
 }
@@ -487,6 +427,24 @@ export function stripTaskTag(markdown: string): string {
   return lines.join('\n').trim()
 }
 
+/** Whether the first line carries `#<tag>` (a post command's tag). */
+export function hasTag(markdown: string, tag: string): boolean {
+  const first = markdown.trimStart().split('\n')[0] ?? ''
+  return tagRe(tag).test(first)
+}
+
+/** Remove `#<tag>` from the first line. */
+export function stripTag(markdown: string, tag: string): string {
+  const lines = markdown.trimStart().split('\n')
+  lines[0] = (lines[0] ?? '').replace(tagRe(tag), '$1').replace(/[ \t]+$/, '')
+  return lines.join('\n').trim()
+}
+
+function tagRe(tag: string): RegExp {
+  // Like TASK_TAG_RE: the editor may have escaped the "#".
+  return new RegExp(`(^|\\s)\\\\?#${tag.replace(/[^a-z0-9_-]/g, '')}\\b[ \\t]*`, 'i')
+}
+
 /** A short title for a block, from its first meaningful line. */
 export function titleFromMarkdown(markdown: string, max = 80): string {
   const text = previewText(stripTaskTag(markdown).replace(DURATION_MARKER_RE, ''), 400)
@@ -518,4 +476,21 @@ export function splitTodoLines(text: string): string[] {
     else out.push(item)
   }
   return out
+}
+
+/**
+ * A block written as a checklist: every non-blank line a checkbox item
+ * (`[ ] …`, `- [ ] …`, `1. [x] …`; the editor may escape the brackets).
+ * Returns the items, or null when the text is anything else.
+ */
+export function checklistItems(markdown: string): Array<{ text: string; done: boolean }> | null {
+  const ITEM = /^\s*(?:(?:[-*+]|\d+[.)])\s+)?\\?\[([ xX]?)\\?\]\s+(.+)$/
+  const out: Array<{ text: string; done: boolean }> = []
+  for (const line of markdown.replace(/\r\n?/g, '\n').split('\n')) {
+    if (!line.trim()) continue
+    const m = ITEM.exec(line)
+    if (!m) return null
+    out.push({ text: m[2].trim(), done: m[1].toLowerCase() === 'x' })
+  }
+  return out.length ? out : null
 }

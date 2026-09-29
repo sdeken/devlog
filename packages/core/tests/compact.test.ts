@@ -24,7 +24,7 @@ afterEach(async () => {
 const aug = (d: number, h = 9, m = 0): Date => new Date(2026, 7, d, h, m)
 const QUIET = new Date(2026, 8, 1)
 
-/** A day with a history: edits, a hide, a move, a reply, deletes; and a todo list. */
+/** A day with a history: edits, a hide, a move, a reply, deletes; and a day of todos. */
 async function busyHistory(): Promise<{ canvas: string; file: string; todos: string }> {
   const canvas = (await store.createCanvas({ title: 'Acme' })).id
   const a = await store.addEntry(canvas, 'first', {}, aug(3, 9))
@@ -36,31 +36,33 @@ async function busyHistory(): Promise<{ canvas: string; file: string; todos: str
   await store.reorderEntry(canvas, a.date, c.entry.id, { beforeId: a.entry.id }, aug(3, 15))
   const gone = await store.addEntry(canvas, 'deleted later', {}, aug(3, 16))
   await store.deleteEntry(canvas, a.date, gone.entry.id, aug(3, 17))
-  const [t1, t2] = await store.addTodos(canvas, ['one', 'two'], aug(4))
-  await store.addTodoReply(canvas, t1.id, 'a comment', aug(4, 10))
-  await store.setTodoDone(canvas, t2.id, true, aug(4, 11))
-  await store.reorderTodo(canvas, t2.id, { beforeId: t1.id }, aug(4, 12))
+  const {
+    date,
+    entries: [t1, t2]
+  } = await store.addTodos(canvas, ['one', 'two'], {}, aug(4))
+  await store.addEntry(canvas, 'a comment', { date, parentId: t1.id }, aug(4, 10))
+  await store.setTodoDone(canvas, date, t2.id, true, aug(4, 11))
+  await store.reorderEntry(canvas, date, t2.id, { beforeId: t1.id }, aug(4, 12))
   const dir = `canvases/${canvas.slice(0, 2)}/${canvas}`
-  return { canvas, file: `${dir}/entries/2026/08/2026-08-03.md`, todos: `${dir}/todos.md` }
+  return { canvas, file: `${dir}/entries/2026/08/2026-08-03.md`, todos: `${dir}/entries/2026/08/2026-08-04.md` }
 }
 
 describe('compaction', () => {
   it('rewrites quiet files to one record per block, with exactly the same blocks', async () => {
     const { canvas, file, todos } = await busyHistory()
     const dayBefore = await store.readDay(canvas, '2026-08-03')
-    const todosBefore = await store.readTodos(canvas)
+    const todosBefore = await store.readDay(canvas, '2026-08-04')
     const textBefore = await fs.readFile(path.join(root, file), 'utf8')
     expect(textBefore).toMatch(/devlog:edit /)
 
     const report = await store.compact({ quietSince: QUIET })
     const paths = report.compacted.map((c) => c.path).sort()
-    // 2026-08-04 holds a single record (the done block): already compact, so untouched.
     expect(paths).toEqual([file, todos].sort())
     for (const c of report.compacted) expect(c.after).toBeLessThan(c.before)
     expect(report.skipped).toEqual([])
 
     expect(await store.readDay(canvas, '2026-08-03')).toEqual(dayBefore)
-    expect(await store.readTodos(canvas)).toEqual(todosBefore)
+    expect(await store.readDay(canvas, '2026-08-04')).toEqual(todosBefore)
     const text = await fs.readFile(path.join(root, file), 'utf8')
     expect(text).not.toMatch(/devlog:(edit|set|delete) /)
     expect(text.match(/devlog:add /g)).toHaveLength(dayBefore.entries.length)
@@ -105,7 +107,7 @@ describe('compaction', () => {
     expect(await store.search('deleted later')).toEqual({ blocks: [], surfaces: [] })
     expect(await index.refresh()).toMatchObject({ indexed: 0, removed: 0 }) // write-through kept it current
     expect(await store.listDays(canvas)).toEqual([
-      { date: '2026-08-04', count: 1 },
+      { date: '2026-08-04', count: 3 },
       { date: '2026-08-03', count: 4 }
     ])
     index.close()

@@ -10,16 +10,18 @@ import type {
   DaySummary,
   Entry,
   EntryPosition,
-  PromoteResult,
+  TodoRef,
   RepoInfo,
   SavedAsset,
   SearchResult,
   Settings,
   SyncStatus,
   Timeline,
-  TrackerStatus,
   UpdateStatus
 } from '../shared/types'
+import type { ExtensionAppState, ExtensionInfo, ExtensionPickRequest, ExtensionUpdateReport } from '../shared/extensions'
+import type { Grant } from '@devlog/core'
+import type { CommandContext } from '@devlog/extension-api'
 
 type Unsubscribe = () => void
 
@@ -68,36 +70,69 @@ const api = {
     range: (fromDate: string, toDate: string): Promise<Array<{ canvasId: string; day: Day }>> =>
       ipcRenderer.invoke(IPC.rangeGet, fromDate, toDate),
     /** Post a block. `task: true` (or `#task` on the first line) also turns it into a task and starts the clock. */
-    add: (canvasId: string, markdown: string, position?: EntryPosition, opts?: { task?: boolean }): Promise<{ date: string; entry: Entry; canvas?: CanvasMeta }> =>
-      ipcRenderer.invoke(IPC.entryAdd, canvasId, markdown, position, opts),
+    add: (canvasId: string, markdown: string, position?: EntryPosition): Promise<{ date: string; entry: Entry; count?: number }> => ipcRenderer.invoke(IPC.entryAdd, canvasId, markdown, position),
     update: (canvasId: string, date: string, id: string, markdown: string): Promise<Entry> =>
       ipcRenderer.invoke(IPC.entryUpdate, canvasId, date, id, markdown),
     remove: (canvasId: string, date: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.entryDelete, canvasId, date, id),
-    move: (fromCanvasId: string, date: string, id: string, toCanvasId: string): Promise<{ date: string; entry: Entry }> =>
-      ipcRenderer.invoke(IPC.entryMove, fromCanvasId, date, id, toCanvasId),
+    /** Move a block (with what is inside it) to another canvas, or inside / beside a block. */
+    move: (
+      fromCanvasId: string,
+      date: string,
+      id: string,
+      to: string | { canvasId: string; date?: string; parentId?: string; afterId?: string }
+    ): Promise<{ date: string; entry: Entry }> => ipcRenderer.invoke(IPC.entryMove, fromCanvasId, date, id, to),
     /** Collapse a block into a stub (or bring it back). */
     setHidden: (canvasId: string, date: string, id: string, hidden: boolean): Promise<Entry> => ipcRenderer.invoke(IPC.entryHide, canvasId, date, id, hidden),
     /** Move a top-level block (with its thread) within its day. */
     reorder: (canvasId: string, date: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Day> =>
       ipcRenderer.invoke(IPC.entryReorder, canvasId, date, id, position),
-    /** Turn an existing block into a task canvas beneath its canvas. */
-    promote: (canvasId: string, date: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.entryPromote, canvasId, date, id),
     search: (query: string): Promise<SearchResult> => ipcRenderer.invoke(IPC.entrySearch, query),
     onChanged: (cb: () => void): Unsubscribe => on(IPC.evEntriesChanged, cb)
   },
+  extensions: {
+    /** Extensions of the open devlog, with their state. */
+    list: (): Promise<ExtensionInfo[]> => ipcRenderer.invoke(IPC.extList),
+    /** Add to devlog.json: `owner/repo` + version range, a name + https URL, or a name + "builtin". */
+    add: (key: string, spec: string): Promise<void> => ipcRenderer.invoke(IPC.extAdd, key, spec),
+    remove: (key: string): Promise<void> => ipcRenderer.invoke(IPC.extRemove, key),
+    allow: (key: string, grant: Grant): Promise<void> => ipcRenderer.invoke(IPC.extAllow, key, grant),
+    revoke: (key: string): Promise<void> => ipcRenderer.invoke(IPC.extRevoke, key),
+    restart: (key: string): Promise<void> => ipcRenderer.invoke(IPC.extRestart, key),
+    update: (): Promise<ExtensionUpdateReport> => ipcRenderer.invoke(IPC.extUpdate),
+    setSettings: (key: string, values: Record<string, string>): Promise<void> => ipcRenderer.invoke(IPC.extSetSettings, key, values),
+    setSecret: (key: string, secretKey: string, value: string | null): Promise<void> => ipcRenderer.invoke(IPC.extSetSecret, key, secretKey, value),
+    /** Run a command; resolves to the text it returns, if any (a check's result). */
+    run: (key: string, commandId: string, context?: CommandContext): Promise<string | null> => ipcRenderer.invoke(IPC.extRun, key, commandId, context),
+    /** What extensions ask of the app (tray label, highlighted canvases…) (1.6). */
+    appState: (): Promise<ExtensionAppState> => ipcRenderer.invoke(IPC.extAppState),
+    onAppState: (cb: (st: ExtensionAppState) => void): Unsubscribe => on(IPC.evExtAppState, cb),
+    /** An extension asks the user to pick from a list (1.6). */
+    onPick: (cb: (req: ExtensionPickRequest) => void): Unsubscribe => on(IPC.evExtPick, cb),
+    answerPick: (id: number, choice: string | null): Promise<void> => ipcRenderer.invoke(IPC.extAnswerPick, id, choice),
+    /** An extension asks to show a canvas or a block's page (1.6). */
+    onOpen: (cb: (target: { canvasId?: string; date?: string; blockId?: string; page?: string }) => void): Unsubscribe => on(IPC.evExtOpen, cb),
+    /** A call from an extension view's page to its extension (1.5). */
+    viewCall: (key: string, viewId: string, method: string, args: unknown[]): Promise<unknown> => ipcRenderer.invoke(IPC.extViewCall, key, viewId, method, args),
+    /** Messages an extension posts to its views. */
+    onViewMessage: (cb: (key: string, viewId: string, message: unknown) => void): (() => void) => {
+      const h = (_e: unknown, key: string, viewId: string, message: unknown): void => cb(key, viewId, message)
+      ipcRenderer.on(IPC.evExtViewMessage, h)
+      return () => ipcRenderer.removeListener(IPC.evExtViewMessage, h)
+    },
+    /** Whether a GitHub token is stored; pass a token (or null) to set (or clear) it. */
+    githubToken: (token?: string | null): Promise<boolean> => ipcRenderer.invoke(IPC.extGithubToken, token),
+    /** Extensions that ship with Devlog (add one with its name and "builtin"). */
+    builtins: (): Promise<Array<{ name: string; displayName: string; description?: string }>> => ipcRenderer.invoke(IPC.extBuiltins),
+    onChanged: (cb: () => void): Unsubscribe => on(IPC.evExtensionsChanged, cb),
+    onNotify: (cb: (text: string) => void): Unsubscribe => on(IPC.evNotify, cb)
+  },
   todos: {
-    /** Todo lists (todos and their comment threads) for each canvas, in file order. */
-    list: (canvasIds: string[]): Promise<Array<{ canvasId: string; entries: Entry[] }>> => ipcRenderer.invoke(IPC.todosList, canvasIds),
-    add: (canvasId: string, texts: string[]): Promise<Entry[]> => ipcRenderer.invoke(IPC.todosAdd, canvasId, texts),
-    reply: (canvasId: string, parentId: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoReply, canvasId, parentId, markdown),
-    update: (canvasId: string, id: string, markdown: string): Promise<Entry> => ipcRenderer.invoke(IPC.todoUpdate, canvasId, id, markdown),
-    remove: (canvasId: string, id: string): Promise<number> => ipcRenderer.invoke(IPC.todoDelete, canvasId, id),
-    reorder: (canvasId: string, id: string, position: { afterId?: string; beforeId?: string }): Promise<Entry[]> =>
-      ipcRenderer.invoke(IPC.todoReorder, canvasId, id, position),
-    /** Tick off (writes a done block into today's stream) or tick back on (removes today's). */
-    setDone: (canvasId: string, id: string, done: boolean): Promise<{ todo: Entry; date: string }> => ipcRenderer.invoke(IPC.todoSetDone, canvasId, id, done),
-    /** Turn a todo into a task canvas and start the clock. */
-    promote: (canvasId: string, id: string): Promise<PromoteResult> => ipcRenderer.invoke(IPC.todoPromote, canvasId, id)
+    /** Every open todo (and those ticked off since `doneSince`), with where each lives. */
+    list: (opts?: { doneSince?: string }): Promise<TodoRef[]> => ipcRenderer.invoke(IPC.todosList, opts ?? {}),
+    /** One todo block per line: at the end of today on the canvas, or inside a block. */
+    add: (canvasId: string, texts: string[], position?: { date?: string; parentId?: string }): Promise<{ date: string; entries: Entry[] }> =>
+      ipcRenderer.invoke(IPC.todosAdd, canvasId, texts, position ?? {}),
+    setDone: (canvasId: string, date: string, id: string, done: boolean): Promise<Entry> => ipcRenderer.invoke(IPC.todoSetDone, canvasId, date, id, done)
   },
   assets: {
     save: (canvasId: string, date: string, bytes: Uint8Array, mime: string, name?: string): Promise<SavedAsset> =>
@@ -109,11 +144,6 @@ const api = {
     exclude: (start: string, end: string): Promise<string> => ipcRenderer.invoke(IPC.activityExclude, start, end),
     /** Undo a removal. `start` files the undo on the same day as the removal. */
     restore: (id: string, start: string): Promise<void> => ipcRenderer.invoke(IPC.activityRestore, id, start)
-  },
-  tracker: {
-    status: (): Promise<TrackerStatus | null> => ipcRenderer.invoke(IPC.trackerStatus),
-    setTask: (canvasId: string | null): Promise<void> => ipcRenderer.invoke(IPC.trackerSetTask, canvasId),
-    onStatus: (cb: (status: TrackerStatus) => void): Unsubscribe => on(IPC.evTrackerStatus, cb)
   },
   updates: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke(IPC.updateStatus),

@@ -1,84 +1,19 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import type { CanvasMeta, SyncStatus, TrackerStatus, UpdateStatus } from '@shared/types'
+import { useEffect, useState } from 'react'
+import type { SyncStatus, UpdateStatus } from '@shared/types'
+import type { ViewContext } from '@devlog/extension-api/view'
 import { api } from '@renderer/api'
-import { JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
-import { formatMinutes } from '@shared/review'
 import { kbd } from '@renderer/keys'
+import { ExtensionView } from './ExtensionView'
 
 interface Props {
+  /** Status bar items extensions contribute (views in a slot of fixed height). */
+  extViews: Array<{ extKey: string; viewId: string; title: string; url: string }>
+  onExtPopover: (extKey: string, viewId: string, anchor: DOMRect, size: { width?: number; height?: number }, context?: ViewContext) => void
+  onExtOpen: (target: { canvasId: string; date?: string; blockId?: string }) => void
+  /** What is on screen (the canvas, the block page), given to the items (1.6). */
+  extContext: ViewContext
   status: SyncStatus | null
-  tracker: TrackerStatus | null
-  taskLabel: string | null
-  canvases: CanvasMeta[]
-  /** The canvas on screen, offered first when starting a task. */
-  currentCanvasId: string | null
   onSyncNow: () => void
-  onOpenSettings: () => void
-  onStartTask: (canvasId: string) => void
-  onStopTask: () => void
-  /** Create a new task canvas (under the current canvas) and start it. */
-  onNewTask: () => void
-  onOpenTimeline: () => void
-}
-
-/** The Start menu: pick a task to make active, or make a new one. */
-function StartMenu({ canvases, currentCanvasId, onStart, onNew, onClose }: { canvases: CanvasMeta[]; currentCanvasId: string | null; onStart: (id: string) => void; onNew: () => void; onClose: () => void }): React.JSX.Element {
-  const ref = useRef<HTMLDivElement>(null)
-  const [query, setQuery] = useState('')
-  const tasks = useMemo(() => {
-    const all = flattenTree(buildCanvasTree(canvases)).filter(({ canvas }) => canvas.task)
-    const q = query.trim().toLowerCase()
-    const list = q ? all.filter(({ canvas }) => canvasLabel(canvases, canvas.id).toLowerCase().includes(q)) : all
-    // The canvas on screen (if it is a task) or the tasks inside it come first.
-    return [...list].sort((a, b) => Number(rank(b.canvas)) - Number(rank(a.canvas)))
-    function rank(c: CanvasMeta): number {
-      if (c.id === currentCanvasId) return 2
-      if (c.parentId && c.parentId === currentCanvasId) return 1
-      return 0
-    }
-  }, [canvases, currentCanvasId, query])
-  useEffect(() => {
-    const onDown = (ev: MouseEvent): void => {
-      if (ref.current && !ref.current.contains(ev.target as Node)) onClose()
-    }
-    const onKey = (ev: KeyboardEvent): void => {
-      if (ev.key === 'Escape') onClose()
-    }
-    window.addEventListener('mousedown', onDown)
-    window.addEventListener('keydown', onKey)
-    return () => {
-      window.removeEventListener('mousedown', onDown)
-      window.removeEventListener('keydown', onKey)
-    }
-  }, [onClose])
-  return (
-    <div className="start-menu" ref={ref} role="menu">
-      <input
-        type="search"
-        autoFocus
-        placeholder="Find a task…"
-        value={query}
-        onChange={(ev) => setQuery(ev.target.value)}
-        onKeyDown={(ev) => {
-          if (ev.key === 'Enter' && tasks[0]) onStart(tasks[0].canvas.id)
-        }}
-      />
-      <ul>
-        {tasks.map(({ canvas }) => (
-          <li key={canvas.id}>
-            <button type="button" className="start-item" onClick={() => onStart(canvas.id)} title={canvasLabel(canvases, canvas.id)}>
-              <span className="start-item-title">◉ {canvas.title}</span>
-              <span className="start-item-path">{canvasLabel(canvases, canvas.id).split(' / ').slice(0, -1).join(' / ')}</span>
-            </button>
-          </li>
-        ))}
-        {tasks.length === 0 && <li className="start-empty">{query ? 'No task matches.' : 'No tasks yet.'}</li>}
-      </ul>
-      <button type="button" className="start-item start-new" onClick={onNew}>
-        + New task{currentCanvasId && currentCanvasId !== JOURNAL_ID ? ` in ${canvasLabel(canvases, currentCanvasId).split(' / ').pop()}` : ''}…
-      </button>
-    </div>
-  )
 }
 
 function ago(iso: string | null, now: number): string {
@@ -100,9 +35,27 @@ function inFuture(iso: string | null, now: number): string {
   return `${Math.round(s / 60)} min`
 }
 
-export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasId, onSyncNow, onOpenSettings, onStartTask, onStopTask, onNewTask, onOpenTimeline }: Props): React.JSX.Element {
+/** A status bar slot: the view asks for a width and gets it within limits; the height is the bar's. */
+function StatusSlot({ view, context, onPopover, onOpen }: { view: Props['extViews'][number]; context: ViewContext; onPopover: Props['onExtPopover']; onOpen: Props['onExtOpen'] }): React.JSX.Element {
+  const [width, setWidth] = useState(120)
+  return (
+    <span className="status-ext" style={{ width }} data-ext-view={`${view.extKey}/${view.viewId}`}>
+      <ExtensionView
+        extKey={view.extKey}
+        viewId={view.viewId}
+        url={view.url}
+        title={view.title}
+        onResize={(s) => s.width && setWidth(Math.round(Math.min(Math.max(s.width, 24), 360)))}
+        context={context}
+        onPopover={(id, anchor, size) => onPopover(view.extKey, id, anchor, size, context)}
+        onOpen={onOpen}
+      />
+    </span>
+  )
+}
+
+export function StatusBar({ extViews, extContext, onExtPopover, onExtOpen, status, onSyncNow }: Props): React.JSX.Element {
   const [now, setNow] = useState(Date.now())
-  const [startOpen, setStartOpen] = useState(false)
   const [update, setUpdate] = useState<UpdateStatus | null>(null)
   useEffect(() => {
     void api.updates.status().then(setUpdate)
@@ -159,52 +112,11 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
     }
   }
 
-  const elapsed = tracker?.since && !tracker.paused ? formatMinutes((now - new Date(tracker.since).getTime()) / 60_000) : null
-
   return (
     <footer className="statusbar">
-      {tracker?.tracking && (
-        <span className="task-status" title={tracker.lastFocus ? `Focused: ${tracker.lastFocus.app} — ${tracker.lastFocus.title}` : 'Activity tracking on'}>
-          <span className={`status-dot status-${tracker.activeCanvasId ? (tracker.paused ? 'dirty' : 'busy') : 'idle'}`} />
-          <button type="button" className="task-label link" onClick={onOpenTimeline} title="Open today's timeline">
-            {tracker.activeCanvasId ? (
-              <>
-                <span className="status-text">{taskLabel ?? tracker.activeCanvasId}</span>
-                {tracker.paused ? <span className="status-detail">· paused ({tracker.pausedReason})</span> : elapsed ? <span className="status-detail">· {elapsed}</span> : null}
-              </>
-            ) : (
-              <span className="status-detail">No active task</span>
-            )}
-          </button>
-          {tracker.activeCanvasId ? (
-            <button type="button" className="btn btn-quiet btn-xs" onClick={onStopTask} title={`Stop the active task (${kbd('mod', 'shift', '.')})`}>
-              Stop
-            </button>
-          ) : (
-            <span className="start-wrap">
-              <button type="button" className="btn btn-primary btn-xs" onClick={() => setStartOpen((v) => !v)} title="Start a task">
-                Start ▾
-              </button>
-              {startOpen && (
-                <StartMenu
-                  canvases={canvases}
-                  currentCanvasId={currentCanvasId}
-                  onStart={(id) => {
-                    setStartOpen(false)
-                    onStartTask(id)
-                  }}
-                  onNew={() => {
-                    setStartOpen(false)
-                    onNewTask()
-                  }}
-                  onClose={() => setStartOpen(false)}
-                />
-              )}
-            </span>
-          )}
-          <span className="status-sep" />
-        </span>
-      )}
+      {extViews.map((v) => (
+        <StatusSlot key={`${v.extKey}/${v.viewId}`} view={v} context={extContext} onPopover={onExtPopover} onOpen={onExtOpen} />
+      ))}
       <span className={`status-dot status-${dot}`} />
       <span className="status-text">{text}</span>
       <span className="status-detail" title={detail}>
@@ -244,9 +156,6 @@ export function StatusBar({ status, tracker, taskLabel, canvases, currentCanvasI
       )}
       <button type="button" className="btn btn-quiet btn-xs" onClick={onSyncNow} disabled={!status || dot === 'busy'} title={`Commit and push now (${kbd('mod', 'shift', 'S')})`}>
         Sync now
-      </button>
-      <button type="button" className="btn btn-quiet btn-xs" onClick={onOpenSettings} title={`Settings (${kbd('mod', ',')})`}>
-        ⚙︎
       </button>
     </footer>
   )

@@ -98,46 +98,6 @@ export class ActivityLog {
     }
     return out.sort((a, b) => a.t.localeCompare(b.t))
   }
-
-  /**
-   * Move a log folder written by this machine in the old layout (e.g. the
-   * user-data log from before logs were kept in the repository) into this
-   * machine's folder, appending to any file that already exists. Returns the
-   * number of day files moved. `from` is the folder that contains `YYYY/`.
-   */
-  async adoptLegacyLog(from: string): Promise<number> {
-    const target = path.resolve(path.join(this.rootProvider(), ACTIVITY_DIR))
-    if (path.resolve(from) === target) return 0
-    let moved = 0
-    // This machine's own folder there (logs kept outside the repository since 0.4) too.
-    if (await exists(path.join(from, this.machine))) moved += await this.adoptLegacyLog(path.join(from, this.machine))
-    for (const y of await readdirSafe(from)) {
-      if (!y.isDirectory() || !YEAR_RE.test(y.name)) continue
-      for (const m of await readdirSafe(path.join(from, y.name))) {
-        if (!m.isDirectory()) continue
-        for (const f of await readdirSafe(path.join(from, y.name, m.name))) {
-          const date = /^(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(f.name)?.[1]
-          if (!f.isFile() || !date) continue
-          const src = path.join(from, y.name, m.name, f.name)
-          const dest = this.fileFor(date)
-          await fs.mkdir(path.dirname(dest), { recursive: true })
-          const text = await fs.readFile(src, 'utf8')
-          const lines = text
-            .split('\n')
-            .map(parseLine)
-            .filter((e): e is ActivityEvent => e !== null)
-            .map((e) => `${JSON.stringify(e)}\n`)
-            .join('')
-          const existing = await fs.readFile(dest, 'utf8').catch(() => '')
-          // Old lines first so the file stays roughly in time order.
-          await fs.writeFile(dest, `${lines}${existing}`)
-          await fs.rm(src)
-          moved++
-        }
-      }
-    }
-    return moved
-  }
 }
 
 function parseLine(line: string): ActivityEvent | null {
@@ -168,15 +128,6 @@ export function datesBetween(from: string, to: string): string[] {
     cur.setDate(cur.getDate() + 1)
   }
   return out
-}
-
-async function exists(p: string): Promise<boolean> {
-  try {
-    await fs.access(p)
-    return true
-  } catch {
-    return false
-  }
 }
 
 async function readdirSafe(dir: string): Promise<import('node:fs').Dirent[]> {

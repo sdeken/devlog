@@ -7,15 +7,16 @@ export { DevlogStore, type CompactionReport } from './store'
 export { SyncManager, type SyncOptions } from './sync'
 export { ActivityLog, ACTIVITY_DIR, LEGACY_MACHINE, datesBetween, machineFolder } from './activityLog'
 export {
-  migrateRepository,
-  upgradeRepository,
-  type UpgradeResult,
-  needsMigration,
   readStorageFormat,
-  recoverInterruptedMigration,
-  migratedCanvasId,
-  STAGE_DIR,
-  OLD_DIR,
-  type MigrationReport
-} from './migrate'
+  assertSupportedFormat,
+  readManifest,
+  updateManifest,
+  readLockFile,
+  writeLockFile,
+  type DevlogManifest,
+  type LockEntry,
+  type LockFile
+} from './manifest'
+export { ExtensionFileStore, type ExtensionFileInfo, type ExtensionFileLimits } from './extensionFiles'
+export { ensureExtensionAttributes } from './repoFiles'
 export { RepoIndex, INDEX_SCHEMA, classifyPath, type RefreshReport } from './repoIndex'

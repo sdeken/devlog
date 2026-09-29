@@ -1,11 +1,9 @@
 /**
  * Canvases: the one container type in a devlog.
  *
- * Storage format 2 (this file): canvases live at
- * `canvases/<first two characters of the id>/<id>/`, ids are random (or, for
- * canvases migrated from format 1, derived from their old folder name), and
- * the old folder name is kept as an `alias:` so references from before the
- * migration still resolve.
+ * Canvases live at `canvases/<first two characters of the id>/<id>/` with
+ * random ids. Ids a canvas had before (older devlogs used title slugs) are
+ * kept as `alias:` lines so old references still resolve.
  *
  * A canvas is a client, a project, a task, a topic — anything you want to
  * write about. Every canvas has a *surface* (free-form markdown: links,
@@ -26,9 +24,15 @@ export const CANVASES_DIR = 'canvases'
 export const CANVAS_FILE = 'canvas.md'
 /** Repository manifest; its `format` is the storage format version. */
 export const MANIFEST_FILE = 'devlog.json'
-export const STORAGE_FORMAT = 3
-/** The first storage format with the sharded `canvases/<xx>/<id>/` layout. */
-export const SHARDED_FORMAT = 2
+export const STORAGE_FORMAT = 4
+
+/**
+ * The time extension's node type. Canvases written before node types carry
+ * `task: true` instead of `type:`; both read as this type.
+ */
+export const TASK_TYPE = 'builtin.devlog-time/task'
+/** A node type: "<extension id>/<type id>". */
+export const NODE_TYPE_RE = /^[a-z0-9][a-z0-9._-]{0,127}\/[a-z][a-z0-9_-]{0,63}$/
 
 /** Alphabet for canvas ids: lowercase, no easily confused characters (i, l, o, u). */
 export const CANVAS_ID_ALPHABET = '0123456789abcdefghjkmnpqrstvwxyz'
@@ -69,11 +73,6 @@ export function canvasDir(id: string): string {
   return `${CANVASES_DIR}/${canvasShard(id)}/${id}`
 }
 
-/** Where a canvas lived in storage format 1 (`canvases/<slug>/`); used only by the migration. */
-export function canvasDirV1(id: string): string {
-  return `${CANVASES_DIR}/${id}`
-}
-
 /** Repo-relative directory holding a canvas's day files. */
 export function canvasEntriesBase(id: string): string {
   return id === JOURNAL_ID ? 'entries' : `${canvasDir(id)}/entries`
@@ -82,18 +81,6 @@ export function canvasEntriesBase(id: string): string {
 /** Repo-relative path of a canvas's metadata + surface file (never for the journal). */
 export function canvasFilePath(id: string): string {
   return `${canvasDir(id)}/${CANVAS_FILE}`
-}
-
-export function slugify(title: string): string {
-  const slug = title
-    .normalize('NFKD')
-    .replace(/[\u0300-\u036f]/g, '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 64)
-    .replace(/-+$/g, '')
-  return slug || 'canvas'
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +124,12 @@ export function ancestorIds(canvases: CanvasMeta[], id: string): string[] {
     cur = byId.get(cur.parentId)
   }
   return out
+}
+
+/** The top-level canvas a canvas sits under (itself when it is top level): the client, by convention. */
+export function topLevelCanvasId(canvases: CanvasMeta[], id: string): string {
+  const up = ancestorIds(canvases, id)
+  return up.length ? up[up.length - 1] : id
 }
 
 /** Ids of every canvas beneath `id` (any depth). */
@@ -222,10 +215,35 @@ export function parseFrontMatter(text: string): { fields: Array<[string, string]
   const m = /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)/.exec(text)
   if (!m) return { fields, body: text }
   for (const line of m[1].split(/\r?\n/)) {
-    const kv = /^([A-Za-z_][\w-]*)\s*:\s*(.*)$/.exec(line)
+    const kv = /^([A-Za-z_][\w.-]*)\s*:\s*(.*)$/.exec(line)
     if (kv) fields.push([kv[1].toLowerCase(), unquote(kv[2])])
   }
   return { fields, body: text.slice(m[0].length) }
+}
+
+const RESERVED_KEYS = new Set(['title', 'parent', 'task', 'type', 'created', 'updated', 'repo', 'archived', 'alias'])
+const FIELD_KEY_RE = /^[a-z_][\w.-]*$/
+
+/** Whether `key` can be stored as an extra canvas field (lowercase, `[a-z_][a-z0-9_.-]*`, not a built-in key). */
+export function isFieldKey(key: string): boolean {
+  return FIELD_KEY_RE.test(key) && !RESERVED_KEYS.has(key) && key.length <= 128
+}
+
+/**
+ * A field's value on a canvas or, failing that, on the nearest ancestor that
+ * sets it (task canvases inherit their client's settings).
+ */
+export function inheritedField(canvases: CanvasMeta[], id: string, key: string): { value: string; from: string } | null {
+  const byId = new Map(canvases.map((c) => [c.id, c]))
+  const seen = new Set<string>()
+  let cur = byId.get(id)
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id)
+    const v = cur.fields?.[key]
+    if (v !== undefined && v !== '') return { value: v, from: cur.id }
+    cur = cur.parentId ? byId.get(cur.parentId) : undefined
+  }
+  return null
 }
 
 const isTrue = (v: string): boolean => /^(true|yes|1)$/i.test(v.trim())
@@ -234,6 +252,7 @@ const isTrue = (v: string): boolean => /^(true|yes|1)$/i.test(v.trim())
 export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; surface: string } {
   const meta: CanvasMeta = { id, title: id, parentId: null, task: false, createdAt: '', updatedAt: '', repos: [], archived: false, hasSurface: false }
   const aliases: string[] = []
+  const extra: Record<string, string> = {}
   const { fields, body } = parseFrontMatter(text)
   for (const [key, value] of fields) {
     switch (key) {
@@ -245,6 +264,9 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
         break
       case 'task':
         meta.task = isTrue(value)
+        break
+      case 'type':
+        if (NODE_TYPE_RE.test(value)) meta.type = value
         break
       case 'created':
         meta.createdAt = value
@@ -261,9 +283,15 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
       case 'alias':
         if (value && isValidCanvasId(value) && value !== id && !aliases.includes(value)) aliases.push(value)
         break
+      default:
+        // Anything else (extension fields) is kept and written back as is.
+        if (value !== '') extra[key] = value
     }
   }
   if (aliases.length) meta.aliases = aliases
+  if (Object.keys(extra).length) meta.fields = extra
+  if (!meta.type && meta.task) meta.type = TASK_TYPE
+  meta.task = meta.type === TASK_TYPE
   const surface = body.replace(/^\s*\n/, '').replace(/\s+$/, '')
   meta.hasSurface = surface.length > 0
   return { meta, surface }
@@ -272,72 +300,19 @@ export function parseCanvasFile(id: string, text: string): { meta: CanvasMeta; s
 export function serializeCanvasFile(meta: CanvasMeta, surface: string): string {
   const lines = ['---', `title: ${quote(meta.title)}`]
   if (meta.parentId) lines.push(`parent: ${meta.parentId}`)
-  if (meta.task) lines.push('task: true')
+  const type = meta.type ?? (meta.task ? TASK_TYPE : undefined)
+  if (type === TASK_TYPE) lines.push('task: true')
+  else if (type) lines.push(`type: ${type}`)
   lines.push(`created: ${meta.createdAt}`)
   if (meta.updatedAt) lines.push(`updated: ${meta.updatedAt}`)
   for (const r of meta.repos) lines.push(`repo: ${quote(r)}`)
   if (meta.archived) lines.push('archived: true')
   for (const a of meta.aliases ?? []) lines.push(`alias: ${a}`)
+  for (const [k, v] of Object.entries(meta.fields ?? {})) {
+    if (isFieldKey(k) && !RESERVED_KEYS.has(k) && v !== '') lines.push(`${k}: ${quote(v.replace(/\r?\n/g, ' '))}`)
+  }
   lines.push('---', '')
   const body = surface.replace(/\s+$/, '')
   if (body) lines.push(body, '')
   return lines.join('\n')
-}
-
-// ---------------------------------------------------------------------------
-// Legacy layout (pages/ + categories/), read only for migration
-// ---------------------------------------------------------------------------
-
-export const LEGACY_PAGES_DIR = 'pages'
-export const LEGACY_CATEGORIES_DIR = 'categories'
-
-export interface LegacyPage {
-  id: string
-  title: string
-  /** "Acme Corp / Web" */
-  category: string
-  description: string
-  createdAt: string
-  repos: string[]
-  archived: boolean
-}
-
-/** Split a category string like "Acme Corp / Website" into trimmed segments. */
-export function categoryPath(category: string): string[] {
-  return category
-    .split('/')
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
-
-export function parseLegacyPageFile(id: string, text: string): LegacyPage {
-  const meta: LegacyPage = { id, title: id, category: '', description: '', createdAt: '', repos: [], archived: false }
-  const { fields, body } = parseFrontMatter(text)
-  for (const [key, value] of fields) {
-    if (key === 'title') meta.title = value || id
-    else if (key === 'category') meta.category = value
-    else if (key === 'created') meta.createdAt = value
-    else if (key === 'repo' && value) meta.repos.push(value)
-    else if (key === 'archived') meta.archived = isTrue(value)
-  }
-  meta.description = body.trim()
-  return meta
-}
-
-export function parseLegacyWikiFile(text: string, fallbackPath: string[]): { path: string[]; archived: boolean; updatedAt: string; markdown: string } {
-  const { fields, body } = parseFrontMatter(text)
-  let p = fallbackPath
-  let archived = false
-  let updatedAt = ''
-  for (const [key, value] of fields) {
-    if (key === 'path' && categoryPath(value).length > 0) p = categoryPath(value)
-    else if (key === 'archived') archived = isTrue(value)
-    else if (key === 'updated') updatedAt = value
-  }
-  return { path: p, archived, updatedAt, markdown: body.replace(/^\s*\n/, '').replace(/\s+$/, '') }
-}
-
-/** Id a legacy category path maps to: "Acme Corp / Web" → acme-corp-web. */
-export function legacyCategoryId(path: string[]): string {
-  return slugify(path.join(' '))
 }

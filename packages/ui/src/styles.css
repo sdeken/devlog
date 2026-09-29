@@ -1,0 +1,280 @@
+/*
+ * Devlog's look for extension views. The app sends its colours as custom
+ * properties when the view is ready (see bridge.ts); these defaults only
+ * show for a moment before that, or outside the app.
+ */
+:root {
+  --bg: #ffffff;
+  --bg-2: #f6f7f9;
+  --bg-3: #eceef2;
+  --fg: #1d1c1d;
+  --fg-muted: #616061;
+  --border: #dddddd;
+  --border-strong: #bbbbbb;
+  --accent: #1264a3;
+  --accent-fg: #ffffff;
+  --warn: #b7791f;
+  --danger: #c53030;
+  --ok: #2bac76;
+  --link: #1264a3;
+  --code-bg: #f3f3f3;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  --mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --font: -apple-system, 'Segoe UI', system-ui, sans-serif;
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+/* A status bar item: the bar's height, its background, one line. */
+body.dl-slot {
+  background: transparent;
+  font-size: 12px;
+  height: 22px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.dl-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dl-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.dl-spacer {
+  flex: 1;
+}
+
+.dl-muted {
+  color: var(--fg-muted);
+}
+
+.dl-page {
+  padding: 16px 24px;
+}
+
+.dl-title {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.dl-empty {
+  color: var(--fg-muted);
+  padding: 16px 0;
+}
+
+.dl-error {
+  color: var(--danger);
+}
+
+/* ---- Buttons ---- */
+.dl-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  border-radius: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dl-btn:hover:not(:disabled) {
+  background: var(--bg-3);
+}
+
+.dl-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.dl-btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-fg);
+}
+
+.dl-btn-primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 88%, black);
+}
+
+.dl-btn-quiet {
+  border-color: transparent;
+  background: transparent;
+}
+
+.dl-btn-danger {
+  color: var(--danger);
+}
+
+.dl-btn-sm {
+  padding: 1px 8px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+
+/* ---- Fields ---- */
+.dl-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dl-field > span {
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
+.dl-input {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-2);
+  padding: 6px 8px;
+  outline: none;
+  width: 100%;
+}
+
+.dl-input:focus {
+  border-color: var(--accent);
+  background: var(--bg);
+}
+
+/* ---- Menus (popovers, pickers) ---- */
+.dl-menu {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.dl-menu-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 5px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.dl-menu-item:hover,
+.dl-menu-item.is-active {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.dl-menu-item:hover .dl-menu-hint,
+.dl-menu-item.is-active .dl-menu-hint {
+  color: inherit;
+  opacity: 0.8;
+}
+
+.dl-menu-hint {
+  font-size: 11px;
+  color: var(--fg-muted);
+}
+
+.dl-menu-sep {
+  height: 1px;
+  background: var(--border);
+  margin: 4px 6px;
+}
+
+/* ---- Tables ---- */
+.dl-table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 13px;
+}
+
+.dl-table th,
+.dl-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+
+.dl-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.dl-table td.num,
+.dl-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.dl-badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: var(--bg-3);
+  color: var(--fg-muted);
+}
+
+.dl-badge.is-accent {
+  background: var(--accent);
+  color: var(--accent-fg);
+}
+
+.dl-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--fg-muted);
+  flex: none;
+}
+
+.dl-dot.is-busy {
+  background: var(--accent);
+}
+
+.dl-dot.is-warn {
+  background: var(--warn);
+}

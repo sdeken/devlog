@@ -2,8 +2,14 @@ import { useMemo, useState } from 'react'
 import { JOURNAL_ID, buildCanvasTree, canvasLabel, type CanvasNode } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import { kbd } from '@renderer/keys'
+import { canvasIcon, typeOf, useNodeTypes } from '@renderer/nodeTypes'
 
-export type SidebarSelection = { kind: 'canvas'; canvasId: string } | { kind: 'review' } | { kind: 'summary' } | { kind: 'timeline' }
+export type SidebarSelection =
+  | { kind: 'canvas'; canvasId: string }
+  | { kind: 'review' }
+  | { kind: 'timeline' }
+  /** A page an extension contributes. */
+  | { kind: 'ext'; extKey: string; viewId: string }
 
 interface Props {
   canvases: CanvasMeta[]
@@ -11,11 +17,20 @@ interface Props {
   /** The active task, marked with a running dot. */
   activeCanvasId: string | null
   searching: boolean
+  /** The retired journal still holds notes: list it under Archived so they stay reachable. */
+  showJournal: boolean
+  /** An extension needs setting up or allowing. */
+  settingsAttention: boolean
+  /** Pages extensions contribute, listed with the views. */
+  extPages: Array<{ extKey: string; viewId: string; title: string; icon?: string }>
   onSelect: (sel: SidebarSelection) => void
   onNewCanvas: () => void
+  onCanvasMenu: (canvasId: string, x: number, y: number) => void
+  onOpenSettings: () => void
 }
 
-export function Sidebar({ canvases, selection, activeCanvasId, searching, onSelect, onNewCanvas }: Props): React.JSX.Element {
+export function Sidebar({ canvases, selection, activeCanvasId, searching, showJournal, settingsAttention, extPages, onSelect, onNewCanvas, onCanvasMenu, onOpenSettings }: Props): React.JSX.Element {
+  const types = useNodeTypes()
   const tree = useMemo(() => buildCanvasTree(canvases), [canvases])
   const archived = useMemo(() => canvases.filter((c) => c.archived), [canvases])
   const [showArchived, setShowArchived] = useState(() => {
@@ -63,7 +78,15 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
     const open = !collapsed.has(c.id)
     return (
       <li key={c.id} className={`canvas-node${c.task ? ' is-task' : ''}`}>
-        <div className={`canvas-row${isSelected(c.id) ? ' is-selected' : ''}`} style={{ paddingLeft: 4 + depth * 12 }}>
+        <div
+          className={`canvas-row${isSelected(c.id) ? ' is-selected' : ''}`}
+          style={{ paddingLeft: 4 + depth * 12 }}
+          data-canvas={c.id}
+          onContextMenu={(ev) => {
+            ev.preventDefault()
+            onCanvasMenu(c.id, ev.clientX, ev.clientY)
+          }}
+        >
           <button
             type="button"
             className={`canvas-caret${hasChildren ? '' : ' is-leaf'}`}
@@ -73,8 +96,8 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
           >
             {hasChildren ? (open ? '▾' : '▸') : ''}
           </button>
-          <button type="button" className="canvas-link" onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={c.task ? `${c.title} · task` : c.title}>
-            <span className={`canvas-icon${activeCanvasId === c.id ? ' is-active' : ''}`}>{c.task ? '◉' : '▤'}</span>
+          <button type="button" className="canvas-link" onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={typeOf(types, c) ? `${c.title} · ${typeOf(types, c)?.label.toLowerCase()}` : c.title}>
+            <span className={`canvas-icon${activeCanvasId === c.id ? ' is-active' : ''}`}>{canvasIcon(types, c)}</span>
             <span className="canvas-name">{c.title}</span>
           </button>
         </div>
@@ -88,18 +111,6 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
       <nav className="sidebar-nav">
         <ul className="sidebar-views">
           <li>
-            <button type="button" className={`view-link${isSelected(JOURNAL_ID) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'canvas', canvasId: JOURNAL_ID })}>
-              <span className="view-icon">✎</span>
-              <span className="view-name">Journal</span>
-            </button>
-          </li>
-          <li>
-            <button type="button" className={`view-link${isView('summary') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'summary' })} title={`Hours per client (${kbd('mod', 'shift', 'H')})`}>
-              <span className="view-icon">Σ</span>
-              <span className="view-name">Summary</span>
-            </button>
-          </li>
-          <li>
             <button type="button" className={`view-link${isView('review') ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'review' })} title={`Weekly review (${kbd('mod', 'shift', 'R')})`}>
               <span className="view-icon">▦</span>
               <span className="view-name">Weekly review</span>
@@ -112,25 +123,62 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
             </button>
           </li>
         </ul>
+        {extPages.length > 0 && (
+          <ul className="sidebar-views sidebar-ext-pages">
+            {extPages.map((p) => {
+              const selected = !searching && selection.kind === 'ext' && selection.extKey === p.extKey && selection.viewId === p.viewId
+              return (
+                <li key={`${p.extKey}/${p.viewId}`}>
+                  <button type="button" className={`view-link${selected ? ' is-selected' : ''}`} data-ext-page={`${p.extKey}/${p.viewId}`} onClick={() => onSelect({ kind: 'ext', extKey: p.extKey, viewId: p.viewId })}>
+                    <span className="view-icon">{p.icon ?? '▣'}</span>
+                    <span className="view-name">{p.title}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
         <div className="sidebar-section">
           <span>Canvases</span>
           <button type="button" className="sidebar-add" onClick={onNewCanvas} title={`New canvas (${kbd('mod', 'N')})`}>
             +
           </button>
         </div>
-        {tree.length === 0 && <p className="sidebar-hint">No canvases yet. Add a client or a project, or turn a note into a task.</p>}
+        {tree.length === 0 && <p className="sidebar-hint">No canvases yet. Add a client or a project with +.</p>}
         <ul className="canvas-tree">{tree.map((n) => renderNode(n, 0))}</ul>
-        {archived.length > 0 && (
+        {(archived.length > 0 || showJournal) && (
           <div className="sidebar-archived">
             <button type="button" className="sidebar-section archived-toggle" onClick={toggleArchived}>
-              {showArchived ? '▾' : '▸'} Archived ({archived.length})
+              {showArchived ? '▾' : '▸'} Archived ({archived.length + (showJournal ? 1 : 0)})
             </button>
             {showArchived && (
               <ul>
+                {showJournal && (
+                  <li>
+                    <button
+                      type="button"
+                      className={`view-link canvas-archived${isSelected(JOURNAL_ID) ? ' is-selected' : ''}`}
+                      onClick={() => onSelect({ kind: 'canvas', canvasId: JOURNAL_ID })}
+                      title="Notes from the old journal. Move anything worth keeping to a canvas."
+                    >
+                      <span className="view-icon">✎</span>
+                      <span className="view-name">Journal</span>
+                    </button>
+                  </li>
+                )}
                 {archived.map((c) => (
                   <li key={c.id}>
-                    <button type="button" className={`view-link canvas-archived${isSelected(c.id) ? ' is-selected' : ''}`} onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })} title={canvasLabel(canvases, c.id)}>
-                      <span className="view-icon">{c.task ? '◉' : '▤'}</span>
+                    <button
+                      type="button"
+                      className={`view-link canvas-archived${isSelected(c.id) ? ' is-selected' : ''}`}
+                      onClick={() => onSelect({ kind: 'canvas', canvasId: c.id })}
+                      onContextMenu={(ev) => {
+                        ev.preventDefault()
+                        onCanvasMenu(c.id, ev.clientX, ev.clientY)
+                      }}
+                      title={canvasLabel(canvases, c.id)}
+                    >
+                      <span className="view-icon">{canvasIcon(types, c)}</span>
                       <span className="view-name">{canvasLabel(canvases, c.id)}</span>
                     </button>
                   </li>
@@ -140,6 +188,13 @@ export function Sidebar({ canvases, selection, activeCanvasId, searching, onSele
           </div>
         )}
       </nav>
+      <div className="sidebar-foot">
+        <button type="button" className="view-link sidebar-settings" onClick={onOpenSettings} title={`Settings (${kbd('mod', ',')})`}>
+          <span className="view-icon">⚙︎</span>
+          <span className="view-name">Settings</span>
+          {settingsAttention && <span className="sidebar-dot" title="An extension needs setting up" />}
+        </button>
+      </div>
     </aside>
   )
 }

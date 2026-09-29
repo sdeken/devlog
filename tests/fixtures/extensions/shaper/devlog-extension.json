@@ -1,0 +1,68 @@
+{
+  "name": "shaper",
+  "displayName": "Shaper",
+  "version": "1.0.0",
+  "description": "Test extension for API 1.6: node types, commands in menus and the note box, canvas writes, events.",
+  "api": "^1.7.0",
+  "main": "main.js",
+  "contributes": {
+    "nodeTypes": [
+      {
+        "id": "job",
+        "label": "Job",
+        "icon": "J",
+        "placeholder": "What about this job?"
+      }
+    ],
+    "commands": [
+      {
+        "id": "where",
+        "label": "Where am I",
+        "keybinding": "Mod+Shift+Y",
+        "nodeType": "job",
+        "menus": [
+          "canvas",
+          "block",
+          "tray"
+        ]
+      },
+      {
+        "id": "asjob",
+        "label": "Posts as a job",
+        "keybinding": "Mod+Alt+J",
+        "post": true,
+        "tag": "job"
+      },
+      {
+        "id": "pick",
+        "label": "Pick one"
+      }
+    ],
+    "views": [
+      {
+        "id": "head",
+        "title": "Job header",
+        "entry": "views/head.html",
+        "placement": "canvasHeader",
+        "nodeType": "job"
+      },
+      {
+        "id": "board",
+        "title": "Board",
+        "entry": "views/head.html",
+        "placement": "page"
+      }
+    ],
+    "destinations": [
+      {
+        "id": "ledger",
+        "label": "Ledger"
+      }
+    ]
+  },
+  "permissions": {
+    "read": true,
+    "write": true,
+    "send": true
+  }
+}

@@ -42,8 +42,8 @@ async function corpus(): Promise<{ acme: string; web: string; old: string }> {
   await plain.addEntry(web.id, 'quotes "needle" and ab', {}, new Date(2026, 0, 7, 9))
   await plain.addEntry(old.id, 'archived needle', {}, new Date(2025, 5, 2, 9))
   await plain.setCanvasArchived(old.id, true)
-  await plain.addTodos(acme.id, ['Send Dana the needle list', 'Check CDN'], new Date(2026, 0, 8, 9))
-  await plain.addTodos('journal', ['Renew the needle cert'], new Date(2026, 0, 9, 9))
+  await plain.addTodos(acme.id, ['Send Dana the needle list', 'Check CDN'], {}, new Date(2026, 0, 8, 9))
+  await plain.addTodos('journal', ['Renew the needle cert'], {}, new Date(2026, 0, 9, 9))
   return { acme: acme.id, web: web.id, old: old.id }
 }
 
@@ -89,6 +89,20 @@ describe('RepoIndex', () => {
     expect(await index.refresh()).toMatchObject({ indexed: 0, removed: 0 }) // nothing changed
   })
 
+  it('finds blocks written inside an older block when asked for a date range', async () => {
+    const { acme } = await corpus()
+    index = RepoIndex.open(dbPath, root)
+    indexed.attachIndex(index)
+    await index.refresh()
+    const standup = await indexed.addEntry(acme, 'Standup Jan 12', {}, new Date(2026, 0, 12, 9))
+    await indexed.addEntry(acme, 'a note two days later', { date: standup.date, parentId: standup.entry.id }, new Date(2026, 0, 14, 9))
+    const range = await indexed.getRange('2026-01-14', '2026-01-14')
+    const found = range.find((r) => r.canvasId === acme && r.day.date === '2026-01-12')
+    expect(found?.day.entries.map((e) => e.markdown)).toContain('a note two days later')
+    // Without an index only the range's own files are read.
+    expect((await plain.getRange('2026-01-14', '2026-01-14')).some((r) => r.canvasId === acme)).toBe(false)
+  })
+
   it('stays current through the store without a refresh', async () => {
     const { acme, web, old } = await corpus()
     index = RepoIndex.open(dbPath, root)
@@ -102,8 +116,9 @@ describe('RepoIndex', () => {
     const day = await indexed.readDay('journal', '2026-01-03')
     await indexed.deleteEntry('journal', '2026-01-03', day.entries[0].id)
     await indexed.moveEntry(acme, '2026-01-05', (await indexed.readDay(acme, '2026-01-05')).entries[0].id, c.id)
-    const [todo] = await indexed.readTodos(acme)
-    await indexed.setTodoDone(acme, todo.id, true, new Date(2026, 1, 3, 9))
+    const [todo] = (await indexed.listTodos()).filter((t) => t.canvasId === acme)
+    await indexed.setTodoDone(acme, todo.date, todo.entry.id, true, new Date(2026, 1, 3, 9))
+    expect(await indexed.listTodos()).toEqual(await plain.listTodos())
     await indexed.deleteCanvas(old)
     await expectSameAnswers()
     expect(await index.refresh()).toMatchObject({ indexed: 0, removed: 0 })
@@ -123,7 +138,7 @@ describe('RepoIndex', () => {
     await fs.rm(path.join(root, 'entries/2026/01/2026-01-04.md'))
     // A canvas folder with blocks but no canvas.md.
     await fs.mkdir(path.join(root, canvasDir('bare000000'), 'entries/2026/01'), { recursive: true })
-    await fs.writeFile(path.join(root, canvasDir('bare000000'), 'entries/2026/01/2026-01-10.md'), '<!-- devlog:entry id=zzzzzzzz created=2026-01-10T09:00:00.000Z -->\nbare needle\n')
+    await fs.writeFile(path.join(root, canvasDir('bare000000'), 'entries/2026/01/2026-01-10.md'), '<!-- devlog:format 3 -->\n<!-- devlog:add id=zzzzzzzz pos=a0 at=2026-01-10T09:00:00.000Z -->\nbare needle\n')
 
     const report = await index.refresh()
     // The new canvas's canvas.md and day file, the edited day, the bare canvas's day; one day gone.

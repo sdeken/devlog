@@ -1,0 +1,14 @@
+{
+  "name": "@devlog/extension-api",
+  "version": "1.0.0",
+  "description": "Types and a test harness for writing Devlog extensions",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": "./src/index.ts",
+    "./testing": "./src/testing.ts",
+    "./protocol": "./src/protocol.ts",
+    "./view": "./src/view.ts"
+  }
+}
