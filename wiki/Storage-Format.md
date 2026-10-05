@@ -124,7 +124,7 @@ Marketing site rebuild. Weekly sync on Tuesdays.
 | `archived: true` | Archived, with everything beneath it |
 | `alias` | A former id that still resolves here (repeatable) |
 | `ext.<extension id>.<key>` | An extension's canvas field |
-| `devlog.managed` | The owner of a canvas an extension keeps (`<ext id>/<key>`) |
+| `devlog.managed` | The owner of a canvas an extension keeps (`<ext id>/<key>`; the Timesheets canvas is `timesheets`). The app keeps such a canvas out of the sidebar and its other lists. |
 
 The **surface** is the Markdown after the front matter. Its images live in
 `assets/` beside `canvas.md` and are linked relatively.
@@ -223,8 +223,14 @@ one file per local day, one folder per machine (`<host>-<short id>`, kept in
 
 Types are those of [`ActivityRecord`](Extension-Types#activityrecord-17). A
 machine only appends to its own files, so logs never conflict; readers merge
-every machine and tag each event with it. Corrections are `exclude` events,
-undone by a later event with `cancels: <id>`; raw events are never edited.
+every machine and tag each event with it. The review's corrections are
+`exclude` events, undone by a later event with `cancels: <id>`; raw events
+are never edited. devlog-time keeps its corrections (`assign` events, which
+say what a window was) in its own log under `extensions/`:
+
+```json
+{"t":"2026-09-22T14:00:00.000Z","type":"assign","canvasId":"q7vd3k2x9m","start":"2026-09-22T14:00:00.000Z","end":"2026-09-22T15:00:00.000Z","id":"amg3k2x1ab","at":"2026-09-22T15:40:12.000Z"}
+```
 
 ## Extension folders
 

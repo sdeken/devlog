@@ -9,7 +9,7 @@ strings and dates are local `YYYY-MM-DD`.
 
 ```ts
 import type { DevlogContext, ExtensionCanvas, ExtensionBlock } from '@devlog/extension-api'
-import { API_VERSION } from '@devlog/extension-api' // '1.7.0'
+import { API_VERSION } from '@devlog/extension-api' // '1.8.0'
 ```
 
 ## Canvases and blocks
@@ -168,12 +168,13 @@ What `devlog.activity` returns.
 interface ActivityRecord {
   t: string
   type: 'start' | 'stop' | 'heartbeat' | 'lock' | 'unlock' | 'idle' | 'active'
-      | 'suspend' | 'resume' | 'task' | 'focus' | 'git' | 'exclude'
+      | 'suspend' | 'resume' | 'task' | 'focus' | 'git' | 'exclude' | 'assign'
   canvasId?: string | null
   entryId?: string
   app?: string; title?: string                                   // focus
   repo?: string; action?: string; branch?: string; from?: string; detail?: string // git
-  start?: string; end?: string; id?: string; cancels?: string     // exclude
+  start?: string; end?: string; id?: string; cancels?: string     // exclude, assign
+  at?: string                                                    // assign (1.8): when it was made
   machine?: string
 }
 ```
@@ -188,19 +189,23 @@ interface ActivityRecord {
 | `suspend` / `resume` | Sleep / wake. |
 | `focus` | The window in front changed (`app`, `title`). |
 | `git` | Something in a linked repository: `action` is `commit`, `branch`, `checkout`, `push`, `merge`, `rebase`, `pull`, `stash` or `reset`. |
-| `exclude` | A correction: no task time between `start` and `end`; or undoes the exclusion whose id is `cancels`. |
+| `exclude` | A correction from the review: no task time between `start` and `end`; or undoes the exclusion whose id is `cancels`. |
+| `assign` (1.8) | A correction from a time provider: the time between `start` and `end` was `canvasId` (`null`: not worked); or undoes the one whose id is `cancels`. Later ones (by `at`) win. |
 
-### `TimeEvent` (1.6)
+### `TimeEvent` (1.6, 1.8)
 
 What a time provider returns.
 
 ```ts
 interface TimeEvent {
-  t: string
-  type: 'start' | 'task' | 'stop' | 'heartbeat'
-  canvasId?: string | null   // for task (and start): the active canvas
+  t: string                  // for assign: the window's start
+  type: 'start' | 'task' | 'stop' | 'heartbeat' | 'assign'
+  canvasId?: string | null   // task/start: the active canvas; assign: what the window was (null: not worked)
   blockId?: string           // the block that started it, if one did
   machine: string            // ctx.machine where it was recorded
+  start?: string; end?: string; id?: string // assign (1.8): the window and its id
+  at?: string                // assign: when the correction was made
+  cancels?: string           // assign: undoes the correction with this id
 }
 ```
 

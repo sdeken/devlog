@@ -6,8 +6,11 @@ week's draft in `src/shared/timesheet.ts`, and the weekly **Timesheet** page
 with its storage in the Timesheets canvas belongs to the time extension
 (devlog-time) since 0.18.0. Sending goes to destinations other extensions
 provide: **Jira worklogs** (devlog-jira) and **CMS timesheets** (devlog-cms,
-which fills in the CMS web form; CMS has no API). Split, merge, dragging
-entries, and a per-destination view in the grid are not built.
+which fills in the CMS web form; CMS has no API). Since 0.19 a draft week
+follows tracked time (your changes are kept apart and laid over it), and
+tracked time is corrected at the source (*Corrections*, below). Merging
+entries, dragging them, and a per-destination view in the grid are not
+built.
 
 ## The problem
 
@@ -54,17 +57,17 @@ the preview, press **Send**. There are no scheduled or automatic exports.
   adjusting.
 - **One timesheet per week**, Monday to Sunday like the review.
 - **Using it:** open **Timesheet** in the sidebar (a page of the time
-  extension). A week with no
-  saved timesheet shows a draft from tracked time (not saved until you
-  change something, or press Save draft). The week is a grid: a column per
-  day plus the week, a row per task grouped under its client (with the
-  client's totals), and the day totals reported and worked at the bottom.
-  Clicking a cell opens its entries underneath: start, duration (− / + in
-  15-minute steps), task, day, note, remove, add. A client's cell shows the
-  suggested trim for that day (click to apply). **Rebuild from tracked
-  time** replaces the entries with a fresh draft; **Mark final** approves
-  the week and makes it read-only until you Reopen it. Every change is saved
-  within a second. Hour targets on canvases show above the grid.
+  extension). The week is a grid: a column per day plus the week, a row per
+  task grouped under its client (with the client's totals), and the day
+  totals reported and worked at the bottom. Until it is final the week
+  **follows tracked time**: it is drawn again from tracked time whenever it
+  is shown, and every minute while the current week is on screen, so a
+  running task keeps counting; your changes are laid over it (*Editing*,
+  below). Clicking a cell opens its entries underneath. A client's cell
+  shows the suggested trim for that day (click to apply). **Mark final**
+  approves the week as it stands and freezes it until you Reopen it. Every
+  change is saved within a second. Hour targets on canvases show above the
+  grid.
 
 ## The timesheet
 
@@ -110,6 +113,16 @@ nearest quarter hour, halves up.
    in the order they happened, each starting no earlier than the previous
    one ends.
 
+The tracked segments already carry your corrections (below), and a gap you
+said was not worked is never counted as work in step 2, however short.
+
+Entry ids are stable, so what you change and what destinations remember
+stays on the right entry as time accumulates: a tracked entry's id comes
+from its session's start (`t…`; sessions never share a start), an
+estimated one's from its day and canvas (`n…`), one you add is `m1`, `m2`,
+…. A session that grows keeps its id; one whose start you correct gets a
+new id, and your changes move to it (`carryAdjustments`).
+
 ### Rounding inflation, and suggested trims
 
 The rule inflates days full of short tasks: a dozen 2–5 minute tasks report
@@ -137,13 +150,59 @@ day's suggestions for the client.
 
 ### Editing ("shuffling")
 
-Click a cell to edit its entries below the grid: day, start, duration
-(15-minute steps), task, note; remove one, or add one (a call that wasn't
-tracked). **+ Add a task…** adds a row for a task with no time yet. What
-each destination would get shows in its Send preview.
+A draft week is two things laid together: the **draft** drawn from tracked
+time, and **your changes**, kept apart in the saved timesheet
+(`adjustments`) so that more tracked time never pushes them out, and a
+draft never has to be rebuilt by hand:
 
-Editing never changes the activity log or blocks. The timesheet is a
-separate record, and the original tracked time stays available alongside it.
+- **Reported time**: minutes added to or taken from a tracked or estimated
+  entry (− / + in 15-minute steps, and applied trims), as a difference from
+  the rounded time, so it still applies as the entry grows.
+- **Notes** on tracked or estimated entries.
+- **Entries you add** (a call that wasn't tracked): stored whole, with day,
+  start, duration, task and note. Moving an estimated entry to another day,
+  time or task turns it into one of these.
+- **Estimates you removed.**
+
+`resolveTimesheet` lays them over the fresh draft (pushing an entry you
+lengthened past the next one rather than overlapping it). **Drop my
+changes** clears them. A final timesheet is exactly what was saved.
+
+What happened, as opposed to what you report, is not edited here: a
+tracked entry's start, end, task or removal is a **correction** to tracked
+time (below), so the review, timeline, summary and timesheet agree.
+
+**+ Add a task…** adds a row for a task with no time yet. What each
+destination would get shows in its Send preview.
+
+A timesheet saved before 0.19 has no `adjustments`: it stays exactly as
+saved (it does not count time tracked since) until you press **Follow
+tracked time…**, which keeps the entries you added, and the notes and
+changed durations of tracked entries that still match one (same task, day
+and start; durations only where the time behind them has not changed).
+Changed tasks on tracked entries are not carried over: reassign that time.
+
+### Corrections
+
+A correction says what a stretch of time was, whatever was tracked: *from
+14:00 to 15:00 on Tuesday was Globex*, or *was not work*. devlog-time writes
+it to its own log (`assign` events, extension API 1.8), filed on the day it
+corrects and stamped with when it was made; an undo is an `assign` that
+`cancels` it. The app applies corrections after replaying the clock and
+duration markers, in the order they were made (a later one wins where two
+overlap): the window is cut out of whatever was tracked and, unless it was
+not work, one segment on the given canvas fills it. Time outside the window
+is untouched, so a task still running keeps counting past a correction
+made in the middle of it. The review's **Trim** and **Remove** are older
+corrections of the same kind (`exclude` events in the app's log).
+
+From the Timesheet: moving a tracked entry's start earlier assigns the time
+before it to its task; a later start, or an earlier end, marks what is
+outside as not worked; a later end assigns the time after; a new task
+assigns the whole stretch; removing it marks it not worked. **Reassign
+time…** takes any window on any day, which is how a stretch that is still
+running is split. The week's corrections are listed under the grid, each
+with **Undo**.
 
 ## Destinations
 
@@ -191,15 +250,17 @@ needed.
 
 Since 0.18 the timesheet is the time extension's (devlog-time): its page,
 its storage, its send flow. The timesheets live in a canvas it keeps,
-**Timesheets** (created on first use, not a task, shown in the sidebar like
-any canvas; marked `devlog.managed: timesheets`, the mark the app gave it
-before, which devlog-time takes as its own):
+**Timesheets** (created on first use, not a task; marked `devlog.managed:
+timesheets`, the mark the app gave it before, which devlog-time takes as
+its own). Like every canvas an extension keeps, it stays out of the
+sidebar, the quick switcher, pickers, search, the review and the timeline:
+it is the extension's storage, reached through the Timesheet page.
 
 - **One block per week** (`kind=timesheet`, `week=2026-09-21`): the body is
   a readable markdown table of the entries (date, start, duration, task,
   client, note), so the record is human-readable in git with no app needed,
   followed by the exact data in a `devlog-timesheet` fence, which is what is
-  read back.
+  read back: the entries as of the save, and your changes (`adjustments`).
   Edits while drafting are ordinary `edit` records (append-only, so the
   history of the shuffling is kept too).
 - **What was sent** is kept by each destination extension in its own synced
@@ -222,13 +283,18 @@ before, which devlog-time takes as its own):
 ## Where the pieces live
 
 - `@devlog/core`: sessions, rounding, layout, the inflation arithmetic and
-  suggested trims, the entry model, the timesheet block format, and
-  resolving a canvas's mapping by walking up the tree (`inheritedField`).
+  suggested trims, the entry model and stable ids, laying your changes over
+  a fresh draft (`resolveTimesheet`, `carryAdjustments`, `adoptTimesheet`),
+  the timesheet block format, and resolving a canvas's mapping by walking
+  up the tree (`inheritedField`).
   Pure and unit-tested.
 - `src/shared/timesheet.ts`: the week's draft (tracked time, and the
   review's estimates for untracked days), bundled into devlog-time's page.
+- `src/shared/activity.ts`: corrections (`activeCorrections`,
+  `applyCorrections`), applied wherever tracked time is read.
 - devlog-time: the weekly timesheet grid and the Summary (pages built on
-  `@devlog/ui`), the Timesheets canvas, preview and send, hour targets.
+  `@devlog/ui`), corrections in its log, the Timesheets canvas, preview and
+  send, hour targets.
 - App: what it recorded (`devlog.activity`), block ranges, the kept canvas,
   and passing sheets to the destinations.
 - Extensions: Jira and CMS destinations (mapping fields, grouping, sending,

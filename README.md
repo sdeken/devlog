@@ -340,7 +340,11 @@ shows every tracked stretch. Hover one for **Trim** (keep only the hours you
 actually worked) or **Remove**. Corrections are recorded next to the raw
 activity log, which is never rewritten; removed stretches are listed under
 the day with **Restore**. Time from an explicit `[2h]` marker is not
-editable there: edit the block instead. Quitting Devlog stops the clock, so it keeps
+editable there: edit the block instead. When time went to the wrong task
+(a meeting for another client while the clock was still on this one), use
+**Reassign time…** on the Timesheet (below): *from 14:00 to 15:00 on Tuesday
+was Globex*, or *was not work*. It corrects the tracked time in every view,
+and the clock keeps running past it. Quitting Devlog stops the clock, so it keeps
 running in the tray when you close the window.
 
 When you know better than the clock, say so in the block: `[2h] Acme sync`
@@ -452,12 +456,33 @@ starting on quarter hours. Days with no tracking use the review's estimate.
 
 It is a grid: a column per day, a row per task, tasks grouped under their
 client with a total row for each client, and at the bottom the day's total
-reported (and, muted, what was actually worked). Click a cell to open its
-entries below the grid and change start times, durations (15-minute steps),
-the task, the day or the note, remove one, or add one; click an empty cell to
-add time there, and **+ Add a task…** for a task with no time yet. When
-rounding inflates a client's day, its row shows the suggested trim (−0:45)
-on that day; click it to apply. **Mark final** approves the week.
+reported (and, muted, what was actually worked). Until you mark it final, the
+week **follows tracked time**: it is drawn again from what was tracked every
+time you open it (and every minute while this week is on screen), so a task
+that is still running keeps counting, and your changes stay on top of it.
+
+Click a cell to open its entries below the grid:
+
+- **Tracked time** shows when it started and ended (*now* while it is still
+  running). Changing the start or end, the task, or removing it corrects the
+  tracked time itself: an earlier start counts the time before it, a later
+  start or an earlier end drops what is outside, a new task moves the whole
+  stretch. **Reassign time…** (on the cell, or at the top) takes any stretch
+  on any day: *from 14:00 to 15:00 was Globex*, or *was not work*; use it to
+  split a stretch that is still running. Corrections are listed under the
+  grid with **Undo**, and the review, timeline and summary show them too.
+- **What you report** is yours: durations in 15-minute steps, notes,
+  entries you add (click an empty cell, or **+ Add a task…** for a task with
+  no time yet). These are kept as your changes to the week and laid over the
+  tracked time each time it is drawn, so they survive more time being
+  tracked. **Drop my changes** goes back to the tracked time as it is.
+
+When rounding inflates a client's day, its row shows the suggested trim
+(−0:45) on that day; click it to apply. **Mark final** approves the week as
+it stands and freezes it (what gets sent); **Reopen** has it follow tracked
+time again. A week saved before 0.19 stays exactly as you left it until you
+press **Follow tracked time…**, which keeps its notes, trimmed hours and
+added entries.
 
 **Hour targets.** Give any canvas a weekly or a monthly target (right-click
 → Properties → Time tracking: *Hours per week*, *Hours per month*). The
@@ -500,10 +525,12 @@ description CMS has is kept. CMS only opens a day on that day, so time on
 days still ahead (typically the week's Sunday) waits: send again then.
 
 Timesheets are saved in a **Timesheets** canvas the Time tracking extension
-keeps (made on first use): one block per week on its Monday, a readable
-table with the exact data underneath, read-only in the stream; every change
-is an edit record, so the history of the adjustments is kept, and what was
-sent where is written inside the week. Sending goes through the app to the
+keeps (made on first use, and kept out of the sidebar, the quick switcher,
+pickers, search and the review: you reach it through the Timesheet page):
+one block per week on its Monday, a readable table with the exact data and
+your changes underneath; every save is an edit record, so the history of
+the adjustments is kept, and what was sent where is written inside the
+week. Sending goes through the app to the
 Jira or CMS extension, so each keeps its own credentials. See
 `docs/TIMESHEETS.md`.
 

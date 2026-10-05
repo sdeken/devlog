@@ -600,7 +600,8 @@ export class ExtensionManager {
   /** Time-tracking events from extensions that provide them (1.6), for the app's views. */
   async activityEvents(fromDate: string, toDate: string): Promise<ActivityEvent[]> {
     const out: ActivityEvent[] = []
-    const types = new Set(['start', 'task', 'stop', 'heartbeat'])
+    const types = new Set(['start', 'task', 'stop', 'heartbeat', 'assign'])
+    const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length <= 200 ? v : undefined)
     for (const rec of this.recs.values()) {
       if (!rec.host || !rec.providesActivity) continue
       let list: unknown
@@ -616,6 +617,15 @@ export class ExtensionManager {
         const ev = { t: raw.t, type: raw.type, machine: typeof raw.machine === 'string' ? raw.machine : this.deps.machine } as ActivityEvent
         if (raw.type === 'task' || raw.type === 'start') ev.canvasId = typeof raw.canvasId === 'string' ? raw.canvasId : null
         if (typeof raw.blockId === 'string') ev.entryId = raw.blockId
+        if (raw.type === 'assign') {
+          // A correction (1.8): a window and the canvas it was, or an undo.
+          ev.canvasId = typeof raw.canvasId === 'string' ? raw.canvasId : null
+          for (const k of ['start', 'end', 'id', 'at', 'cancels'] as const) {
+            const v = str(raw[k])
+            if (v !== undefined) ev[k] = v
+          }
+          if (!ev.id && !ev.cancels) continue
+        }
         out.push(ev)
       }
     }

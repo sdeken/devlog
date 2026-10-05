@@ -32,6 +32,18 @@ export const STORAGE_FORMAT = 4
  * `task: true` instead of `type:`; both read as this type.
  */
 export const TASK_TYPE = 'builtin.devlog-time/task'
+/**
+ * Canvas field that marks a canvas an extension keeps (`devlog.managed:
+ * <owner>`), such as devlog-time's Timesheets. Such a canvas is the
+ * extension's storage, shown through its own pages: it stays out of the
+ * sidebar, the quick switcher, pickers and search.
+ */
+export const MANAGED_FIELD = 'devlog.managed'
+
+export function isManagedCanvas(c: Pick<CanvasMeta, 'fields'>): boolean {
+  return Boolean(c.fields?.[MANAGED_FIELD])
+}
+
 /** A node type: "<extension id>/<type id>". */
 export const NODE_TYPE_RE = /^[a-z0-9][a-z0-9._-]{0,127}\/[a-z][a-z0-9_-]{0,63}$/
 
@@ -159,10 +171,11 @@ export function isWithin(canvases: CanvasMeta[], id: string, ancestorId: string)
 /**
  * Nest canvases by `parentId`. The journal is never included; canvases whose
  * parent is missing are treated as top-level. Siblings sort by title, with
- * non-task canvases (clients, projects) before tasks.
+ * non-task canvases (clients, projects) before tasks. Archived canvases and
+ * canvases an extension keeps are left out unless asked for.
  */
-export function buildCanvasTree(canvases: CanvasMeta[], opts: { includeArchived?: boolean } = {}): CanvasNode[] {
-  const list = canvases.filter((c) => c.id !== JOURNAL_ID && (opts.includeArchived || !c.archived))
+export function buildCanvasTree(canvases: CanvasMeta[], opts: { includeArchived?: boolean; includeManaged?: boolean } = {}): CanvasNode[] {
+  const list = canvases.filter((c) => c.id !== JOURNAL_ID && (opts.includeArchived || !c.archived) && (opts.includeManaged || !isManagedCanvas(c)))
   const ids = new Set(list.map((c) => c.id))
   const nodes = new Map<string, CanvasNode>(list.map((c) => [c.id, { canvas: c, children: [] }]))
   const roots: CanvasNode[] = []

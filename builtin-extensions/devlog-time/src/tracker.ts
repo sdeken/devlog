@@ -8,8 +8,10 @@
  *   {"t":"2026-09-29T09:14:03.120Z","type":"task","canvasId":"k2x9…","blockId":"a1b2"}
  *
  * Only what the clock does is written here: start, task, stop and
- * heartbeats. Locks, idle and sleep are the app's to record (they are the
- * machine's state, not the clock's); the app's views put the two together.
+ * heartbeats, and your corrections (`assign`: "14:00–15:00 was this task",
+ * or not worked), filed on the day they correct. Locks, idle and sleep are
+ * the app's to record (they are the machine's state, not the clock's); the
+ * app's views put the two together.
  */
 import type { ActivityNotice, DevlogContext, ExtensionCanvas, ExtensionFiles, TimeEvent } from '@devlog/extension-api'
 
@@ -36,6 +38,17 @@ interface SavedState {
 }
 
 type Kind = TimeEvent['type']
+
+/** One correction, as the timesheet lists them. */
+export interface Correction {
+  id: string
+  start: string
+  end: string
+  canvasId: string | null
+  at: string
+}
+
+const MAX_WINDOW_MS = 24 * 3600_000
 
 export class Clock {
   private active: string | null = null
@@ -153,8 +166,36 @@ export class Clock {
     }
   }
 
-  private async record(type: Kind, fields: { canvasId?: string | null; blockId?: string }): Promise<void> {
-    const t = this.now().toISOString()
+  /**
+   * Say what a stretch of time was: `canvasId` (any canvas), or null for
+   * not worked. It replaces whatever was tracked in the window, in every
+   * view, and leaves the clock alone: time after the window keeps counting.
+   */
+  async assign(start: string, end: string, canvasId: string | null): Promise<Correction> {
+    const s = Date.parse(start)
+    const e = Date.parse(end)
+    if (Number.isNaN(s) || Number.isNaN(e)) throw new Error('Give a start and an end')
+    if (e <= s) throw new Error('The end must be after the start')
+    if (e - s > MAX_WINDOW_MS) throw new Error('Correct at most a day at a time')
+    if (canvasId !== null) {
+      await this.refreshCanvases()
+      if (!this.canvases.some((c) => c.id === canvasId)) throw new Error('That canvas does not exist')
+    }
+    const at = this.now().toISOString()
+    const id = `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    const c: Correction = { id, start: new Date(s).toISOString(), end: new Date(e).toISOString(), canvasId, at }
+    await this.record('assign', { canvasId, start: c.start, end: c.end, id, at }, c.start)
+    return c
+  }
+
+  /** Undo a correction (its window is needed to file the undo beside it). */
+  async unassign(id: string, start: string): Promise<void> {
+    if (!/^[a-z0-9]{1,40}$/.test(id) || Number.isNaN(Date.parse(start))) throw new Error('No such correction')
+    await this.record('assign', { cancels: id, at: this.now().toISOString() }, new Date(start).toISOString())
+  }
+
+  private async record(type: Kind, fields: Partial<Omit<TimeEvent, 't' | 'type' | 'machine'>>, when?: string): Promise<void> {
+    const t = when ?? this.now().toISOString()
     const line = `${JSON.stringify({ t, type, ...fields })}\n`
     const date = localDate(new Date(t))
     const file = `${this.ctx.machine}/${date.slice(0, 4)}/${date.slice(5, 7)}/${date}.jsonl`
@@ -177,8 +218,10 @@ export class Clock {
         if (!line.trim()) continue
         try {
           const o = JSON.parse(line) as Partial<TimeEvent>
-          if (typeof o.t !== 'string' || !['start', 'task', 'stop', 'heartbeat'].includes(String(o.type))) continue
-          out.push({ t: o.t, type: o.type as Kind, ...(o.canvasId !== undefined ? { canvasId: o.canvasId } : {}), ...(o.blockId ? { blockId: o.blockId } : {}), machine: m[1] })
+          if (typeof o.t !== 'string' || !['start', 'task', 'stop', 'heartbeat', 'assign'].includes(String(o.type))) continue
+          const ev: TimeEvent = { t: o.t, type: o.type as Kind, ...(o.canvasId !== undefined ? { canvasId: o.canvasId } : {}), ...(o.blockId ? { blockId: o.blockId } : {}), machine: m[1] }
+          for (const k of ['start', 'end', 'id', 'at', 'cancels'] as const) if (typeof o[k] === 'string') ev[k] = o[k]
+          out.push(ev)
         } catch {
           // A torn last line (a crash mid-write): skip it.
         }

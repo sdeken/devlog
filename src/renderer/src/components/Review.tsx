@@ -110,7 +110,7 @@ function SegmentRow({
       <span className="review-note-text">{label}</span>
       <span className="review-note-minutes">
         {formatMinutes(seg.minutes)}
-        {seg.source === 'explicit' ? ' ✎' : ''}
+        {seg.source === 'explicit' ? ' ✎' : seg.source === 'assigned' ? ' ↺' : ''}
       </span>
       {editable && (
         <span className="seg-actions">

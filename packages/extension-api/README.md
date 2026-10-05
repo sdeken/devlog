@@ -7,7 +7,7 @@ or other extensions** (unless the user trusts it; see below); everything
 goes through the `ctx` object it is given, filtered by what the user
 allowed. How it fits together is in `docs/EXTENSIONS.md`; the reference is
 `src/index.ts`, every member commented with the API version that added it.
-This version of Devlog provides API **1.7.0**; declare the lowest you need
+This version of Devlog provides API **1.8.0**; declare the lowest you need
 (`"api": "^1.6.0"`) and newer apps keep loading it.
 
 ## The files
@@ -90,7 +90,7 @@ The full API, with comments, is `src/index.ts`. In short:
 |---|---|
 | `ctx.id`, `ctx.apiVersion`, `ctx.machine` | its id, the app's API version, this machine's folder name for per-machine files (1.1) |
 | `ctx.packageDir` | the extension's unpacked folder, for scripts it ships; only when it runs unrestricted, else null (1.2) |
-| `ctx.devlog` | `canvases()`, `field(canvasId, key)`, `days(canvasId)`, `blocks(canvasId, date)`, `search(q)`, `addBlock(canvasId, markdown, { meta, parentId, date, todo, kind })`, `todos({ doneSince })` (1.4); `createCanvas`, `updateCanvas`, `editBlock`, `promote(canvasId, date, blockId, { type })`, `onBlockAdded(cb)` (1.6); `activity(from, to)`, `range(from, to)`, `managedCanvas(key, { title })` (1.7). All limited to what the user granted |
+| `ctx.devlog` | `canvases()`, `field(canvasId, key)`, `days(canvasId)`, `blocks(canvasId, date)`, `search(q)`, `addBlock(canvasId, markdown, { meta, parentId, date, todo, kind })`, `todos({ doneSince })` (1.4); `createCanvas`, `updateCanvas`, `editBlock`, `promote(canvasId, date, blockId, { type })`, `onBlockAdded(cb)` (1.6); `activity(from, to)`, `range(from, to)`, `managedCanvas(key, { title })` (1.7; the app keeps a kept canvas out of its own lists). All limited to what the user granted |
 | `ctx.files.repo` / `ctx.files.local` | private folders (synced with the devlog / this machine only): `read`, `readText`, `write`, `append`, `list`, `stat`, `remove`, relative paths only |
 | `ctx.settings` | `get(key)`, `onChange(cb)` |
 | `ctx.secrets` | `get`, `set`, `delete` |
@@ -100,7 +100,7 @@ The full API, with comments, is `src/index.ts`. In short:
 | `ctx.commands.register(id, run)` | for commands declared in the manifest; `run(context)` says where it was run from and on which canvas or block (1.6) |
 | `ctx.views.handle(viewId, (method, args) => …)`, `ctx.views.post(viewId, message)` | answer calls from your views' pages and push messages to them (1.5; see `docs/EXTENSIONS.md`, Views) |
 | `ctx.destinations` | `register(id, { preview, send })` for those declared in `contributes.destinations` (1.3); `list()`, `preview(to, sheet)`, `send(to, sheet)` with `permissions.send` (1.7) |
-| `ctx.provide` | `focus(fn)`: focus events for the timeline, review and summary (1.1); `activity(fn)`: time events the app replays in its views (1.6) |
+| `ctx.provide` | `focus(fn)`: focus events for the timeline, review and summary (1.1); `activity(fn)`: time events the app replays in its views (1.6), including corrections (`assign`, 1.8) |
 
 Views are built with `@devlog/ui` (React components and the bridge to your
 process); `builtin-extensions/devlog-time` is the complete example: a node

@@ -178,7 +178,7 @@ export function Timeline({ canvases, today, date, focusMinSeconds, onChangeDate,
             <span className="tlb-dash">–</span>
             {timeFmt.format(new Date(b.end))}
           </time>
-          <span className="tlb-task" title={b.tasks.map((t) => `${pageLabel(t.canvasId)}: ${formatMinutes(t.minutes)}${t.source === 'explicit' ? ' (explicit)' : ''}`).join('\n')}>
+          <span className="tlb-task" title={b.tasks.map((t) => `${pageLabel(t.canvasId)}: ${formatMinutes(t.minutes)}${t.source === 'explicit' ? ' (explicit)' : t.source === 'assigned' ? ' (reassigned)' : ''}`).join('\n')}>
             {taskLabel ?? <span className="tlb-notask">no task</span>}
           </span>
           {showApps && b.apps.length > 0 && (

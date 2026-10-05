@@ -51,6 +51,12 @@ exports.activate = async (ctx) => {
         return ctx.destinations.send({ extension: 'shaper', id: 'ledger' }, args[0])
       case 'ledger':
         return ledger
+      case 'correct':
+        // API 1.8: a correction to tracked time, an undo of one, and one with neither id nor undo (dropped).
+        events.push({ t: args[0], type: 'assign', start: args[0], end: args[1], canvasId: args[2], id: 'a1', at: args[0], machine: ctx.machine })
+        events.push({ t: args[0], type: 'assign', cancels: 'a0', at: args[0], machine: ctx.machine })
+        events.push({ t: args[0], type: 'assign', start: args[0], end: args[1], canvasId: args[2], machine: ctx.machine })
+        return null
       case 'page':
         ctx.ui.openPage('board')
         return null

@@ -1,9 +1,9 @@
 {
   "name": "devlog-time",
   "displayName": "Time tracking",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Tasks you record time against: one active task at a time, paused while the computer is locked, idle or asleep. Brings the Start/Stop item, the task type, posting as a task, and the time behind the timeline, review, summary and timesheet.",
-  "api": "^1.7.0",
+  "api": "^1.8.0",
   "main": "dist/main.js",
   "contributes": {
     "nodeTypes": [

@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.7.0'
+export const API_VERSION = '1.8.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -72,7 +72,7 @@ export interface AddBlockOptions {
  */
 export interface ActivityRecord {
   t: string
-  type: 'start' | 'stop' | 'heartbeat' | 'lock' | 'unlock' | 'idle' | 'active' | 'suspend' | 'resume' | 'task' | 'focus' | 'git' | 'exclude'
+  type: 'start' | 'stop' | 'heartbeat' | 'lock' | 'unlock' | 'idle' | 'active' | 'suspend' | 'resume' | 'task' | 'focus' | 'git' | 'exclude' | 'assign'
   canvasId?: string | null
   entryId?: string
   /** focus: the app and window title (only with read access to the whole devlog). */
@@ -84,11 +84,13 @@ export interface ActivityRecord {
   branch?: string
   from?: string
   detail?: string
-  /** exclude (a correction): no task time between start and end; or undoes the one it `cancels`. */
+  /** exclude and assign (corrections): no task time between start and end, or (assign, 1.8) it was `canvasId`; or undoes the one it `cancels`. */
   start?: string
   end?: string
   id?: string
   cancels?: string
+  /** assign: when the correction was made (1.8). */
+  at?: string
   machine?: string
 }
 
@@ -165,15 +167,26 @@ export interface PickItem {
  * to, from when. `start`/`stop`: the clock started or stopped with the app;
  * `task`: the active canvas changed (null stops it); `heartbeat`: still
  * running (the app counts time up to the last one when the log just ends).
+ *
+ * `assign` (1.8) is a correction: the time from `start` to `end` was
+ * `canvasId` (null: not worked), whatever was tracked. `t` is the window's
+ * start; `at` is when the correction was made, and where two overlap the
+ * later one wins. One with `cancels` undoes the assignment with that `id`.
  */
 export interface TimeEvent {
   t: string
-  type: 'start' | 'task' | 'stop' | 'heartbeat'
+  type: 'start' | 'task' | 'stop' | 'heartbeat' | 'assign'
   canvasId?: string | null
   /** The block that started it, if one did. */
   blockId?: string
   /** The machine folder it was recorded on (`ctx.machine` there). */
   machine: string
+  /** `assign`: the window, its id, when it was made, or the id of an assignment this one undoes (1.8). */
+  start?: string
+  end?: string
+  id?: string
+  at?: string
+  cancels?: string
 }
 
 export interface ActivityNotice {

@@ -68,10 +68,12 @@ ctx.provide.activity(async (fromDate, toDate) => {
 | `task` | `canvasId` (or `null`), `blockId?` | The active canvas changed; `null` stops it. |
 | `stop` | — | The clock stopped with the app. |
 | `heartbeat` | — | Still running. |
+| `assign` (1.8) | `start`, `end`, `canvasId` (or `null`), `id`, `at` | A correction: the time from `start` to `end` was `canvasId` (`null`: not worked), whatever was tracked. `t` is `start`; `at` is when it was made. |
+| `assign` (1.8) | `cancels`, `at` | Undoes the correction with that `id`. |
 
 Every event carries `t` (ISO) and `machine` (`ctx.machine` where it was
 recorded). Events of other types are ignored; so are events without a valid
-`t`.
+`t`, and `assign` events with neither an `id` nor `cancels`.
 
 How the app uses them:
 
@@ -85,8 +87,15 @@ How the app uses them:
 - While **any** extension provides time, the app also writes lock/idle/sleep
   and git events to the devlog's `activity/<machine>/…` log. Without one, it
   records nothing about time.
-- Explicit durations (`[2h]` on a block) and user corrections (`exclude`
-  events) are applied on top.
+- Explicit durations (`[2h]` on a block) are applied on top, then the
+  user's corrections still in force, in the order they were made: the
+  review's `exclude` events (from the app's log) cut tracked time out, and
+  `assign` events replace everything in their window with one segment on
+  their canvas, or nothing. Time outside a window is untouched, so a
+  running task keeps counting past a correction. Corrections never count
+  as the app being alive.
+- In the timesheet, a gap that a correction marked as not worked is never
+  bridged into a session, however short.
 
 Keep per-machine logs in per-machine files
 (`ctx.files.repo`, `${ctx.machine}/YYYY/MM/YYYY-MM-DD.jsonl`) and declare

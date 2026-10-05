@@ -335,12 +335,19 @@ kept a single paused flag, so a laptop that woke in the background while
 locked restarted the task and booked the whole night; since time is always
 recomputed from the raw log, fixing the replay fixed past days too.
 
-**Corrections** are `exclude` events in the activity log (`start`, `end`,
-`id`), filed on the day they apply to, and undone by a later event with
-`cancels: <id>`. `buildTrackedSegments` replays, then cuts every active
-exclusion out of the tracked segments; explicit `[2h]` segments are left
-alone because the marker is the user's own statement. The raw events are
-never edited, so any correction can be reversed.
+**Corrections** say what a stretch of time was, whatever was tracked. The
+review's **Trim** and **Remove** write `exclude` events (`start`, `end`,
+`id`) to the app's log; the Timesheet's corrections are devlog-time's
+`assign` events (a window and the canvas it was, or null for not worked;
+extension API 1.8), in its own log. Both are filed on the day they correct
+(their `t` is the window's start, and the replay never reads them as the
+app being alive), and both are undone by a later event with `cancels:
+<id>`. `buildTrackedSegments` replays, then applies the corrections still
+in force in the order they were made (`at`): an exclusion cuts tracked and
+assigned time (an explicit `[2h]` segment is the user's own statement and
+stays); an assignment replaces everything in its window. Time outside a
+window is untouched, so a running task keeps counting past a correction.
+The raw events are never edited, so any correction can be reversed.
 
 `src/shared/activity.ts` is pure and replays the stream into **task
 segments** (task → next task/stop/pause, resumed on unpause) and **focus

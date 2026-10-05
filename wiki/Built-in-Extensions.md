@@ -8,7 +8,7 @@ asks before it starts, and keeps its grant when the app updates it.
 
 | Extension | Id | Version | API | Runs | Read it for |
 |---|---|---|---|---|---|
-| [devlog-time](#devlog-time-time-tracking) | `builtin.devlog-time` | 1.1.0 | `^1.7.0` | sandboxed | Almost everything: node types, commands in menus, keys and the note box, every view placement, a managed canvas, providing time, sending through destinations. TypeScript + `@devlog/ui`. |
+| [devlog-time](#devlog-time-time-tracking) | `builtin.devlog-time` | 1.2.0 | `^1.8.0` | sandboxed | Almost everything: node types, commands in menus, keys and the note box, every view placement, a managed canvas, providing time, sending through destinations. TypeScript + `@devlog/ui`. |
 | [devlog-focus](#devlog-focus-window-tracking) | `builtin.devlog-focus` | 1.1.0 | `^1.2.0` | unrestricted | A small unrestricted extension with a platform helper, per-machine JSON-lines files, providing focus. |
 | [devlog-jira](#devlog-jira-jira-worklogs) | `builtin.devlog-jira` | 1.1.0 | `^1.3.0` | sandboxed | A complete destination: settings, a secret, a canvas field, a `check` command, a ledger, `fetch`. |
 | [devlog-cms](#devlog-cms-cms-timesheets) | `builtin.devlog-cms` | 1.0.1 | `^1.3.0` | sandboxed | A destination that drives a web app with no API (form login, HTML parsing). |
@@ -43,7 +43,8 @@ Timesheet or Summary, and nothing about time is recorded.
 | New task from the picker | `devlog.createCanvas` with `type` |
 | Tray label, sidebar highlight, keep running in the tray | `app.setTrayLabel`, `ui.highlight`, `app.keepRunning` |
 | Timesheet and Summary pages (`Mod+Shift+H`) | `views` (`page`), `ui.openPage`, `devlog.activity`, `devlog.range` |
-| The Timesheets canvas: one `kind=timesheet` block per week | `devlog.managedCanvas`, `addBlock` with `kind` and `date`, `editBlock` |
+| Corrections to tracked time (**Reassign time…**, and changing tracked entries on the Timesheet): `assign` events in its log | `provide.activity` (1.8) |
+| The Timesheets canvas (kept out of the app's lists): one `kind=timesheet` block per week, with your changes beside the entries | `devlog.managedCanvas`, `addBlock` with `kind` and `date`, `editBlock` |
 | Sending to Jira or CMS | `permissions.send`, `destinations.list` / `preview` / `send` |
 | Hour targets per canvas (weekly, monthly) | `canvasFields` with `inherited: false` |
 

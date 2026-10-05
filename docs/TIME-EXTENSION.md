@@ -3,8 +3,10 @@
 Status: done. Todos became blocks in 0.15.0; views and `@devlog/ui`
 (API 1.5) came in 0.16.0; the API 1.6 additions, `devlog-time` and its
 Start/Stop views in 0.17.0; the Timesheet and Summary as its pages (API 1.7)
-and hour targets in 0.18.0. There was no API 2.0: the additions came as
-1.5, 1.6 and 1.7, all additive, so older extensions keep loading.
+and hour targets in 0.18.0; corrections to tracked time (API 1.8) and a
+Timesheet that keeps following tracked time in 0.19.0. There was no API
+2.0: the additions came as 1.5 to 1.8, all additive, so older extensions
+keep loading.
 
 ## What lives where
 
@@ -18,6 +20,7 @@ Start button, no Timesheet or Summary, and nothing about time is recorded.
 | The clock: one active task, paused while locked, idle or asleep, heartbeats | Machine state: it notes lock, idle and sleep, tells extensions, and logs them while an extension provides time |
 | The status bar item, the Start/Stop button on task canvases, the task picker, the tray label, Stop (Ctrl+Shift+.) | The Weekly review and the Timeline, drawing their time from the extension's events |
 | Post as task (Ctrl+Shift+Enter, `#task`), **Make task** on a block or todo | Git capture (commits as blocks; git events while time is tracked) |
+| Corrections to tracked time (**Reassign time…**, and changing tracked entries on the Timesheet) | Applying corrections in every view (and the review's own Trim and Remove) |
 | The Timesheet and Summary pages, the Timesheets canvas, sending through Jira and CMS | The destination registry (Jira and CMS register there; devlog-time sends through the app) |
 | Hour targets | Canvas fields, settings pages, the sandbox |
 | Its settings: idle minutes, whether its log is synced | |
@@ -38,18 +41,22 @@ who don't want it in their streams.
   and the blocks in a range), canvases an extension keeps, sending through
   other extensions' destinations, `ui.openPage`, fields that are not
   inherited.
+- 1.8: corrections as time events (`assign`: a window was this canvas, or
+  not worked; undone with `cancels`).
 
 See `EXTENSIONS.md` for each.
 
 ## Data
 
 - The clock's events go to `extensions/builtin.devlog-time/<machine>/`
-  (or stay on this machine, with *Keep time in the devlog* off). The app
+  (or stay on this machine, with *Keep time in the devlog* off), and so do
+  your corrections, filed on the day they correct. The app
   logs locks, idle, sleep and git events in `activity/<machine>/` while an
   extension provides time. Time from before 0.17 stays in `activity/`; the
   app replays all of it together.
 - Timesheets are blocks in the Timesheets canvas, which devlog-time keeps
-  (the canvas the app made before is taken over as it is); it sends through
+  (the canvas the app made before is taken over as it is; since 0.19 the
+  app keeps it out of the sidebar and the other lists); it sends through
   the app to the Jira and CMS destinations, which are unchanged.
 - Task-link blocks keep rendering as links without the extension, and task
   canvases read as plain canvases.

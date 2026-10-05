@@ -222,6 +222,15 @@ describe('extensions in the app', () => {
     expect(await call('send', { ...sheet, status: 'final' })).toMatchObject({ done: ['e1'], summary: '1 booked' })
     expect(await call('ledger')).toEqual(['Acme|Acme / Web|60'])
 
+    // Corrections to tracked time (1.8) join the app's activity: a window and its canvas, or an undo; one with neither is dropped.
+    const from = `${today}T14:00:00.000Z`
+    const to = `${today}T15:00:00.000Z`
+    await call('correct', from, to, ids.web)
+    expect((await manager.activityEvents(today, today)).filter((e) => e.type === 'assign')).toEqual([
+      expect.objectContaining({ t: from, type: 'assign', start: from, end: to, canvasId: ids.web, id: 'a1', at: from }),
+      expect.objectContaining({ t: from, type: 'assign', cancels: 'a0', canvasId: null })
+    ])
+
     // Its pages open in the app.
     await call('page')
     for (let i = 0; i < 50 && !opened.length; i++) await new Promise((r) => setTimeout(r, 20))

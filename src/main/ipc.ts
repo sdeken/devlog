@@ -1,7 +1,7 @@
 import { BrowserWindow, Menu, ipcMain, shell } from 'electron'
 import { IPC } from '@shared/ipc'
 import type { ActivityEvent, CanvasInput, Entry, EntryPosition, RepoInfo, Settings, UpdateStatus } from '@shared/types'
-import { checklistItems } from '@devlog/core'
+import { checklistItems, isManagedCanvas } from '@devlog/core'
 import type { DevlogStore } from '@devlog/core/node'
 import type { SyncManager } from '@devlog/core/node'
 import type { SettingsStore } from './settings'
@@ -158,7 +158,13 @@ export function registerIpc(deps: IpcDeps): void {
   ipcMain.handle(IPC.timelineGet, (_e, canvasId: string, opts?: { beforeDate?: string; days?: number }) =>
     requireStore(deps).getTimeline(canvasId, opts ?? {})
   )
-  ipcMain.handle(IPC.rangeGet, (_e, fromDate: string, toDate: string) => requireStore(deps).getRange(fromDate, toDate))
+  ipcMain.handle(IPC.rangeGet, async (_e, fromDate: string, toDate: string) => {
+    // What was written, for the review and timeline: not what extensions keep in canvases of their own.
+    const store = requireStore(deps)
+    const [range, canvases] = await Promise.all([store.getRange(fromDate, toDate), store.listCanvases()])
+    const kept = new Set(canvases.filter(isManagedCanvas).map((c) => c.id))
+    return kept.size ? range.filter((d) => !kept.has(d.canvasId)) : range
+  })
   ipcMain.handle(IPC.entryAdd, async (_e, canvasId: string, text: string, position?: EntryPosition) => {
     const store = requireStore(deps)
     // A checklist ("[ ] …" on every line) posts one todo per line.
@@ -196,7 +202,14 @@ export function registerIpc(deps: IpcDeps): void {
       ? requireStore(deps).moveEntry(fromCanvasId, date, id, to)
       : requireStore(deps).moveBlock({ canvasId: fromCanvasId, date, id }, { canvasId: String(to.canvasId), date: to.date, parentId: to.parentId, afterId: to.afterId })
   )
-  ipcMain.handle(IPC.entrySearch, (_e, query: string) => requireStore(deps).search(query))
+  ipcMain.handle(IPC.entrySearch, async (_e, query: string) => {
+    // Canvases an extension keeps (the Timesheets canvas) are its storage, not part of the notebook.
+    const store = requireStore(deps)
+    const [result, canvases] = await Promise.all([store.search(query), store.listCanvases()])
+    const kept = new Set(canvases.filter(isManagedCanvas).map((c) => c.id))
+    if (kept.size === 0) return result
+    return { blocks: result.blocks.filter((h) => !kept.has(h.canvasId)), surfaces: result.surfaces.filter((h) => !kept.has(h.canvasId)) }
+  })
   ipcMain.handle(
     IPC.assetSave,
     (_e, canvasId: string, date: string, bytes: Uint8Array | ArrayBuffer, mime: string, name?: string) =>

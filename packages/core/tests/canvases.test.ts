@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   ancestorIds,
   buildCanvasTree,
+  isManagedCanvas,
+  MANAGED_FIELD,
   canvasDir,
   canvasEntriesBase,
   canvasLabel,
@@ -134,6 +136,14 @@ describe('canvases', () => {
     expect(tree[0].children[1].children[0].canvas.id).toBe('fix')
     expect(flattenTree(tree).map((x) => `${x.canvas.id}@${x.depth}`)).toEqual(['acme@0', 'mobile@1', 'web@1', 'fix@2', 'orphan@0', 'zed@0'])
     expect(buildCanvasTree(all, { includeArchived: true })[0].children.map((n) => n.canvas.id)).toEqual(['mobile', 'old', 'web'])
+  })
+
+  it('leaves out canvases an extension keeps, unless asked', () => {
+    const all = [c('acme', 'Acme Corp'), c('sheets', 'Timesheets', null, { fields: { [MANAGED_FIELD]: 'timesheets' } })]
+    expect(isManagedCanvas(all[1])).toBe(true)
+    expect(isManagedCanvas(all[0])).toBe(false)
+    expect(buildCanvasTree(all).map((n) => n.canvas.id)).toEqual(['acme'])
+    expect(buildCanvasTree(all, { includeManaged: true }).map((n) => n.canvas.id)).toEqual(['acme', 'sheets'])
   })
 
 })

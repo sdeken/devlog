@@ -213,6 +213,7 @@ export type ActivityEventType =
   | 'focus' // foreground window changed
   | 'git' // something happened in a watched repository
   | 'exclude' // user correction: no task time counts between `start` and `end` (or undo of one, via `cancels`)
+  | 'assign' // user correction: the time between `start` and `end` was `canvasId` (null: not worked), or undo of one via `cancels`
 
 export type GitAction = 'commit' | 'branch' | 'checkout' | 'push' | 'merge' | 'rebase' | 'pull' | 'stash' | 'reset'
 
@@ -231,11 +232,13 @@ export interface ActivityEvent {
   branch?: string
   from?: string
   detail?: string
-  /** exclude events: the window, its id, or the id of an exclusion this one undoes */
+  /** exclude and assign events: the window, its id, or the id of a correction this one undoes */
   start?: string
   end?: string
   id?: string
   cancels?: string
+  /** assign events: when the correction was made (later corrections win). `t` is the window's start, so it is filed on that day. */
+  at?: string
   /** Which machine's log the event came from (set when reading; never stored). '' for the pre-0.4 shared log. */
   machine?: string
 }

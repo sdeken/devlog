@@ -148,6 +148,26 @@ describe('devlog-time', () => {
     ])
   })
 
+  it('corrects tracked time: a window was another task, or not work; and undoes it', async () => {
+    vi.useFakeTimers({ now: new Date('2026-09-29T16:00:00'), toFake: ['Date', 'setInterval', 'clearInterval'] })
+    const t = setup()
+    await time.activate(t.ctx)
+    const from = new Date('2026-09-29T14:00:00').toISOString()
+    const to = new Date('2026-09-29T15:00:00').toISOString()
+    const c = (await t.viewCall('timesheet', 'assign', from, to, 'docs')) as { id: string }
+    await t.viewCall('timesheet', 'assign', from, to, null)
+    await expect(t.viewCall('timesheet', 'assign', to, from, 'docs')).rejects.toThrow(/after the start/)
+    await expect(t.viewCall('timesheet', 'assign', from, to, 'nosuch')).rejects.toThrow(/does not exist/)
+    await t.viewCall('timesheet', 'unassign', c.id, from)
+    // Filed on the day they correct, with when they were made.
+    const events = (await t.timeEvents('2026-09-29', '2026-09-29')).filter((e) => e.type === 'assign')
+    expect(events).toEqual([
+      { t: from, type: 'assign', canvasId: 'docs', start: from, end: to, id: c.id, at: new Date().toISOString(), machine: 'desk-1a2b' },
+      expect.objectContaining({ t: from, type: 'assign', canvasId: null, start: from, end: to }),
+      expect.objectContaining({ t: from, type: 'assign', cancels: c.id })
+    ])
+  })
+
   it('keeps time on this machine only when asked', async () => {
     const t = setup({ settings: { in_repo: 'false' } })
     await time.activate(t.ctx)
@@ -235,6 +255,8 @@ describe('devlog-time timesheets', () => {
     await time.activate(t.ctx)
     await t.viewCall('timesheet', 'saveTimesheet', { week: '2026-09-21', status: 'draft', entries: [entry] })
     expect(((await t.viewCall('timesheet', 'canvases')) as Array<{ id: string }>).map((c) => c.id)).toEqual(['fix'])
+    // What was written in a range leaves out the timesheets themselves.
+    expect(await t.viewCall('timesheet', 'range', '2026-09-21', '2026-09-27')).toEqual([])
     expect(await t.viewCall('summary', 'activity', '2026-09-22', '2026-09-22')).toEqual(activity)
     expect(await t.viewCall('summary', 'pref', 'summary.granularity')).toBeNull()
     await t.viewCall('summary', 'setPref', 'summary.granularity', '30')

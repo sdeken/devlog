@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import type { CanvasMeta, Entry } from '@shared/types'
-import { canvasLabel } from '@devlog/core'
+import { canvasLabel, isManagedCanvas } from '@devlog/core'
 import { renderMarkdown } from '@renderer/markdown'
 import { parseDurationMarker } from '@devlog/core'
 import { formatMinutes } from '@shared/review'
@@ -96,7 +96,7 @@ export const EntryView = memo(function EntryView({
   }, [forceEdit])
 
   const timeLabel = showDate ? dateTimeFmt.format(created) : timeFmt.format(created)
-  const targets = (canvases ?? []).filter((c) => c.id !== canvasId && !c.archived)
+  const targets = (canvases ?? []).filter((c) => c.id !== canvasId && !c.archived && !isManagedCanvas(c))
   const readOnly = entry.kind === 'commit' || entry.kind === 'done' || entry.kind === 'timesheet' || Boolean(entry.meta?.ext)
   const isTask = entry.kind === 'task'
   const isTodo = entry.kind === 'todo'

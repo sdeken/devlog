@@ -2,9 +2,11 @@
  * The draft timesheet for a week: tracked task time (explicit `[2h]`
  * markers applied, removed time excluded) merged into sessions and rounded
  * once with the firm rule; days with no tracking at all fall back to the
- * same estimate the review uses. See docs/TIMESHEETS.md.
+ * same estimate the review uses. Your corrections to tracked time are
+ * already in it, and a window you said was not worked is never bridged.
+ * Entry ids are stable (see `trackedEntryId`). See docs/TIMESHEETS.md.
  */
-import { buildSessions, draftEntries, roundToQuarterHour, roundWorkMinutes, type Timesheet, type TimesheetEntry } from '@devlog/core'
+import { buildSessions, draftEntries, emptyAdjustments, estimatedEntryId, roundToQuarterHour, roundWorkMinutes, type Timesheet, type TimesheetEntry } from '@devlog/core'
 import { computeWeekTime, weekDates, type ReviewNote } from './review'
 import type { ActivityEvent } from './types'
 
@@ -18,7 +20,10 @@ export function draftTimesheet(week: string, notes: ReviewNote[], events: Activi
   const inWeek = new Set(dates)
   const time = computeWeekTime(notes, events, { dates, now: opts.now, heartbeatMs: opts.heartbeatMs })
 
-  const sessions = buildSessions(time.taskSegments.map((s) => ({ canvasId: s.canvasId, start: s.start, end: s.end }))).filter((s) => inWeek.has(s.date))
+  const sessions = buildSessions(
+    time.taskSegments.map((s) => ({ canvasId: s.canvasId, start: s.start, end: s.end })),
+    { breaks: time.breaks }
+  ).filter((s) => inWeek.has(s.date))
   const entries: TimesheetEntry[] = draftEntries(sessions)
 
   // Untracked days: one entry per canvas, starting at its first note.
@@ -35,13 +40,12 @@ export function draftTimesheet(week: string, notes: ReviewNote[], events: Activi
       let start = roundToQuarterHour(new Date(Number.isFinite(first) ? first : Date.parse(`${date}T09:00:00`))).getTime()
       if (start < busyUntil) start = busyUntil
       busyUntil = start + minutes * 60_000
-      entries.push({ id: '', date, start: new Date(start).toISOString(), minutes, canvasId, worked, source: 'estimated' })
+      entries.push({ id: estimatedEntryId(date, canvasId), date, start: new Date(start).toISOString(), minutes, canvasId, worked, source: 'estimated' })
     }
   }
 
   entries.sort((a, b) => a.date.localeCompare(b.date) || a.start.localeCompare(b.start))
-  entries.forEach((e, i) => (e.id = `e${i + 1}`))
-  return { week, status: 'draft', entries, updatedAt: '' }
+  return { week, status: 'draft', entries, updatedAt: '', adjustments: emptyAdjustments() }
 }
 
 /** A fresh id for an entry added by hand. */

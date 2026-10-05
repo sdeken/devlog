@@ -242,7 +242,10 @@ titles only with read access to the whole devlog. `range(from, to)`: the
 day files with blocks written in a range. `managedCanvas(key, { title })`:
 a canvas it keeps (`devlog.managed: <id>/<key>`), where `addBlock` takes a
 `kind` of its own (not todo, task, commit or done) and any `date`, and
-`editBlock` works on every block.
+`editBlock` works on every block. A kept canvas is the extension's storage:
+the app leaves it out of the sidebar, the quick switcher, pickers, search,
+the review and the timeline, and the extension shows it through its own
+pages.
 
 ### Node types (1.6)
 
@@ -328,13 +331,18 @@ destinations: `destinations.list()`, `preview(to, sheet)` and
 `send(to, sheet)` (only final weeks), through the app. devlog-time's
 Timesheet page does this and writes what was sent under the week.
 
-### Providing data (1.1, 1.6)
+### Providing data (1.1, 1.6, 1.8)
 
 `provide.focus((from, to) => FocusEvent[])`: window focus for the timeline
 and review. `provide.activity((from, to) => TimeEvent[])` (1.6): `start`,
 `task`, `stop` and `heartbeat` events (per machine), which the app replays
 with its own record of locks, idle and sleep; while some extension provides
-time, the app logs those (and git events) in `activity/`.
+time, the app logs those (and git events) in `activity/`. Since 1.8 it may
+also provide corrections: `assign` events (`start`, `end`, `canvasId` or
+null for not worked, `id`, and `at`, when it was made; `t` is the window's
+start), or an undo of one (`cancels`). The app applies them after
+replaying, in the order they were made, in every view (see
+`TIMESHEETS.md`, *Corrections*).
 
 ## Built-in extensions
 

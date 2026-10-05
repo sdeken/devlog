@@ -870,3 +870,96 @@ button {
   color: var(--warn);
   font-weight: 600;
 }
+
+/* ---- Following tracked time: corrections ---- */
+.ts-state.is-legacy {
+  color: var(--warn);
+}
+
+.ts-weekday {
+  display: inline-block;
+  width: 3.4em;
+  color: var(--fg-muted);
+  font-size: 12px;
+}
+
+.ts-dash {
+  color: var(--fg-muted);
+  padding: 0 2px;
+}
+
+.ts-now {
+  display: inline-block;
+  width: 7.4em;
+  padding-left: 5px;
+  color: var(--ok);
+  font-weight: 600;
+}
+
+.ts-row.is-running .ts-hours {
+  color: var(--ok);
+}
+
+.ts-reassign {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-2);
+  font-size: 13px;
+}
+
+.ts-reassign select,
+.ts-reassign input {
+  font: inherit;
+  font-size: 13px;
+  padding: 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.ts-reassign select[aria-label='Was'] {
+  max-width: 220px;
+}
+
+.ts-reassign-label {
+  font-weight: 600;
+}
+
+.ts-corrections {
+  margin: 8px 0 16px;
+}
+
+.ts-corrections h3 {
+  margin: 0 0 6px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+
+.ts-corrections ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.ts-correction {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+  font-size: 13px;
+}
+
+.ts-correction-when {
+  min-width: 9em;
+  font-variant-numeric: tabular-nums;
+  color: var(--fg-muted);
+}

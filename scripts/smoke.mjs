@@ -1056,6 +1056,35 @@ try {
       const tsText = await fs.readFile(tsFile, 'utf8')
       check(tsText.includes('kind=timesheet') && tsText.includes('| 1:15 |') && tsText.includes('```devlog-timesheet'), 'the change is saved: a readable table in the Timesheets canvas, with its data')
       check(tsText.includes('ext=builtin.devlog-time') && (await fs.readFile(path.join(canvasFolder(tsCanvas.id), 'canvas.md'), 'utf8')).includes('devlog.managed: timesheets'), 'the time extension writes it, in the canvas it keeps')
+      check(!(await page.locator('.sidebar').textContent()).includes('Timesheets'), 'the canvas the time extension keeps stays out of the sidebar')
+
+      // A meeting for the client while the clock was still on Website: reassign its first quarter hour.
+      // The week keeps following tracked time, and the extra quarter hour stays on Website's entry.
+      const hhmm = (ms) => `${String(new Date(ms).getHours()).padStart(2, '0')}:${String(new Date(ms).getMinutes()).padStart(2, '0')}`
+      const until = async (fn, what) => {
+        for (let i = 0; i < 100; i++) {
+          if (await fn().catch(() => false)) return true
+          await new Promise((r) => setTimeout(r, 100))
+        }
+        return check(false, `timed out: ${what}`)
+      }
+      const acmeCell = ts.locator(`.ts-cell-btn[data-canvas="${acmeId}"][data-date="${seedYmd}"]`)
+      const acmeBefore = (await acmeCell.count()) ? minutesOf(await acmeCell.textContent()) : 0
+      await ts.locator('.ts-detail .ts-reassign-cell').click()
+      const form = ts.locator('.ts-reassign')
+      await form.locator('input[aria-label="From"]').fill(hhmm(s0))
+      await form.locator('input[aria-label="To"]').fill(hhmm(s0 + 15 * 60_000))
+      await form.locator('select[aria-label="Was"]').selectOption(acmeId)
+      await form.locator('.ts-reassign-go').click()
+      await until(async () => (await acmeCell.count()) === 1 && minutesOf(await acmeCell.textContent()) === acmeBefore + 15, 'the reassigned quarter hour shows under the client')
+      check(minutesOf(await cell.textContent()) === cellBefore, `reassigning a quarter hour moves it to the client, and Website keeps the quarter hour added to it (${await cell.textContent()})`)
+      check((await ts.locator('.ts-correction').count()) === 1, 'the correction is listed under the week')
+      await page.screenshot({ path: path.join(shots, '04b-timesheet-corrected.png') })
+      await ts.locator('.ts-correction button', { hasText: 'Undo' }).click()
+      await until(async () => (await ts.locator('.ts-correction').count()) === 0 && minutesOf(await cell.textContent()) === cellBefore + 15, 'undoing the correction')
+      check(true, 'undoing the correction puts the time back on Website, with its extra quarter hour')
+      await ts.locator('.ts-state.state-saved').waitFor({ timeout: 10_000 })
+      await ts.locator(`.ts-row[data-entry="${rowId}"]`).waitFor({ timeout: 5_000 })
       await ts.locator('.ts-actions button', { hasText: 'Mark final' }).click()
       await ts.locator('.ts-state.is-final').waitFor({ timeout: 10_000 })
       check((await ts.locator('.ts-add').count()) === 0 && (await row.locator('button[aria-label="15 minutes more"]').isDisabled()), 'a final timesheet is read-only until reopened')

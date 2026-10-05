@@ -12,8 +12,8 @@ export interface TaskSegment {
   canvasId: string
   start: string
   end: string
-  /** `tracked` from live events; `explicit` from a duration marker in a note. */
-  source: 'tracked' | 'explicit'
+  /** `tracked` from live events; `explicit` from a duration marker in a note; `assigned` by a correction ("14:00–15:00 was this"). */
+  source: 'tracked' | 'explicit' | 'assigned'
   entryId?: string
 }
 
@@ -125,7 +125,8 @@ function replayTasks(events: ActivityEvent[], opts: SegmentOptions): TaskSegment
 
   for (const ev of sorted) {
     const t = ms(ev.t)
-    if (Number.isNaN(t)) continue
+    // Corrections are filed at the window they correct, not when they were made: they say nothing about the app running.
+    if (Number.isNaN(t) || isCorrection(ev)) continue
     // App death: nothing heard for longer than the heartbeat window.
     if (lastSeen !== null && t - lastSeen > heartbeat * 2 && openAt !== null) {
       close(lastSeen + heartbeat)
@@ -174,7 +175,7 @@ function replayTasks(events: ActivityEvent[], opts: SegmentOptions): TaskSegment
         open(t)
         break
       default:
-        // heartbeat / focus / git / exclude keep the process alive; nothing else to do.
+        // heartbeat / focus / git keep the process alive; nothing else to do.
         break
     }
   }
@@ -277,44 +278,91 @@ export interface ExclusionWindow {
   end: string
 }
 
+/** A user's correction to tracked time: an exclusion, or "this window was that canvas". */
+export function isCorrection(ev: ActivityEvent): boolean {
+  return ev.type === 'exclude' || ev.type === 'assign'
+}
+
 /** The user's time corrections still in force: exclude events not undone by a later one. */
 export function activeExclusions(events: ActivityEvent[]): ExclusionWindow[] {
-  const cancelled = new Set(events.filter((e) => e.type === 'exclude' && e.cancels).map((e) => e.cancels!))
-  const out: ExclusionWindow[] = []
+  return activeCorrections(events)
+    .filter((c) => c.kind === 'exclude')
+    .map(({ id, start, end }) => ({ id, start, end }))
+}
+
+export interface TimeCorrection {
+  id: string
+  kind: 'exclude' | 'assign'
+  start: string
+  end: string
+  /** For `assign`: the canvas the window was (null: not worked). */
+  canvasId: string | null
+  /** When it was made; later corrections win where they overlap. */
+  at: string
+}
+
+/** Exclusions and assignments still in force (not undone by a later `cancels`), oldest first. */
+export function activeCorrections(events: ActivityEvent[]): TimeCorrection[] {
+  const cancelled = new Set(events.filter((e) => isCorrection(e) && e.cancels).map((e) => e.cancels!))
+  const out: TimeCorrection[] = []
   for (const e of events) {
-    if (e.type !== 'exclude' || e.cancels || !e.id || !e.start || !e.end || cancelled.has(e.id)) continue
+    if (!isCorrection(e) || e.cancels || !e.id || !e.start || !e.end || cancelled.has(e.id)) continue
     if (Number.isNaN(ms(e.start)) || Number.isNaN(ms(e.end)) || ms(e.end) <= ms(e.start)) continue
-    out.push({ id: e.id, start: e.start, end: e.end })
+    const kind = e.type as TimeCorrection['kind']
+    out.push({ id: e.id, kind, start: e.start, end: e.end, canvasId: kind === 'assign' ? (e.canvasId ?? null) : null, at: e.at ?? e.t })
   }
-  return out.sort((a, b) => a.start.localeCompare(b.start))
+  return out.sort((a, b) => a.at.localeCompare(b.at) || a.id.localeCompare(b.id))
+}
+
+/** Cut a window out of segments; `keep` says which segments it leaves alone. */
+function cutWindow(segments: TaskSegment[], ws: number, we: number, keep: (seg: TaskSegment) => boolean): TaskSegment[] {
+  const next: TaskSegment[] = []
+  for (const seg of segments) {
+    const s = ms(seg.start)
+    const e = ms(seg.end)
+    if (keep(seg) || e <= ws || s >= we) {
+      next.push(seg)
+      continue
+    }
+    if (s < ws) next.push({ ...seg, end: iso(ws) })
+    if (e > we) next.push({ ...seg, start: iso(we) })
+  }
+  return next
 }
 
 /** Cut every exclusion window out of the tracked segments (explicit ones are the user's own word and stay). */
 export function applyExclusions(segments: TaskSegment[], windows: ExclusionWindow[]): TaskSegment[] {
-  if (windows.length === 0) return segments
   let cur = segments
-  for (const w of windows) {
-    const ws = ms(w.start)
-    const we = ms(w.end)
-    const next: TaskSegment[] = []
-    for (const seg of cur) {
-      const s = ms(seg.start)
-      const e = ms(seg.end)
-      if (seg.source !== 'tracked' || e <= ws || s >= we) {
-        next.push(seg)
-        continue
-      }
-      if (s < ws) next.push({ ...seg, end: iso(ws) })
-      if (e > we) next.push({ ...seg, start: iso(we) })
-    }
-    cur = next
-  }
+  for (const w of windows) cur = cutWindow(cur, ms(w.start), ms(w.end), (seg) => seg.source !== 'tracked')
   return cur
+}
+
+/**
+ * Apply corrections in the order they were made. An exclusion cuts tracked
+ * and assigned time (a duration marker in a note is the user's own word and
+ * stays); an assignment replaces everything in its window with one segment
+ * on its canvas (or nothing, for "not worked"). Time outside the windows is
+ * untouched, so a running task keeps counting past a correction.
+ */
+export function applyCorrections(segments: TaskSegment[], corrections: TimeCorrection[]): TaskSegment[] {
+  if (corrections.length === 0) return segments
+  let cur = segments
+  for (const c of corrections) {
+    const ws = ms(c.start)
+    const we = ms(c.end)
+    if (c.kind === 'exclude') {
+      cur = cutWindow(cur, ws, we, (seg) => seg.source === 'explicit')
+      continue
+    }
+    cur = cutWindow(cur, ws, we, () => false)
+    if (c.canvasId) cur.push({ canvasId: c.canvasId, start: c.start, end: c.end, source: 'assigned' })
+  }
+  return cur.sort((a, b) => a.start.localeCompare(b.start))
 }
 
 /** Task segments as the views should see them: replayed, then with the user's corrections applied. */
 export function buildTrackedSegments(events: ActivityEvent[], opts: SegmentOptions = {}): TaskSegment[] {
-  return applyExclusions(buildTaskSegments(events, opts), activeExclusions(events))
+  return applyCorrections(buildTaskSegments(events, opts), activeCorrections(events))
 }
 
 /**
@@ -372,7 +420,7 @@ function replayFocus(events: ActivityEvent[], opts: SegmentOptions): FocusSegmen
   }
   for (const ev of sorted) {
     const t = ms(ev.t)
-    if (Number.isNaN(t)) continue
+    if (Number.isNaN(t) || isCorrection(ev)) continue
     if (lastSeen !== null && t - lastSeen > heartbeat * 2) close(lastSeen + heartbeat)
     lastSeen = t
     switch (ev.type) {

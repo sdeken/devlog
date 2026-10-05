@@ -23,6 +23,12 @@ export const api = {
   /** What the app recorded: time, locks, idle, sleep, corrections. */
   activity: (from: string, to: string): Promise<ActivityEvent[]> => devlog.call('activity', from, to),
   timesheet: (week: string): Promise<Timesheet | null> => devlog.call('timesheet', week),
+  /** The clock: which task is running. */
+  clock: (): Promise<{ active: string | null; paused: string | null }> => devlog.call('clock'),
+  /** Correct tracked time: from `start` to `end` was `canvasId` (null: not worked). */
+  assign: (start: string, end: string, canvasId: string | null): Promise<{ id: string }> => devlog.call('assign', start, end, canvasId),
+  /** Undo a correction. */
+  unassign: (id: string, start: string): Promise<void> => devlog.call('unassign', id, start),
   saveTimesheet: (sheet: Timesheet): Promise<Timesheet> => devlog.call('saveTimesheet', sheet),
   destinations: (): Promise<DestinationInfo[]> => devlog.call('destinations'),
   /** What sending the saved week would do. */

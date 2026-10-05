@@ -1,6 +1,6 @@
 # Extension API reference
 
-API version **1.7.0**. Source of truth:
+API version **1.8.0**. Source of truth:
 [`packages/extension-api/src/index.ts`](https://github.com/sdeken/devlog/blob/main/packages/extension-api/src/index.ts),
 where every member is commented with the version that added it. Types used
 below are described in [Extension Types](Extension-Types).
@@ -76,7 +76,7 @@ CommonJS) works too.
 | Member | Type | Since | Description |
 |---|---|---|---|
 | `ctx.id` | `string` | 1.0 | The extension's id, from where it was installed: `sdeken.devlog-jira`, `url.my-ext`, `builtin.devlog-time`. |
-| `ctx.apiVersion` | `string` | 1.0 | The app's extension API version, e.g. `1.7.0`. |
+| `ctx.apiVersion` | `string` | 1.0 | The app's extension API version, e.g. `1.8.0`. |
 | `ctx.machine` | `string` | 1.1 | This machine's folder name in the devlog (`<host>-<short id>`), for per-machine files. |
 | `ctx.packageDir` | `string \| null` | 1.2 | The extension's unpacked folder, for helper scripts it ships. Only when running unrestricted; `null` in the sandbox. |
 
@@ -243,7 +243,10 @@ may, whatever it was granted:
 - add blocks with kinds of its own and on any `date`;
 - `editBlock` any block.
 
-devlog-time keeps its **Timesheets** canvas this way.
+The app treats a kept canvas as the extension's storage, not part of the
+notebook: it stays out of the sidebar, the quick switcher, pickers, search,
+the review and the timeline, and the extension shows it through its own
+pages. devlog-time keeps its **Timesheets** canvas this way.
 
 ```js
 const log = await ctx.devlog.managedCanvas('deploys', { title: 'Deploys' })
@@ -427,7 +430,7 @@ Data the app draws in its own views (1.1). See
 | Method | Since | Description |
 |---|---|---|
 | `focus(fn: (fromDate, toDate) => Promise<FocusEvent[]>): void` | 1.1 | Window focus changes between two local dates (inclusive), for the timeline, review and summary. |
-| `activity(fn: (fromDate, toDate) => Promise<TimeEvent[]>): void` | 1.6 | Time-tracking events (`start`, `task`, `stop`, `heartbeat`), for the review, summary, timeline and timesheet. While any extension provides time, the app also logs lock/idle/sleep and git events. |
+| `activity(fn: (fromDate, toDate) => Promise<TimeEvent[]>): void` | 1.6, 1.8 | Time-tracking events (`start`, `task`, `stop`, `heartbeat`; and since 1.8 corrections, `assign`), for the review, summary, timeline and timesheet. While any extension provides time, the app also logs lock/idle/sleep and git events. |
 
 Providers must answer within 20 seconds; at most 500 000 events per call are
 used.

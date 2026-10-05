@@ -122,12 +122,23 @@ export async function activate(ctx: DevlogContext): Promise<void> {
         const kept = await sheets.canvas()
         return asMeta((await ctx.devlog.canvases()).filter((x) => x.id !== kept))
       }
-      case 'range':
-        return (await ctx.devlog.range(str(args[0]), str(args[1]))).map((d) => ({ canvasId: d.canvasId, date: d.date, blocks: d.blocks }))
+      case 'range': {
+        // What was written in the range, without the timesheets themselves (and what was sent, under them).
+        const kept = await sheets.canvas()
+        return (await ctx.devlog.range(str(args[0]), str(args[1]))).filter((d) => d.canvasId !== kept).map((d) => ({ canvasId: d.canvasId, date: d.date, blocks: d.blocks }))
+      }
       case 'activity':
         return ctx.devlog.activity(str(args[0]), str(args[1]))
       case 'timesheet':
         return sheets.read(str(args[0]))
+      case 'clock':
+        return c.status()
+      case 'assign':
+        // A correction to tracked time: the window was this canvas (null: not worked).
+        return c.assign(str(args[0]), str(args[1]), args[2] === null ? null : str(args[2]))
+      case 'unassign':
+        await c.unassign(str(args[0]), str(args[1]))
+        return null
       case 'saveTimesheet':
         return sheets.save(args[0])
       case 'destinations':

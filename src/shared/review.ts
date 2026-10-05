@@ -8,10 +8,13 @@
 import { localDate, parseDurationMarker } from '@devlog/core'
 import { JOURNAL_ID, ancestorIds } from '@devlog/core'
 import {
+  activeCorrections,
+  applyCorrections,
   applyExplicitDurations,
   buildFocusSegments,
-  buildTrackedSegments,
+  buildTaskSegments,
   cleanFocusSegments,
+  isCorrection,
   focusSummaryByDay,
   taskMinutesByDay,
   type AppSummary,
@@ -124,6 +127,8 @@ export interface WeekTime {
   focus: Map<string, { apps: AppSummary[]; kinds: Map<AppKind, number>; total: number }>
   /** Explicit durations found in notes, by note key. */
   explicitByNote: Map<string, number>
+  /** Windows where time was corrected to nothing (exclusions, "not worked"): a session never spans one. */
+  breaks: Array<{ start: string; end: string }>
 }
 
 export interface WeekTimeOptions {
@@ -149,11 +154,15 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
     }
   }
   const segOpts = { now: opts.now, heartbeatMs: opts.heartbeatMs }
-  const tracked = applyExplicitDurations(buildTrackedSegments(events, segOpts), explicit)
+  // Duration markers, then the user's corrections in the order they were made (a later correction wins).
+  const corrections = activeCorrections(events)
+  const tracked = applyCorrections(applyExplicitDurations(buildTaskSegments(events, segOpts), explicit), corrections)
   const focusSegments = cleanFocusSegments(buildFocusSegments(events, segOpts), { minSeconds: opts.focusMinSeconds ?? 5 })
   const byCanvasDay = taskMinutesByDay(tracked)
   const method = new Map<string, DayMethod>()
-  const datesWithEvents = new Set(events.map((e) => localDate(new Date(e.t))))
+  // A day counts as tracked when the app logged anything that day, or time was assigned to it; an exclusion alone does not.
+  const datesWithEvents = new Set(events.filter((e) => !isCorrection(e)).map((e) => localDate(new Date(e.t))))
+  for (const c of corrections) if (c.kind === 'assign' && c.canvasId) datesWithEvents.add(localDate(new Date(c.start)))
 
   // Fallback per day: no tracking data and no explicit markers → heuristic.
   const fallback = estimateMinutes(notes, opts.estimate)
@@ -174,7 +183,8 @@ export function computeWeekTime(notes: ReviewNote[], events: ActivityEvent[], op
     byCanvasDay.set(date, m)
   }
 
-  return { byCanvasDay, method, taskSegments: tracked, focusSegments, focus: focusSummaryByDay(focusSegments), explicitByNote }
+  const breaks = corrections.filter((c) => c.kind === 'exclude' || c.canvasId === null).map(({ start, end }) => ({ start, end }))
+  return { byCanvasDay, method, taskSegments: tracked, focusSegments, focus: focusSummaryByDay(focusSegments), explicitByNote, breaks }
 }
 
 // ---------------------------------------------------------------------------
