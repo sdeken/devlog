@@ -1207,7 +1207,20 @@ try {
   await editor.click()
   await page.keyboard.type('last words before quit')
   await page.keyboard.press('Enter')
-  await page.waitForFunction(() => document.querySelectorAll('.entry').length === 3, null, { timeout: 10_000 })
+  const lastPosted = await page
+    .waitForFunction(() => document.querySelectorAll('.entry').length === 3, null, { timeout: 10_000 })
+    .then(() => true)
+    .catch(() => false)
+  if (!lastPosted) {
+    // Say what is on screen instead of only timing out.
+    const seen = await page.evaluate(() => ({
+      title: document.querySelector('.feed-head h2')?.textContent ?? null,
+      entries: [...document.querySelectorAll('.entry')].map((e) => e.textContent.trim().slice(0, 60)),
+      composer: document.querySelector('.composer-dock .composer-editor')?.textContent ?? null,
+      toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent)
+    }))
+    check(false, `the last block is posted on Scratch, which then has three: ${JSON.stringify(seen)}`)
+  }
   await app.close()
   const machine = JSON.parse(await fs.readFile(path.join(userData, 'machine.json'), 'utf8')).folder
   check(/^[a-z0-9-]+-[0-9a-f]{4}$/.test(machine ?? ''), `this install has a machine folder name (${machine})`)
