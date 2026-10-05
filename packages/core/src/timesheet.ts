@@ -153,16 +153,25 @@ export interface TimesheetEntry {
   span?: { start: string; end: string }
 }
 
-/** The id of a tracked entry: from its session's start (sessions never share a start). */
-export function trackedEntryId(sessionStart: string): string {
-  return `t${Date.parse(sessionStart).toString(36)}`
+/** A short hash of a canvas id, for entry ids. */
+function canvasHash(canvasId: string): string {
+  let h = 0x811c9dc5
+  for (let i = 0; i < canvasId.length; i++) h = Math.imul(h ^ canvasId.charCodeAt(i), 0x01000193) >>> 0
+  return h.toString(36)
+}
+
+/**
+ * The id of a tracked entry: from its session's start and canvas. A
+ * session that grows keeps it; when part of one is reassigned, the part on
+ * another canvas gets an id of its own even where both start together.
+ */
+export function trackedEntryId(sessionStart: string, canvasId: string): string {
+  return `t${Date.parse(sessionStart).toString(36)}${canvasHash(canvasId)}`
 }
 
 /** The id of a day's estimated entry for a canvas (one per canvas per untracked day). */
 export function estimatedEntryId(date: string, canvasId: string): string {
-  let h = 0x811c9dc5
-  for (let i = 0; i < canvasId.length; i++) h = Math.imul(h ^ canvasId.charCodeAt(i), 0x01000193) >>> 0
-  return `n${date.replace(/-/g, '')}${h.toString(36)}`
+  return `n${date.replace(/-/g, '')}${canvasHash(canvasId)}`
 }
 
 /**
@@ -183,7 +192,7 @@ export function draftEntries(sessions: Session[]): TimesheetEntry[] {
     const busyUntil = dayEnd.get(s.date)
     if (busyUntil !== undefined && start < busyUntil) start = busyUntil
     dayEnd.set(s.date, start + minutes * MINUTE_MS)
-    out.push({ id: trackedEntryId(s.start), date: s.date, start: new Date(start).toISOString(), minutes, canvasId: s.canvasId, worked: s.workedMinutes, source: 'tracked', span: { start: s.start, end: s.end } })
+    out.push({ id: trackedEntryId(s.start, s.canvasId), date: s.date, start: new Date(start).toISOString(), minutes, canvasId: s.canvasId, worked: s.workedMinutes, source: 'tracked', span: { start: s.start, end: s.end } })
   })
   return out
 }
@@ -388,8 +397,10 @@ export function resolveTimesheet(draft: Timesheet, saved: Timesheet | null): Tim
 
 /**
  * After a correction to tracked time, entries can change ids (a session
- * that now starts later is a new session). Move each adjustment whose entry
- * is gone to the entry on the same canvas that overlaps it most.
+ * that now starts later is a new session, a stretch moved to another task
+ * is on another canvas). Move each adjustment whose entry is gone to the
+ * entry on the same canvas that overlaps it most; failing that, to the
+ * entry that has exactly its time (the whole stretch went to another task).
  */
 export function carryAdjustments(adj: TimesheetAdjustments, before: TimesheetEntry[], after: TimesheetEntry[]): TimesheetAdjustments {
   const present = new Set(after.map((e) => e.id))
@@ -408,6 +419,7 @@ export function carryAdjustments(adj: TimesheetAdjustments, before: TimesheetEnt
       const overlap = Math.min(oe, en) - Math.max(os, s)
       if (overlap > bestOverlap) [best, bestOverlap] = [e, overlap]
     }
+    if (!best) best = after.find((e) => e.source === old.source && e.date === old.date && e.span && old.span && e.span.start === old.span.start && e.span.end === old.span.end) ?? null
     if (!best) continue
     if (adj.minutes[id] !== undefined) out.minutes[best.id] = (out.minutes[best.id] ?? 0) + adj.minutes[id]
     if (adj.notes[id] !== undefined && out.notes[best.id] === undefined) out.notes[best.id] = adj.notes[id]

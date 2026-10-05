@@ -602,8 +602,12 @@ try {
   await page.waitForSelector('.review-removed li', { timeout: 10_000 })
   check((await page.locator('.review-segments .seg-row').count()) === segCount - 1, 'Remove takes the stretch out of task time')
   const excl = await page.evaluate(async () => {
-    const d = new Date().toISOString().slice(0, 10)
-    return (await window.devlog.activity.range(d, d)).filter((e) => e.type === 'exclude').length
+    // Local dates: the log is filed by the local day, which is not always the UTC one.
+    const n = new Date()
+    const d = `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}-${String(n.getDate()).padStart(2, '0')}`
+    const from = new Date(n.getTime() - 86_400_000)
+    const f = `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2, '0')}-${String(from.getDate()).padStart(2, '0')}`
+    return (await window.devlog.activity.range(f, d)).filter((e) => e.type === 'exclude').length
   })
   check(excl >= 1, 'the removal is recorded as a correction in the activity log; raw events are untouched')
   await page.locator('.review-removed button', { hasText: 'Restore' }).first().click()
@@ -1213,9 +1217,13 @@ try {
   const actText = await fs.readFile(path.join(actDir, actFiles[0]), 'utf8')
   check(actText.includes('"type":"git"') && !actText.includes('"type":"task"'), 'the app logs git events; the clock is no longer its to log')
   const clockDir = path.join(repo, 'extensions', 'builtin.devlog-time', machine)
-  const clockFiles = (await fs.readdir(clockDir, { recursive: true })).filter((f) => f.endsWith('.jsonl'))
-  const clockText = await fs.readFile(path.join(clockDir, clockFiles[0]), 'utf8')
-  check(clockFiles.length === 1 && clockText.includes('"type":"start"') && clockText.includes('"type":"task"') && clockText.trim().endsWith('"type":"stop"}'), "devlog-time's log in its own folder records start, task and stop (on quit)")
+  // One file per day; a correction is filed on the day it corrects, which may be an earlier one.
+  const clockFiles = (await fs.readdir(clockDir, { recursive: true })).filter((f) => f.endsWith('.jsonl')).sort()
+  const clockLines = []
+  for (const f of clockFiles) clockLines.push(...(await fs.readFile(path.join(clockDir, f), 'utf8')).split('\n').filter((l) => l.trim()))
+  const clockOnly = clockLines.filter((l) => !l.includes('"type":"assign"'))
+  check(clockOnly.some((l) => l.includes('"type":"start"')) && clockOnly.some((l) => l.includes('"type":"task"')) && clockOnly.at(-1).includes('"type":"stop"'), "devlog-time's log in its own folder records start, task and stop (on quit)")
+  check(clockLines.filter((l) => l.includes('"type":"assign"')).length === 2, "and the timesheet's correction and its undo, in the same log")
   const finalLog = git(['log', '--format=%s', 'main'], bare)
   check(git(['status', '--porcelain']) === '', 'quit committed the last entry')
   check(finalLog.split('\n').length >= 2, `quit pushed the last commit (${finalLog.split('\n').length} commits on remote)`)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adoptTimesheet, estimatedEntryId, parseTimesheet, resolveTimesheet, sanitizeTimesheet, serializeTimesheet, trackedEntryId, type Timesheet } from '@devlog/core'
+import { adoptTimesheet, carryAdjustments, estimatedEntryId, parseTimesheet, resolveTimesheet, sanitizeTimesheet, serializeTimesheet, trackedEntryId, type Timesheet } from '@devlog/core'
 import { draftTimesheet, newEntryId } from '../src/shared/timesheet'
 import { computeWeekTime, type ReviewNote } from '../src/shared/review'
 import type { ActivityEvent } from '../src/shared/types'
@@ -34,9 +34,9 @@ describe('the draft timesheet', () => {
     const sheet = draftTimesheet('2026-09-21', notes, events, { now: at(26, 12) })
     expect(sheet).toMatchObject({ week: '2026-09-21', status: 'draft', adjustments: { minutes: {}, notes: {}, removed: [] } })
     expect(sheet.entries.map((e) => [e.id, e.date, e.canvasId, hm(e.start), e.minutes, e.source])).toEqual([
-      [trackedEntryId(at(22, 9, 2)), '2026-09-22', 'acme', '09:00', 60, 'tracked'],
-      [trackedEntryId(at(22, 10, 7)), '2026-09-22', 'globex', '10:00', 15, 'tracked'],
-      [trackedEntryId(at(22, 10, 11)), '2026-09-22', 'acme', '10:15', 15, 'tracked'],
+      [trackedEntryId(at(22, 9, 2), 'acme'), '2026-09-22', 'acme', '09:00', 60, 'tracked'],
+      [trackedEntryId(at(22, 10, 7), 'globex'), '2026-09-22', 'globex', '10:00', 15, 'tracked'],
+      [trackedEntryId(at(22, 10, 11), 'acme'), '2026-09-22', 'acme', '10:15', 15, 'tracked'],
       [estimatedEntryId('2026-09-24', 'acme'), '2026-09-24', 'acme', '14:15', 15, 'estimated']
     ])
     expect(sheet.entries[0].span).toEqual({ start: at(22, 9, 2), end: at(22, 10, 7) })
@@ -84,7 +84,7 @@ describe('corrections to tracked time', () => {
     const fixed = [...running, assign('a1', at(22, 12, 30), at(22, 13), 'acme', at(22, 16))]
     const sheet = draftTimesheet('2026-09-21', [], fixed, { now: at(22, 15, 58) })
     expect(rows(sheet)).toEqual([['2026-09-22', 'acme', '12:30', 210, 'tracked']])
-    expect(sheet.entries[0].id).toBe(trackedEntryId(at(22, 12, 30)))
+    expect(sheet.entries[0].id).toBe(trackedEntryId(at(22, 12, 30), 'acme'))
   })
 
   it('applies corrections in the order they were made, and an undo takes one back', () => {
@@ -167,6 +167,23 @@ describe('a timesheet that follows tracked time', () => {
       ['m2', 30],
       [estimatedEntryId('2026-09-24', 'globex'), 15]
     ])
+  })
+
+  it('keeps your changes on the right entry after a correction', () => {
+    const before = draftAt(14)
+    const t = before.entries.find((e) => e.source === 'tracked')!
+    const adj = { minutes: { [t.id]: 15 }, notes: { [t.id]: 'build' }, removed: [] }
+    // The first quarter hour, from the very start of the session, was Globex: the change stays on Acme's entry.
+    const split = draftAt(14, [assign('a1', at(22, 13), at(22, 13, 15), 'globex', at(22, 14, 30))])
+    const acme = split.entries.find((e) => e.canvasId === 'acme')!
+    const globex = split.entries.find((e) => e.canvasId === 'globex')!
+    expect(acme.id).not.toBe(t.id)
+    expect(globex.id).not.toBe(t.id)
+    expect(carryAdjustments(adj, before.entries, split.entries)).toEqual({ minutes: { [acme.id]: 15 }, notes: { [acme.id]: 'build' }, removed: [] })
+    // The whole stretch was Globex: the change goes with it.
+    const moved = draftAt(14, [assign('a1', t.span!.start, t.span!.end, 'globex', at(22, 14, 30))])
+    const g = moved.entries.find((e) => e.canvasId === 'globex' && e.source === 'tracked')!
+    expect(carryAdjustments(adj, before.entries, moved.entries)).toEqual({ minutes: { [g.id]: 15 }, notes: { [g.id]: 'build' }, removed: [] })
   })
 
   it('pushes a lengthened entry’s neighbour later rather than overlapping it', () => {

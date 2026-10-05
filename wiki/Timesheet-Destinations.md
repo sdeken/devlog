@@ -113,7 +113,7 @@ function plan(sheet, ledger) {
   week: '2026-09-21',            // the Monday
   status: 'final',               // send() is only ever called with 'final'
   entries: [{
-    id: 'tmucbqsg0',             // stable as time accumulates (from 0.19): key your ledger by it
+    id: 'tmucbqsg07h7o6h', // stable as time accumulates (from 0.19): key your ledger by it
     date: '2026-09-22',
     start: '2026-09-22T07:00:00.000Z', // on a local quarter hour
     minutes: 90,                 // a multiple of 15

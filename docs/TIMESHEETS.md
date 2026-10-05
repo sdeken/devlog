@@ -118,10 +118,12 @@ said was not worked is never counted as work in step 2, however short.
 
 Entry ids are stable, so what you change and what destinations remember
 stays on the right entry as time accumulates: a tracked entry's id comes
-from its session's start (`t…`; sessions never share a start), an
-estimated one's from its day and canvas (`n…`), one you add is `m1`, `m2`,
-…. A session that grows keeps its id; one whose start you correct gets a
-new id, and your changes move to it (`carryAdjustments`).
+from its session's start and canvas (`t…`), an estimated one's from its
+day and canvas (`n…`), one you add is `m1`, `m2`, …. A session that grows
+keeps its id; one whose start you correct, or that moves to another task,
+gets a new id, and your changes move to it (`carryAdjustments`: the entry
+on the same canvas that overlaps it most, or else the one with exactly its
+time).
 
 ### Rounding inflation, and suggested trims
 
