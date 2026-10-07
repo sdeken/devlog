@@ -115,8 +115,8 @@ see it.
    `entry:add` (images were already saved with `asset:save`).
 2. Main calls `DevlogStore.addEntry`, which appends an `add` record to the
    day file (under a per-file lock), updates the index, and emits `change`.
-3. The `change` event nudges `SyncManager.noteChange()`; a commit follows
-   after the debounce (30 s by default).
+3. The `change` event nudges `SyncManager.noteChange()`; a local commit
+   follows after the debounce (30 s by default), pushed at the next sync.
 4. Main tells extensions listening with `onBlockAdded` that may read that
    canvas (devlog-time starts the task if it is one).
 5. Main sends `ev:entriesChanged`; the renderer reloads the day.
@@ -135,14 +135,14 @@ See [Activity and Time Data](Activity-and-Time-Data).
 `SyncManager` serialises every git run so timers, the debounce, **Sync now**
 and quit never overlap. One run: `git status` → `add -A` + commit (the
 subject names the days touched) → if a remote exists and pushing is on,
-`fetch`, `pull --rebase --autostash` if behind, `push --set-upstream` if
-ahead. A conflicting rebase is aborted and reported; the app never
+and it is a sync rather than the commit after an edit, `fetch`,
+`pull --rebase --autostash` if behind, `push --set-upstream` if ahead. A conflicting rebase is aborted and reported; the app never
 force-pushes. `GIT_TERMINAL_PROMPT=0` stops git from blocking on credentials
 and a 90 s silence timeout kills a stalled network call.
 
 | Trigger | What happens |
 |---|---|
-| A store change | Commit after a debounce (default 30 s); writes under `activity/` and `extensions/` excepted |
+| A store change | A local commit after a debounce (default 30 s), no pull or push; writes under `activity/` and `extensions/` excepted |
 | Every N minutes (default 5) | Commit if dirty, fetch, pull if behind, push |
 | **Sync now** (⌘⇧S) | The same, immediately |
 | App start | Pull |

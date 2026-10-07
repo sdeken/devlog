@@ -122,8 +122,8 @@ a file scan.
 | Option | Meaning |
 |---|---|
 | `intervalMinutes` | Full sync interval |
-| `debounceSeconds` | Commit this long after the last change |
-| `autoPush` | Fetch, pull and push when a remote exists |
+| `debounceSeconds` | Commit (locally) this long after the last change |
+| `autoPush` | Fetch, pull and push when a remote exists, on a sync (interval, `syncNow`, startup, quit), never on the debounce |
 | `pullOnStart` | Pull on `start()` |
 | `authorName`, `authorEmail` | Commit author |
 | `quietPaths` | Path prefixes committed with every sync but not counted as unsaved work (`activity/`, `extensions/`) |

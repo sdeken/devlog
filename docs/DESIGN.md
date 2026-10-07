@@ -530,16 +530,19 @@ the debounce, "Sync now" and quit can never overlap. One run is:
 
 1. `git status`; if dirty → `add -A` + commit. The subject names the day(s)
    touched (`devlog: 2026-09-19`), the body lists the files.
-2. If a remote exists and pushing is enabled: `fetch`; if behind (or no
-   upstream yet and the remote branch exists) → `pull --rebase --autostash`;
-   then `push --set-upstream` if ahead or untracked.
+2. If a remote exists, pushing is enabled, and this is a sync (not the
+   commit after an edit): `fetch`; if behind (or no upstream yet and the
+   remote branch exists) → `pull --rebase --autostash`; then
+   `push --set-upstream` if ahead or untracked.
 3. Refresh status; emit `remote-changes` if the pull changed the tree so the
    UI reloads.
 
 Triggers: a debounce after each store change (default 30 s; writes under
-`activity/` and `extensions/` excepted), an interval
+`activity/` and `extensions/` excepted), which only commits; an interval
 (default 5 min), startup pull, manual, and `before-quit` (bounded to 20 s so
-quitting can't hang on a dead network).
+quitting can't hang on a dead network), which also pull and push. Until
+0.19.1 the debounce pushed too, so steady typing pushed every half minute and
+GitHub throttled it; now the remote sees at most one push per interval.
 
 Failure handling is deliberately boring: any error becomes
 `state: 'error'` with a short message in the status bar, and the next tick

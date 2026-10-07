@@ -649,13 +649,15 @@ Writing one: `packages/extension-api/README.md`; the design:
 
 | Trigger                       | What happens                                                  |
 | ----------------------------- | ------------------------------------------------------------- |
-| Post / edit / delete / paste  | File written immediately; a commit is scheduled (default 30s) |
+| Post / edit / delete / paste  | File written immediately; a local commit follows (default 30s), pushed at the next sync |
 | Every N minutes (default 5)   | Commit if dirty, fetch, pull `--rebase` if behind, push        |
 | **Sync now** (⌘⇧S)            | Same, immediately                                             |
 | App start                     | Pull (if a remote is configured)                              |
 | App quit                      | Commit and push pending changes (up to 20s)                   |
 
-The status bar shows the current state (uncommitted changes, committing,
+Only a sync touches the remote: edits never push on their own, so a busy
+hour costs one push per interval. The status bar shows the current state
+(uncommitted changes, commits waiting for the next sync, committing,
 pushing, up to date, error) and the branch; the activity log and
 extensions' data are committed with every sync but do not count as
 uncommitted changes. A pull that

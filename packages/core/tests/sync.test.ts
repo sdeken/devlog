@@ -174,6 +174,23 @@ describe('SyncManager', () => {
     sync.stop()
   })
 
+  it('keeps a commit after an edit local until the next sync, which pushes it', async () => {
+    const store = await makeStore()
+    await simpleGit({ baseDir: root }).addRemote('origin', bare)
+    const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 1, autoPush: true, pullOnStart: false, ...author })
+    await sync.start()
+    store.on('change', () => sync.noteChange())
+    await store.addEntry('journal', 'typed, then a pause')
+    const result = await new Promise<{ committed: boolean; pushed: boolean; pulled: boolean }>((resolve) => sync.once('synced', resolve))
+    expect(result).toMatchObject({ committed: true, pushed: false, pulled: false })
+    expect(sync.getStatus().lastPushAt).toBeNull()
+    expect((await simpleGit({ baseDir: bare }).raw(['rev-list', '--all', '--count'])).trim()).toBe('0')
+    // The interval (or Sync now) pushes what the edits committed.
+    expect(await sync.syncNow('interval')).toMatchObject({ committed: false, pushed: true })
+    expect((await simpleGit({ baseDir: bare }).log()).latest?.message).toMatch(/^devlog:/)
+    sync.stop()
+  })
+
   it('serialises overlapping sync requests', async () => {
     const store = await makeStore()
     const sync = new SyncManager(root, { intervalMinutes: 60, debounceSeconds: 60, autoPush: false, pullOnStart: false, ...author })

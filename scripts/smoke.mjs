@@ -843,15 +843,30 @@ try {
 
   await openCanvasNamed('Scratch')
 
-  // 4. Sync runs (debounce is 2s) and pushes to the bare remote.
+  // 4. Edits are committed locally (debounce is 2s); only a sync pushes, here Sync now in the status bar.
+  const statusText = () => page.evaluate(() => [...document.querySelectorAll('.statusbar > .status-text')].at(-1)?.textContent ?? '')
+  await page
+    .waitForFunction(() => /commits? to push$/.test([...document.querySelectorAll('.statusbar > .status-text')].at(-1)?.textContent ?? ''), null, { timeout: 30_000 })
+    .catch(async (err) => {
+      throw new Error(`the edits were never committed (status: ${await statusText()}; git: ${git(['status', '--porcelain']).replace(/\n/g, ', ')})`, { cause: err })
+    })
+  const localHead = git(['rev-parse', 'HEAD'])
+  const remoteHead = (() => {
+    try {
+      return git(['rev-parse', 'main'], bare)
+    } catch {
+      return null // nothing pushed yet
+    }
+  })()
+  check(remoteHead !== localHead, `edits are committed but not pushed on their own (${await statusText()})`)
+  await page.locator('.statusbar button', { hasText: 'Sync now' }).click()
   await page
     .waitForFunction(() => [...document.querySelectorAll('.statusbar > .status-text')].at(-1)?.textContent === 'Up to date', null, { timeout: 30_000 })
     .catch(async (err) => {
-      const texts = await page.locator('.statusbar > .status-text').allTextContents()
-      throw new Error(`sync never reported "Up to date" (status: ${texts.join(' | ')}; git: ${git(['status', '--porcelain']).replace(/\n/g, ', ')})`, { cause: err })
+      throw new Error(`sync never reported "Up to date" (status: ${await statusText()}; git: ${git(['status', '--porcelain']).replace(/\n/g, ', ')})`, { cause: err })
     })
   const remoteLog = git(['log', '--oneline', 'main'], bare)
-  check(remoteLog.split('\n').length >= 1 && remoteLog.includes(`devlog: ${ymd}`), `changes pushed to the remote (${remoteLog.split('\n')[0]})`)
+  check(remoteLog.split('\n').length >= 1 && remoteLog.includes(`devlog: ${ymd}`), `Sync now pushes them to the remote (${remoteLog.split('\n')[0]})`)
   check(git(['status', '--porcelain']) === '', 'working tree clean after sync')
   await page.screenshot({ path: path.join(shots, '03-synced.png') })
 

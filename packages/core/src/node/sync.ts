@@ -1,8 +1,11 @@
 /**
  * SyncManager: keeps a devlog repository committed and pushed.
  *
- *  - A debounce timer commits shortly after the last edit.
- *  - An interval timer commits + pushes on a regular cadence regardless.
+ *  - A debounce timer commits shortly after the last edit, locally only.
+ *  - An interval timer syncs on a regular cadence: commits, then pulls and
+ *    pushes. The network is only touched by a sync (interval, on demand,
+ *    startup, quit), never by an edit, so typing for an hour costs one push
+ *    per interval rather than one every few seconds.
  *  - `syncNow()` can be called on demand (menu, status bar, app quit).
  *
  * All git work is serialised through a single promise chain so runs never
@@ -159,7 +162,7 @@ export class SyncManager extends EventEmitter {
     this.debounceTimer = null
   }
 
-  /** Call after every local edit: commits after a quiet period. */
+  /** Call after every local edit: commits after a quiet period (no pull or push until the next sync). */
   noteChange(): void {
     if (this.stopped) return
     if (this.debounceTimer) clearTimeout(this.debounceTimer)
@@ -222,8 +225,9 @@ export class SyncManager extends EventEmitter {
         }
       }
 
-      // 2. Pull + push when there is a remote.
-      const wantsNetwork = remote !== null && this.options.autoPush && branch
+      // 2. Pull + push when there is a remote, on a sync proper: a commit after an edit stays local
+      // until the next one (pushing every few seconds while typing gets a remote to throttle you).
+      const wantsNetwork = remote !== null && this.options.autoPush && branch && reason !== 'debounce'
       if (wantsNetwork && (reason !== 'quit' || result.committed || status.ahead > 0)) {
         this.setStatus({ state: 'pulling' })
         const headBefore = await this.head()

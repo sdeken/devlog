@@ -225,13 +225,13 @@ export function SettingsDialog({ settings, repo, canvases, extensions, initialPa
         <div className="settings-page">
           <h3>Automatic sync</h3>
           <div className="field-grid">
-            <label htmlFor="debounce">Commit after edits (seconds)</label>
+            <label htmlFor="debounce" title="A local commit only: pushing waits for the next sync">Commit after edits (seconds)</label>
             <input id="debounce" type="number" min={1} max={3600} value={form.commitDebounceSeconds} onChange={(ev) => set('commitDebounceSeconds', Number(ev.target.value))} />
-            <label htmlFor="interval">Sync every (minutes)</label>
+            <label htmlFor="interval" title="Pull and push this often (and with Sync now)">Sync with the remote every (minutes)</label>
             <input id="interval" type="number" min={1} max={1440} value={form.syncIntervalMinutes} onChange={(ev) => set('syncIntervalMinutes', Number(ev.target.value))} />
           </div>
           <label className="check">
-            <input type="checkbox" checked={form.autoPush} onChange={(ev) => set('autoPush', ev.target.checked)} /> Push to the remote after committing
+            <input type="checkbox" checked={form.autoPush} onChange={(ev) => set('autoPush', ev.target.checked)} /> Pull and push when syncing
           </label>
           <label className="check">
             <input type="checkbox" checked={form.pullOnStart} onChange={(ev) => set('pullOnStart', ev.target.checked)} /> Pull from the remote when the app starts

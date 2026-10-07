@@ -49,7 +49,7 @@ open while you work.
 
 ## Versions
 
-This wiki describes Devlog **0.19.0**, extension API **1.8.0**, storage
+This wiki describes Devlog **0.19.1**, extension API **1.8.0**, storage
 format **4**. The longer design notes live in the repository under
 [`docs/`](https://github.com/sdeken/devlog/tree/main/docs); the wiki links to
 them where they go deeper.
