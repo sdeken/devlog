@@ -184,9 +184,12 @@ describe('SyncManager', () => {
     const result = await new Promise<{ committed: boolean; pushed: boolean; pulled: boolean }>((resolve) => sync.once('synced', resolve))
     expect(result).toMatchObject({ committed: true, pushed: false, pulled: false })
     expect(sync.getStatus().lastPushAt).toBeNull()
+    // Nothing on the remote yet (no upstream): both commits count as waiting, not "up to date".
+    expect(sync.getStatus()).toMatchObject({ state: 'clean', ahead: 2 })
     expect((await simpleGit({ baseDir: bare }).raw(['rev-list', '--all', '--count'])).trim()).toBe('0')
     // The interval (or Sync now) pushes what the edits committed.
     expect(await sync.syncNow('interval')).toMatchObject({ committed: false, pushed: true })
+    expect(sync.getStatus().ahead).toBe(0)
     expect((await simpleGit({ baseDir: bare }).log()).latest?.message).toMatch(/^devlog:/)
     sync.stop()
   })

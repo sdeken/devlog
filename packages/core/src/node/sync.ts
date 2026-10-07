@@ -209,7 +209,7 @@ export class SyncManager extends EventEmitter {
         remoteUrl: remote?.url ?? null,
         branch,
         dirtyFiles: this.loudFiles(status.files).length,
-        ahead: status.ahead,
+        ahead: await this.aheadOf(status, remote !== null),
         behind: status.behind
       })
 
@@ -294,9 +294,23 @@ export class SyncManager extends EventEmitter {
       hasRemote: remote !== null,
       remoteUrl: remote?.url ?? null,
       branch: status.current,
-      ahead: status.ahead,
+      ahead: await this.aheadOf(status, remote !== null),
       behind: status.behind
     })
+  }
+
+  /**
+   * Commits not pushed yet. Git counts them against the upstream branch; with
+   * no upstream (nothing pushed yet) every commit not on a remote counts, so
+   * the status never says "up to date" about a branch the remote lacks.
+   */
+  private async aheadOf(status: { ahead: number; tracking: string | null }, hasRemote: boolean): Promise<number> {
+    if (status.tracking || !hasRemote) return status.ahead
+    try {
+      return Number((await this.git.raw(['rev-list', '--count', 'HEAD', '--not', '--remotes'])).trim()) || 0
+    } catch {
+      return status.ahead // no commits yet
+    }
   }
 
   private loudFiles<T extends { path: string }>(files: T[]): T[] {
