@@ -239,7 +239,8 @@ try {
   await page.locator('.block-surface .entry-surface .entry-body').click({ modifiers: ['Control'] })
   await page.waitForSelector('.block-surface .composer-editor', { timeout: 5_000 })
   check(true, "Ctrl+click on the page's surface edits it")
-  await page.keyboard.press('Escape')
+  // On the editor itself: it takes the focus a moment after it appears.
+  await page.locator('.block-surface .composer-editor').press('Escape')
   await page.waitForSelector('.block-surface .composer-editor', { state: 'detached', timeout: 5_000 })
   await page.locator('.block-up').click()
   await page.waitForSelector('.page-head:not(.block-page-head) .crumb.is-current:has-text("Scratch")', { timeout: 10_000 })
