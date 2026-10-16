@@ -8,6 +8,7 @@ import { api } from '@renderer/api'
 import { Composer } from './Composer'
 import { Lightbox } from './Lightbox'
 import { useBlockActions } from '@renderer/extensionCommands'
+import { OPEN_CLICK, openClickHandlers } from '@renderer/keys'
 
 interface Props {
   canvasId: string
@@ -16,7 +17,7 @@ interface Props {
   showDate?: boolean
   /** Number of blocks inside this one (deleted or moved together with it). */
   replyCount?: number
-  /** The block shown as a page's surface: double-click edits, no drag or open. */
+  /** The block shown as a page's surface: middle-click or Ctrl+click edits, no drag or open. */
   surface?: boolean
   /** When true the note opens in edit mode (Up arrow in the composer). */
   forceEdit?: boolean
@@ -32,7 +33,7 @@ interface Props {
   /** Tick a todo off, or back on. */
   onSetDone?: (canvasId: string, date: string, id: string, done: boolean) => Promise<void>
   onOpenCanvas?: (id: string) => void
-  /** Open this block as a page (double-click, the Open action, its chip). */
+  /** Open this block as a page (middle-click or Ctrl+click, the Open action, its chip). */
   onOpen?: () => void
   /** Show a drag grip (the enclosing slot handles the drag events). */
   draggable?: boolean
@@ -131,21 +132,15 @@ export const EntryView = memo(function EntryView({
     )
   }
 
+  // In a stream, a middle click (or Ctrl+click) opens the block's page; on a page's surface it edits.
+  // Double-click is left to select a word.
+  const openClick = openClickHandlers(onOpen && !surface ? onOpen : surface && !readOnly ? () => setEditing(true) : null)
+
   return (
     <article
       className={`entry${surface ? ' entry-surface' : ''}${isTodo ? ` entry-todo${done ? ' is-done' : ''}` : ''}${readOnly ? ' entry-commit' : ''}${isTask ? ' entry-task' : ''}${entry.hidden ? ' entry-hidden' : ''}${showDate ? ' entry-dated' : ''}${confirmDelete || moving ? ' is-busy' : ''}`}
       id={`entry-${entry.id}`}
-      onDoubleClick={(ev) => {
-        // In a stream, double-click opens the block's page; on a page's surface it edits.
-        if ((ev.target as HTMLElement).closest('a, img, button, select')) return
-        if (onOpen && !surface) {
-          window.getSelection()?.removeAllRanges()
-          onOpen()
-          return
-        }
-        if (readOnly || !window.getSelection()?.isCollapsed) return
-        setEditing(true)
-      }}
+      {...openClick}
     >
       {readOnly && <span className="entry-brace brace-auto" title={entry.kind === 'done' ? 'Written when the todo was ticked off; read-only' : entry.kind === 'timesheet' ? 'A timesheet; edit it in the Timesheet view' : entry.meta?.ext ? `Written by the extension ${entry.meta.ext}; read-only` : `Captured automatically from ${entry.meta?.repo ?? 'git'}; read-only`} aria-label="Automatic block" />}
       {isTask && taskCanvasId && (
@@ -224,12 +219,12 @@ export const EntryView = memo(function EntryView({
           ) : (
             <>
               {onOpen && !surface && (
-                <button type="button" className="btn btn-quiet btn-xs entry-open" onClick={onOpen} title="Open this block as a page, to write inside it (or double-click)">
+                <button type="button" className="btn btn-quiet btn-xs entry-open" onClick={onOpen} title={`Open this block as a page, to write inside it (or ${OPEN_CLICK})`}>
                   Open
                 </button>
               )}
               {!readOnly && (
-                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title={surface ? 'Edit (or double-click)' : 'Edit'}>
+                <button type="button" className="btn btn-quiet btn-xs" onClick={() => setEditing(true)} title={surface ? `Edit (or ${OPEN_CLICK})` : 'Edit'}>
                   Edit
                 </button>
               )}
@@ -281,7 +276,6 @@ export const EntryView = memo(function EntryView({
               setPendingDone(next)
               void onSetDone?.(canvasId, date, entry.id, next).catch(() => setPendingDone(null))
             }}
-            onDoubleClick={(ev) => ev.stopPropagation()}
             title={done ? `Done ${new Date(entry.meta!.done!).toLocaleString()}; untick to reopen` : 'Tick off'}
             aria-label={done ? 'Mark as not done' : 'Mark as done'}
           />

@@ -54,8 +54,10 @@ reads as a list of dated blocks, each one openable.
    to reorder among the todos beside it (the same day file, inside the same
    block). There is no ranking across groups. Ticked todos stay in a Done
    section for 14 days.
-5. **Opening a page:** double-click a block, click its chip, or its Open
-   action. On a page, double-clicking the surface edits it.
+5. **Opening a page:** middle-click a block or Ctrl+click it (⌘-click on a
+   Mac), click its chip, or its Open action. On a page, the same click on
+   the surface edits it. (Until 0.19.2 this was a double-click, which got
+   in the way of double-clicking a word to select it.)
 6. **Making a block with blocks inside it a task** (**Make task**, from the
    time extension, through `devlog.promote`) moves those blocks into the new
    task canvas; the block stays where it was as the link to it (phase 3).

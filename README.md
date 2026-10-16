@@ -17,15 +17,16 @@ tracked against; any block can become one.
   formatting UI is a small bubble menu that appears when you select text.
   Enter posts, Shift+Enter starts a new line. Start typing with nothing
   focused and the text goes into the note box for the canvas on screen.
-- **Every block is a page.** Double-click a block (or its **Open**
-  action) to open it: the block sits at the top as the page's surface, and
+- **Every block is a page.** Middle-click a block, or Ctrl+click it (⌘-click
+  on a Mac), or use its **Open** action, to open it (double-click selects a
+  word, as everywhere else): the block sits at the top as the page's surface, and
   what you write there goes inside it, as blocks of their own that can be
   opened in turn. **Alt+Enter** posts a block and opens it straight away;
   **Alt+↑** (or **↑ Up**, or the breadcrumb) goes back up a level. In a
   stream, a block with blocks inside shows a chip ("3 blocks inside")
   instead of the blocks themselves. Hover between two blocks and press
   **+** to insert one there, press ↑ in the empty composer to edit the last
-  block (on a page, double-click the surface to edit it), drag a block's
+  block (on a page, middle-click or Ctrl+click the surface to edit it), drag a block's
   grip to reorder it among the blocks beside it, or **Hide** it to collapse
   it into a one-line stub. Timestamps and actions take no space: on hover they float over
   whatever sits above the block. Blocks you wrote have no marker; blocks the
@@ -43,7 +44,7 @@ tracked against; any block can become one.
   that is not a dated note: links to the issue tracker, environments,
   contacts, credentials, how-tos, or the evolving write-up of whatever you are
   researching. It opens read-only so links just work; **Edit surface** (or a
-  double-click) turns it into the editor, which saves as you type.
+  middle-click or Ctrl+click) turns it into the editor, which saves as you type.
 - **Notes are notes until you say otherwise.** Posting on a client or
   project canvas is just a note. A block becomes a **task** with
   ⌘⇧Enter, with `#task` anywhere on its first line, or with **Make task**
@@ -193,7 +194,7 @@ under another canvas, its type, repositories, extension fields),
 
 The **surface** sits above the stream. It opens rendered: links open in the
 browser, images open full size. **Add surface** / **Edit surface** (or a
-double-click) switches to a full-height editor with the same Markdown and
+middle-click or Ctrl+click) switches to a full-height editor with the same Markdown and
 image support as blocks, but no posting: Enter is just a new line and every
 change is saved a moment later (the header says "Saved"); **Done** switches
 back. Surfaces are searched along with blocks.

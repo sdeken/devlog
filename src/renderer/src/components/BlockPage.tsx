@@ -40,8 +40,8 @@ export function blockTitle(entry: Entry, max = 60): string {
 }
 
 /**
- * A block as a page: the block itself at the top (its surface: double-click
- * to edit), and the blocks written inside it below, grouped by the day each
+ * A block as a page: the block itself at the top (its surface: middle-click
+ * or Ctrl+click to edit), and the blocks written inside it below, grouped by the day each
  * was written. They all live in the block's own day file.
  */
 export function BlockPage(props: Props): React.JSX.Element {

@@ -184,10 +184,15 @@ try {
   const text3 = await fs.readFile(dayFile, 'utf8')
   check(text3.startsWith(text2) && /<!-- devlog:edit id=\w+ at=/.test(text3) && text3.includes('(edited!)'), 'an edit is appended as an edit record; nothing earlier in the file changes')
 
-  // 3b. Blocks are pages: double-click opens one; what you write there goes inside it.
+  // 3b. Blocks are pages: a middle click (or Ctrl+click) opens one; what you write there goes inside it.
+  // A double-click only selects a word, as everywhere else.
   await first.locator('.entry-body').dblclick()
+  await page.waitForTimeout(300)
+  const selected = await page.evaluate(() => window.getSelection()?.toString().trim() ?? '')
+  check((await page.locator('.block-page-head').count()) === 0 && selected.length > 0, `double-clicking a block selects a word and does not open it ("${selected}")`)
+  await first.locator('.entry-body').click({ button: 'middle' })
   await page.waitForSelector('.block-page-head .block-surface .entry-surface', { timeout: 10_000 })
-  check((await page.locator('.block-page-head .crumb.is-current').textContent()).startsWith('Started the git sync'), 'double-clicking a block opens it as a page, titled by its first line')
+  check((await page.locator('.block-page-head .crumb.is-current').textContent()).startsWith('Started the git sync'), 'middle-clicking a block opens it as a page, titled by its first line')
   check((await page.locator('.block-page-head .crumb').first().textContent()) === 'Scratch', "the page's breadcrumb starts at its canvas")
   await editor.click()
   await page.keyboard.type('a note inside the block')
@@ -215,6 +220,17 @@ try {
   await page.waitForSelector('.page-head:not(.block-page-head) .crumb.is-current:has-text("Scratch")', { timeout: 10_000 })
   check((await page.locator('.thread').count()) === 0 && (await page.locator('.entry', { hasText: 'a note inside the block' }).count()) === 0, 'the canvas stream shows no inline threads')
   check((await first.locator('.entry-inside').textContent()).includes('2 blocks inside'), 'the chip counts everything inside the block')
+  // Ctrl+click opens a block too, and on a page's surface it edits the block.
+  await first.locator('.entry-body').click({ modifiers: ['Control'] })
+  await page.waitForSelector('.block-page-head .block-surface .entry-surface', { timeout: 10_000 })
+  check(true, 'Ctrl+click opens a block as a page')
+  await page.locator('.block-surface .entry-surface .entry-body').click({ modifiers: ['Control'] })
+  await page.waitForSelector('.block-surface .composer-editor', { timeout: 5_000 })
+  check(true, "Ctrl+click on the page's surface edits it")
+  await page.keyboard.press('Escape')
+  await page.waitForSelector('.block-surface .composer-editor', { state: 'detached', timeout: 5_000 })
+  await page.locator('.block-up').click()
+  await page.waitForSelector('.page-head:not(.block-page-head) .crumb.is-current:has-text("Scratch")', { timeout: 10_000 })
 
   // Pages opened lately head the quick switcher.
   await page.locator('.topbar-go').click()

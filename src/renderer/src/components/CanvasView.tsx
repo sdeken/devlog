@@ -9,6 +9,7 @@ import { Composer } from './Composer'
 import { Feed } from './Feed'
 import { Lightbox } from './Lightbox'
 import { canvasIcon, typeOf, useNodeTypes } from '@renderer/nodeTypes'
+import { openClickHandlers } from '@renderer/keys'
 
 interface Props {
   canvas: CanvasMeta
@@ -107,6 +108,8 @@ export function CanvasView({
   const isJournal = canvas.id === JOURNAL_ID
   const [full, setFull] = useState<Canvas | null>(null)
   const [editing, setEditing] = useState(false)
+  /** Middle-click or Ctrl+click edits the surface (double-click selects a word). */
+  const surfaceOpen = openClickHandlers(() => setEditing(true))
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
   const [confirm, setConfirm] = useState<'archive' | 'unarchive' | null>(null)
@@ -266,11 +269,11 @@ export function CanvasView({
           ) : (
             <div
               className="surface-read markdown-body"
-              onDoubleClick={(ev) => {
-                if ((ev.target as HTMLElement).closest('a, img')) return
-                setEditing(true)
-              }}
+              onMouseDown={surfaceOpen.onMouseDown}
+              onAuxClick={surfaceOpen.onAuxClick}
               onClick={(ev) => {
+                surfaceOpen.onClick?.(ev)
+                if (ev.defaultPrevented) return
                 const el = ev.target as HTMLElement
                 const img = el.closest('img')
                 if (img?.getAttribute('data-lightbox')) {

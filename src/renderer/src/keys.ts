@@ -47,3 +47,35 @@ export function keybindingLabel(binding: string): string {
   const parts = binding.endsWith('++') ? [...binding.slice(0, -2).split('+').filter(Boolean), '+'] : binding.split('+')
   return kbd(...parts.map((p) => (p === 'Mod' ? 'mod' : p === 'Shift' ? 'shift' : p === 'Alt' ? 'alt' : p === 'Ctrl' ? (isMac ? '⌃' : 'Ctrl') : p)))
 }
+
+/** What opens a block (or edits a surface), for tooltips: "middle-click or Ctrl+click". */
+export const OPEN_CLICK = `middle-click or ${isMac ? '⌘-click' : 'Ctrl+click'}`
+
+/** Elements that keep their own clicks: links, images, form controls. */
+const OWN_CLICKS = 'a, img, button, select, input, textarea, label, summary'
+
+/**
+ * Open-click handlers for a block or surface: a middle click, or a left
+ * click with Ctrl (⌘ on a Mac). Double-click is left alone, so it selects a
+ * word as everywhere else. Pressing the middle button is swallowed too, so it
+ * neither starts autoscroll (Windows) nor pastes the selection (Linux).
+ */
+export function openClickHandlers(open: (() => void) | null | undefined): Pick<React.HTMLAttributes<HTMLElement>, 'onMouseDown' | 'onAuxClick' | 'onClick'> {
+  if (!open) return {}
+  const ownClick = (ev: React.MouseEvent): boolean => Boolean((ev.target as HTMLElement).closest(OWN_CLICKS))
+  return {
+    onMouseDown: (ev) => {
+      if (ev.button === 1 && !ownClick(ev)) ev.preventDefault()
+    },
+    onAuxClick: (ev) => {
+      if (ev.button !== 1 || ownClick(ev)) return
+      ev.preventDefault()
+      open()
+    },
+    onClick: (ev) => {
+      if (ev.button !== 0 || !(isMac ? ev.metaKey : ev.ctrlKey) || ownClick(ev)) return
+      ev.preventDefault()
+      open()
+    }
+  }
+}
