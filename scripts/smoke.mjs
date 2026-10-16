@@ -186,7 +186,19 @@ try {
 
   // 3b. Blocks are pages: a middle click (or Ctrl+click) opens one; what you write there goes inside it.
   // A double-click only selects a word, as everywhere else.
-  await first.locator('.entry-body').dblclick()
+  // On the first word itself (the middle of the body can be empty space).
+  const word = await first.locator('.entry-body').evaluate((el) => {
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
+    let t = walker.nextNode()
+    while (t && !t.textContent.trim()) t = walker.nextNode()
+    const range = document.createRange()
+    const at = t.textContent.search(/\S/)
+    range.setStart(t, at)
+    range.setEnd(t, at + 3)
+    const r = range.getBoundingClientRect()
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+  })
+  await page.mouse.dblclick(word.x, word.y)
   await page.waitForTimeout(300)
   const selected = await page.evaluate(() => window.getSelection()?.toString().trim() ?? '')
   check((await page.locator('.block-page-head').count()) === 0 && selected.length > 0, `double-clicking a block selects a word and does not open it ("${selected}")`)
