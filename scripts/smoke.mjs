@@ -411,9 +411,9 @@ try {
   const picker = page.frameLocator('.ext-popover iframe')
   await picker.locator('.dl-menu-item').first().waitFor({ timeout: 10_000 })
   check((await picker.locator('.dl-menu-item').first().textContent()).includes('Fix the login redirect'), 'its drop-down lists the tasks, the one on screen first')
-  // Focus the box, then press Escape on the page: the key closes (and removes) the frame, so nothing should wait on it.
-  await picker.locator('input').focus()
-  await page.keyboard.press('Escape')
+  // Escape closes (and removes) the popover's frame, so a real key press would wait for an answer from a frame
+  // that is gone: send the key event inside the frame instead (the same handler runs).
+  await picker.locator('input').evaluate((el) => el.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
   await page.waitForSelector('.ext-popover', { state: 'detached', timeout: 5_000 })
   check(true, 'Escape closes the list again')
   await timeStatus().locator('.tt-split button').first().click()
