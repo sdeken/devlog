@@ -41,6 +41,7 @@
     "simple-git": "^3.36.0"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^0.135.0",
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

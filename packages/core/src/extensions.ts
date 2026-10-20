@@ -10,7 +10,7 @@ import { descendantCanvasIds, JOURNAL_ID, NODE_TYPE_RE } from './format/canvases
 import type { CanvasMeta } from './types'
 
 /** The extension API this build of Devlog provides. Manifests declare the range they were built for. */
-export const EXTENSION_API_VERSION = '1.8.0'
+export const EXTENSION_API_VERSION = '1.9.0'
 export const EXTENSION_MANIFEST_FILE = 'devlog-extension.json'
 export const EXTENSIONS_DIR = 'extensions'
 export const LOCK_FILE = 'devlog.lock.json'
@@ -122,20 +122,21 @@ export function normalizeKeybinding(raw: string): string | null {
  * in a sandboxed frame. `page` views are listed in the sidebar and fill the
  * main area; `statusbar` views sit in a slot of the status bar (fixed
  * height; they ask for a width); `popover` views open on request, anchored
- * to the view that asked.
+ * to the view that asked; `panel` views (1.9) are tabs of the side panel,
+ * beside the To do list, and stay open while you look at other tabs.
  */
 export interface ExtensionView {
   id: string
   title: string
   /** The HTML file, relative to the extension folder. */
   entry: string
-  placement: 'page' | 'statusbar' | 'popover' | 'canvasHeader'
+  placement: 'page' | 'statusbar' | 'popover' | 'canvasHeader' | 'panel'
   /** One character or emoji for the sidebar. */
   icon?: string
   /** A `canvasHeader` view shows only on canvases of this node type (the full name). (1.6) */
   nodeType?: string
 }
-export const VIEW_PLACEMENTS: ExtensionView['placement'][] = ['page', 'statusbar', 'popover', 'canvasHeader']
+export const VIEW_PLACEMENTS: ExtensionView['placement'][] = ['page', 'statusbar', 'popover', 'canvasHeader', 'panel']
 
 /**
  * A node type (1.6): a kind of canvas the extension gives meaning to (the

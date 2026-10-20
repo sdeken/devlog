@@ -60,6 +60,11 @@ exports.activate = async (ctx) => {
       case 'page':
         ctx.ui.openPage('board')
         return null
+      case 'panel':
+        // API 1.9: a tab of the side panel; a page view is not one.
+        ctx.ui.openPanel('side')
+        ctx.ui.openPanel('board')
+        return null
       default:
         throw new Error(`board: no method ${method}`)
     }

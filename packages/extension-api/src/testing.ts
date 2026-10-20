@@ -68,6 +68,8 @@ export interface TestHarness {
   answerPick: (items: PickItem[]) => string | null
   /** Pages shown with ui.openPage (1.7). */
   openedPages: string[]
+  /** Panels shown with ui.openPanel (1.9). */
+  openedPanels: string[]
   /** ui.open targets, in order. (1.6) */
   opened: Array<{ canvasId: string; date?: string; blockId?: string }>
   /** What the extension asked of the app (1.6). */
@@ -182,6 +184,7 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
     answerPick: (items) => items[0]?.id ?? null,
     opened: [],
     openedPages: [],
+    openedPanels: [],
     app: { trayLabel: null, keepRunning: false, idleMinutes: 0, highlight: null },
     notice: (n) => {
       for (const cb of activityListeners) cb(n)
@@ -390,10 +393,14 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
         for (const c of canvases) {
           if (!within(opts.read, c.id)) continue
           for (const [date, list] of Object.entries(c.days ?? {})) {
-            const written = list.some((b) => {
-              const d = localDay(new Date(b.createdAt))
-              return d >= from && d <= to
-            })
+            // As in the app: a file counts if a block in it was written, or a todo in it ticked off, in the range.
+            const written = list.some((b) =>
+              [b.createdAt, b.kind === 'todo' ? b.meta?.done : undefined].some((t) => {
+                if (!t) return false
+                const d = localDay(new Date(t))
+                return d >= from && d <= to
+              })
+            )
             if ((date >= from && date <= to) || written) out.push({ canvasId: c.id, date, blocks: [...list] })
           }
         }
@@ -451,6 +458,9 @@ export function createTestContext(opts: TestOptions = {}): TestHarness {
       },
       openPage: (viewId) => {
         h.openedPages.push(viewId)
+      },
+      openPanel: (viewId) => {
+        h.openedPanels.push(viewId)
       },
       highlight: (canvasId) => {
         h.app.highlight = canvasId

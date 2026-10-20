@@ -51,6 +51,13 @@
         "title": "Board",
         "entry": "views/head.html",
         "placement": "page"
+      },
+      {
+        "id": "side",
+        "title": "Side",
+        "entry": "views/head.html",
+        "placement": "panel",
+        "icon": "◆"
       }
     ],
     "destinations": [

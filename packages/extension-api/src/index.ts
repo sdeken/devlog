@@ -18,7 +18,7 @@
  */
 
 /** The API version this package describes. Declare a matching range as `api` in devlog-extension.json. */
-export const API_VERSION = '1.8.0'
+export const API_VERSION = '1.9.0'
 
 export interface ExtensionCanvas {
   id: string
@@ -372,6 +372,8 @@ export interface DevlogContext {
     open(target: { canvasId: string; date?: string; blockId?: string }): void
     /** Show one of its `page` views (1.7). */
     openPage(viewId: string): void
+    /** Show one of its `panel` views: the side panel opens on that tab (1.9). */
+    openPanel(viewId: string): void
     /** Mark one canvas as this extension's current one (the running task): the sidebar highlights it (1.6). */
     highlight(canvasId: string | null): void
   }

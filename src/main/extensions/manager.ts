@@ -69,7 +69,7 @@ export interface ManagerDeps {
   /** Show a quick pick; the chosen id, or null. */
   pick?: (title: string, items: PickItem[], placeholder?: string) => Promise<string | null>
   /** Show a canvas, a block's page, or an extension's page (`page`: "<key>/<view id>"). */
-  open?: (target: { canvasId?: string; date?: string; blockId?: string; page?: string }) => void
+  open?: (target: { canvasId?: string; date?: string; blockId?: string; page?: string; panel?: string }) => void
   /** What the app recorded (its log, and what extensions provide), with canvas aliases resolved. */
   activity?: (fromDate: string, toDate: string) => Promise<ActivityEvent[]>
 }
@@ -1009,6 +1009,12 @@ export class ExtensionManager {
         const viewId = str(0, 'viewId')
         if (!ext.manifest.contributes.views.some((v) => v.id === viewId && v.placement === 'page')) throw new Error(`"${viewId}" is not one of its page views`)
         this.deps.open?.({ page: `${rec.key}/${viewId}` })
+        return null
+      }
+      case 'ui.openPanel': {
+        const viewId = str(0, 'viewId')
+        if (!ext.manifest.contributes.views.some((v) => v.id === viewId && v.placement === 'panel')) throw new Error(`"${viewId}" is not one of its panel views`)
+        this.deps.open?.({ panel: `${rec.key}/${viewId}` })
         return null
       }
       case 'devlog.subscribe':

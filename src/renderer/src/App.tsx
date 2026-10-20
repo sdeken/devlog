@@ -11,6 +11,7 @@ import { BlockPage, blockTitle } from './components/BlockPage'
 import { CanvasDialog } from './components/CanvasDialog'
 import { LinkRepoDialog } from './components/LinkRepoDialog'
 import { TodoPanel } from './components/TodoPanel'
+import { SidePanel, usePanelState, type PanelTab } from './components/SidePanel'
 import { Review } from './components/Review'
 import { ExtensionPick, QuickSwitcher, type SwitchTarget } from './components/QuickSwitcher'
 import { Timeline } from './components/Timeline'
@@ -116,6 +117,11 @@ export function App(): React.JSX.Element {
   const [hasMore, setHasMore] = useState(false)
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  // The side panel: To do, and extensions' panel views as tabs.
+  const panel = usePanelState()
+  const panelRef = useRef(panel)
+  panelRef.current = panel
+  const [openTodos, setOpenTodos] = useState<number | null>(null)
   const [hits, setHits] = useState<SearchResult | null>(null)
   const [sync, setSync] = useState<SyncStatus | null>(null)
   // The settings page open, or null when closed.
@@ -524,6 +530,11 @@ export function App(): React.JSX.Element {
   useEffect(
     () =>
       api.extensions.onOpen((t) => {
+        if (t.panel) {
+          panelRef.current.setTab(t.panel)
+          panelRef.current.setCollapsed(false)
+          return
+        }
         if (t.page) {
           setSearch('')
           setExtPage(t.page)
@@ -731,6 +742,7 @@ export function App(): React.JSX.Element {
 
   const [selExt, selView] = [extPage.slice(0, extPage.lastIndexOf('/')), extPage.slice(extPage.lastIndexOf('/') + 1)]
   const selection: SidebarSelection = view === 'canvas' ? { kind: 'canvas', canvasId } : view === 'ext' ? { kind: 'ext', extKey: selExt, viewId: selView } : { kind: view }
+  const extPanels = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'panel').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, icon: v.icon, url: v.url })))
   const extPages = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'page').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, icon: v.icon, url: v.url })))
   const statusViews = extensions.flatMap((e) => e.views.filter((v) => v.placement === 'statusbar').map((v) => ({ extKey: e.key, viewId: v.id, title: v.title, url: v.url })))
   const openPage = extPages.find((p) => `${p.extKey}/${p.viewId}` === extPage)
@@ -989,15 +1001,50 @@ export function App(): React.JSX.Element {
             onSyncNow={() => void reported(api.sync.now())}
           />
         </main>
-        <TodoPanel
-          canvases={canvases}
-          canvasId={view === 'canvas' && canvas ? canvasId : null}
-          page={pageBlock && page ? { canvasId: page.canvasId, date: page.date, id: page.id, title: blockTitle(pageBlock, 40) } : null}
-          fallbackCanvasId={targetCanvas?.id ?? null}
-          onOpenCanvas={openCanvas}
-          onOpenBlock={openBlock}
-          onStreamChanged={(id, date) => void reloadDay(id, date)}
-          version={dayVersion}
+        <SidePanel
+          active={panel.tab}
+          onActive={panel.setTab}
+          collapsed={panel.collapsed}
+          onCollapsed={panel.setCollapsed}
+          tabs={[
+            {
+              key: 'todo',
+              title: 'To do',
+              badge: openTodos,
+              render: () => (
+                <TodoPanel
+                  canvases={canvases}
+                  canvasId={view === 'canvas' && canvas ? canvasId : null}
+                  page={pageBlock && page ? { canvasId: page.canvasId, date: page.date, id: page.id, title: blockTitle(pageBlock, 40) } : null}
+                  fallbackCanvasId={targetCanvas?.id ?? null}
+                  onOpenCanvas={openCanvas}
+                  onOpenBlock={openBlock}
+                  onStreamChanged={(id, date) => void reloadDay(id, date)}
+                  version={dayVersion}
+                  onCount={setOpenTodos}
+                />
+              )
+            },
+            ...extPanels.map(
+              (p): PanelTab => ({
+                key: `${p.extKey}/${p.viewId}`,
+                title: p.title,
+                icon: p.icon,
+                render: () => (
+                  <ExtensionView
+                    className="ext-panel-view"
+                    extKey={p.extKey}
+                    viewId={p.viewId}
+                    url={p.url}
+                    title={p.title}
+                    context={statusContext}
+                    onPopover={(id, anchor, size) => showPopover(p.extKey, id, anchor, size, statusContext)}
+                    onOpen={openFromView}
+                  />
+                )
+              })
+            )
+          ]}
         />
         <Toasts />
         {switcherOpen && (

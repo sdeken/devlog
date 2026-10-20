@@ -123,6 +123,9 @@ function makeContext(init: InitMessage): DevlogContext {
       openPage: (viewId) => {
         void call('ui.openPage', String(viewId))
       },
+      openPanel: (viewId) => {
+        void call('ui.openPanel', String(viewId))
+      },
       highlight: (canvasId) => {
         void call('ui.highlight', canvasId ?? null)
       }

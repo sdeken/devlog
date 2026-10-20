@@ -1,0 +1,90 @@
+body {
+  margin: 0;
+}
+
+.cl-panel {
+  padding: 10px 12px 16px;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cl-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.cl-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.cl-form select,
+.cl-dates input {
+  width: 100%;
+}
+
+.cl-dates {
+  gap: 6px;
+  align-items: center;
+}
+
+.cl-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.cl-note {
+  margin: 0;
+  font-size: 11px;
+}
+
+.cl-error {
+  margin: 0;
+}
+
+.cl-result {
+  border-top: 1px solid var(--border, rgba(127, 127, 127, 0.3));
+  padding-top: 8px;
+}
+
+.cl-meta {
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+
+.cl-summary {
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.cl-summary h1,
+.cl-summary h2,
+.cl-summary h3 {
+  font-size: 13px;
+  margin: 12px 0 4px;
+}
+
+.cl-summary ul,
+.cl-summary ol {
+  padding-left: 18px;
+  margin: 4px 0;
+}
+
+.cl-summary p {
+  margin: 4px 0;
+}
+
+.cl-actions {
+  margin-top: 10px;
+  gap: 6px;
+  align-items: center;
+}
+
+.cl-added {
+  font-size: 12px;
+}

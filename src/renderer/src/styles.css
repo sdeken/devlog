@@ -3279,7 +3279,10 @@ body[data-platform='darwin'] .topbar-left {
 
 /* ---------------------------------------------------------------- todos */
 
-.todo-panel {
+/* ------------------------------------------------------------ side panel */
+
+/* The panel on the right: To do and extensions' panel views, as tabs. */
+.side-panel {
   position: relative;
   width: 300px;
   max-width: 50vw;
@@ -3291,12 +3294,12 @@ body[data-platform='darwin'] .topbar-left {
   font-size: 13.5px;
 }
 
-.todo-panel.is-collapsed {
+.side-panel.is-collapsed {
   width: 30px;
 }
 
 /* The drag handle on the panel's left edge. */
-.todo-resize {
+.side-resize {
   position: absolute;
   top: 0;
   bottom: 0;
@@ -3307,9 +3310,9 @@ body[data-platform='darwin'] .topbar-left {
   touch-action: none;
 }
 
-.todo-resize:hover,
-.todo-resize:focus-visible,
-body.is-resizing .todo-resize {
+.side-resize:hover,
+.side-resize:focus-visible,
+body.is-resizing .side-resize {
   background: color-mix(in srgb, var(--accent) 45%, transparent);
   outline: none;
 }
@@ -3320,32 +3323,54 @@ body.is-resizing {
   user-select: none;
 }
 
-.todo-expand {
-  flex: 1;
+/* While dragging, frames must not swallow the pointer. */
+body.is-resizing iframe {
+  pointer-events: none;
+}
+
+.side-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 6px 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.side-tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-weight: 600;
+  font-size: 13px;
+  padding: 4px 8px 6px;
+  margin-bottom: -1px;
+  cursor: pointer;
+}
+
+.side-tab:hover {
+  color: var(--fg);
+}
+
+.side-tab.is-active {
+  color: var(--fg);
+  border-bottom-color: var(--accent);
+}
+
+.side-collapse {
   border: 0;
   background: transparent;
   color: var(--fg-muted);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 0;
+  font-size: 16px;
+  padding: 0 4px;
+  cursor: pointer;
 }
 
-.todo-expand:hover {
-  color: var(--fg);
-  background: var(--bg-3);
-}
-
-.todo-expand-label {
-  writing-mode: vertical-rl;
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.todo-expand-count,
-.todo-open-count {
+.side-count {
   min-width: 20px;
   padding: 0 6px;
   border-radius: 999px;
@@ -3357,20 +3382,88 @@ body.is-resizing {
   line-height: 18px;
 }
 
+.side-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-body[hidden],
+.side-pane[hidden] {
+  display: none;
+}
+
+.side-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.ext-panel-view {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  border: 0;
+}
+
+/* Folded: a strip of the tabs, read sideways. */
+.side-rail {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.side-rail-tab {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  cursor: pointer;
+}
+
+.side-rail-tab:hover {
+  color: var(--fg);
+  background: var(--bg-3);
+}
+
+.side-rail-label {
+  writing-mode: vertical-rl;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* ---------------------------------------------------------------- todos */
+
+.todo-panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .todo-head {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px 6px;
+  padding: 8px 12px 6px;
 }
 
-.todo-title {
-  font-weight: 600;
-  font-size: 14px;
+.todo-where {
+  color: var(--fg-muted);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.todo-scope,
-.todo-collapse {
+.todo-scope {
   border: 1px solid var(--border);
   background: var(--bg);
   color: var(--fg-muted);
@@ -3382,13 +3475,6 @@ body.is-resizing {
 .todo-scope.is-all {
   color: var(--accent);
   border-color: var(--accent);
-}
-
-.todo-collapse {
-  border: 0;
-  background: transparent;
-  font-size: 16px;
-  padding: 0 4px;
 }
 
 .todo-add {

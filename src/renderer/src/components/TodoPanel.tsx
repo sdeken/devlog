@@ -19,6 +19,8 @@ interface Props {
   onStreamChanged: (canvasId: string, date: string) => void
   /** Bumped whenever a day file changes in this window (blocks posted, moved, deleted…). */
   version: number
+  /** The number of open todos in view, for the panel's tab. */
+  onCount?: (n: number) => void
 }
 
 /** A heading in the panel: a canvas or a block, holding todos and further headings. */
@@ -34,34 +36,6 @@ interface Group {
 const DONE_DAYS = 14
 const FOLDED_KEY = 'devlog:todos:folded'
 
-const COLLAPSE_KEY = 'devlog:todos:collapsed'
-const WIDTH_KEY = 'devlog:todos:width'
-const DEFAULT_WIDTH = 300
-const MIN_WIDTH = 220
-const MAX_WIDTH = 720
-
-/** Keep the panel between its minimum and half the window. */
-function clampWidth(w: number): number {
-  const max = Math.max(MIN_WIDTH, Math.min(MAX_WIDTH, Math.floor(window.innerWidth * 0.5)))
-  return Math.round(Math.min(max, Math.max(MIN_WIDTH, w)))
-}
-
-function readWidth(): number {
-  try {
-    const n = Number(localStorage.getItem(WIDTH_KEY))
-    return n > 0 ? clampWidth(n) : DEFAULT_WIDTH
-  } catch {
-    return DEFAULT_WIDTH
-  }
-}
-
-function writeWidth(w: number): void {
-  try {
-    localStorage.setItem(WIDTH_KEY, String(w))
-  } catch {
-    /* ignore */
-  }
-}
 const SCOPE_KEY = 'devlog:todos:all'
 const DRAG_MIME = 'application/x-devlog-todo'
 const timeFmt = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
@@ -129,37 +103,11 @@ function writeFlag(key: string, v: boolean): void {
 }
 
 /**
- * Todos pinned to the right edge: every open todo for the page on screen and
- * everything beneath it (or everything), grouped under the canvases and
+ * The To do tab of the side panel: every open todo for the page on screen
+ * and everything beneath it (or everything), grouped under the canvases and
  * blocks they live in. Clicking one opens it as a page.
  */
-export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCanvas, onOpenBlock, onStreamChanged, version }: Props): React.JSX.Element {
-  const [collapsed, setCollapsed] = useState(() => readFlag(COLLAPSE_KEY))
-  const [width, setWidth] = useState(readWidth)
-  const widthRef = useRef(width)
-  widthRef.current = width
-  const setAndSaveWidth = (w: number): void => {
-    const next = clampWidth(w)
-    setWidth(next)
-    writeWidth(next)
-  }
-  // Drag the left edge to resize; the width is remembered on this machine.
-  const startResize = (ev: React.PointerEvent<HTMLDivElement>): void => {
-    if (ev.button !== 0) return
-    ev.preventDefault()
-    const startX = ev.clientX
-    const startWidth = widthRef.current
-    document.body.classList.add('is-resizing')
-    const move = (e: PointerEvent): void => setWidth(clampWidth(startWidth + (startX - e.clientX)))
-    const up = (): void => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', up)
-      document.body.classList.remove('is-resizing')
-      writeWidth(widthRef.current)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', up)
-  }
+export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCanvas, onOpenBlock, onStreamChanged, version, onCount }: Props): React.JSX.Element {
   const [all, setAll] = useState(() => readFlag(SCOPE_KEY))
   const [todos, setTodos] = useState<TodoRef[] | null>(null)
   const [folded, setFolded] = useState<Set<string>>(readFolded)
@@ -212,6 +160,7 @@ export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCa
     [todos, inScope]
   )
   const groups = useMemo(() => groupTodos(open, canvases, { canvas: onOpenCanvas, block: onOpenBlock }), [open, canvases, onOpenCanvas, onOpenBlock])
+  useEffect(() => onCount?.(open.length), [open.length, onCount])
 
   const add = async (text: string): Promise<void> => {
     const items = splitTodoLines(text)
@@ -252,24 +201,6 @@ export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCa
       }
       return n
     })
-
-  const toggleCollapsed = (): void => {
-    setCollapsed((v) => {
-      writeFlag(COLLAPSE_KEY, !v)
-      return !v
-    })
-  }
-
-  if (collapsed) {
-    return (
-      <aside className="todo-panel is-collapsed">
-        <button type="button" className="todo-expand" onClick={toggleCollapsed} title="Show todos">
-          <span className="todo-expand-count">{open.length}</span>
-          <span className="todo-expand-label">To do</span>
-        </button>
-      </aside>
-    )
-  }
 
   // Todos are reordered among the ones beside them: same file, same block.
   const siblingKey = (t: TodoRef): string => `${t.canvasId}/${t.date}/${t.trail.at(-1)?.id ?? ''}`
@@ -361,29 +292,9 @@ export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCa
   const soleHere = !wholeLog && groups.length === 1
 
   return (
-    <aside className="todo-panel" style={{ width }}>
-      <div
-        className="todo-resize"
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize the to-do panel"
-        aria-valuenow={width}
-        aria-valuemin={MIN_WIDTH}
-        aria-valuemax={MAX_WIDTH}
-        tabIndex={0}
-        title="Drag to resize · double-click to reset"
-        onPointerDown={startResize}
-        onDoubleClick={() => setAndSaveWidth(DEFAULT_WIDTH)}
-        onKeyDown={(ev) => {
-          if (ev.key === 'ArrowLeft') setAndSaveWidth(width + 20)
-          else if (ev.key === 'ArrowRight') setAndSaveWidth(width - 20)
-          else return
-          ev.preventDefault()
-        }}
-      />
+    <div className="todo-panel">
       <header className="todo-head">
-        <span className="todo-title">To do</span>
-        <span className="todo-open-count">{open.length}</span>
+        <span className="todo-where">{wholeLog ? 'Everything' : here ? here.title : canvasLabel(canvases, home!).split(' / ').pop()}</span>
         <span className="spacer" />
         {home && (
           <button
@@ -400,9 +311,6 @@ export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCa
             {all ? 'All' : 'Here'}
           </button>
         )}
-        <button type="button" className="todo-collapse" onClick={toggleCollapsed} title="Hide the todo panel">
-          ›
-        </button>
       </header>
       <div className="todo-add">
         <textarea
@@ -446,6 +354,6 @@ export function TodoPanel({ canvases, canvasId, page, fallbackCanvasId, onOpenCa
           </section>
         )}
       </div>
-    </aside>
+    </div>
   )
 }

@@ -1,0 +1,75 @@
+{
+  "name": "devlog-claude",
+  "displayName": "Claude",
+  "version": "1.0.0",
+  "description": "Summaries of work by Claude: pick a canvas and a period in the side panel, and Claude writes up what was done there from the notes, todos and commits written on it and the time recorded; add it to the canvas as a block. Sends only that period's blocks to Anthropic, and only when you ask. Needs an Anthropic API key.",
+  "api": "^1.9.0",
+  "main": "dist/main.js",
+  "contributes": {
+    "settings": [
+      {
+        "key": "model",
+        "label": "Model",
+        "type": "select",
+        "options": [
+          { "value": "claude-opus-5-5", "label": "Claude Opus 5.5 (the default: best summaries)" },
+          { "value": "claude-sonnet-5-5", "label": "Claude Sonnet 5.5 (faster, cheaper)" },
+          { "value": "claude-haiku-5-5", "label": "Claude Haiku 5.5 (fastest, cheapest)" }
+        ],
+        "description": "Claude Opus 5.5 unless you choose another."
+      },
+      {
+        "key": "effort",
+        "label": "Effort",
+        "type": "select",
+        "options": [
+          { "value": "low", "label": "Low (quicker)" },
+          { "value": "medium", "label": "Medium (the default)" },
+          { "value": "high", "label": "High (more thorough, slower)" }
+        ],
+        "description": "How much thought goes into each summary."
+      },
+      {
+        "key": "base_url",
+        "label": "API address",
+        "type": "url",
+        "placeholder": "https://api.anthropic.com",
+        "description": "Leave empty for Anthropic's API. Set it only to go through a gateway."
+      }
+    ],
+    "secrets": [
+      {
+        "key": "api_key",
+        "label": "Anthropic API key",
+        "required": true,
+        "description": "Create one at console.anthropic.com → API keys. Kept in this computer's keychain, never in the devlog."
+      }
+    ],
+    "commands": [
+      {
+        "id": "summarize",
+        "label": "Summarize with Claude…",
+        "menus": ["canvas"]
+      },
+      {
+        "id": "check",
+        "label": "Check the Claude connection"
+      }
+    ],
+    "views": [
+      {
+        "id": "claude",
+        "title": "Claude",
+        "entry": "dist/views/panel.html",
+        "placement": "panel",
+        "icon": "✳"
+      }
+    ],
+    "check": "check"
+  },
+  "permissions": {
+    "read": true,
+    "write": true,
+    "network": ["api.anthropic.com"]
+  }
+}

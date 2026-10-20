@@ -235,6 +235,11 @@ describe('extensions in the app', () => {
     await call('page')
     for (let i = 0; i < 50 && !opened.length; i++) await new Promise((r) => setTimeout(r, 20))
     expect(opened).toEqual([{ page: 'shaper/board' }])
+    // Its panel views open as a tab of the side panel (1.9); a page view cannot be opened as one.
+    await call('panel')
+    for (let i = 0; i < 50 && opened.length < 2; i++) await new Promise((r) => setTimeout(r, 20))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(opened).toEqual([{ page: 'shaper/board' }, { panel: 'shaper/side' }])
   })
 
   it('serves views only while the extension runs, and relays their calls and messages', async () => {
