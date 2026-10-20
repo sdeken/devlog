@@ -9,7 +9,7 @@ strings and dates are local `YYYY-MM-DD`.
 
 ```ts
 import type { DevlogContext, ExtensionCanvas, ExtensionBlock } from '@devlog/extension-api'
-import { API_VERSION } from '@devlog/extension-api' // '1.8.0'
+import { API_VERSION } from '@devlog/extension-api' // '1.9.0'
 ```
 
 ## Canvases and blocks

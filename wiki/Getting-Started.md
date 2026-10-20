@@ -58,6 +58,7 @@ are added with version `builtin`:
 | `devlog-focus` (Window tracking) | Which window was in front, for the timeline and review (asks to be trusted) |
 | `devlog-jira` (Jira worklogs) | A timesheet destination that writes Jira worklogs |
 | `devlog-cms` (CMS timesheets) | A timesheet destination for the CMS web timesheet |
+| `devlog-claude` (Claude) | Summaries of the work on a canvas over a period, in a side-panel tab (needs an Anthropic API key) |
 
 Each extension asks before it runs, on each machine, and you choose what it
 may read and write. See [Extensions Overview](Extensions-Overview).

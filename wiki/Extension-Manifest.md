@@ -131,7 +131,7 @@ Pages from the package that the app shows in sandboxed frames.
 | `id` | string | `^[a-z][a-z0-9_-]{0,63}$`, unique. Answer its calls with `ctx.views.handle(id, …)`. |
 | `title` | string | Shown in the sidebar, switcher or tooltip. Defaults to `id`. |
 | `entry` | string | An `.html` file, relative to the extension folder. |
-| `placement` | string | `page`, `statusbar`, `popover` or `canvasHeader` (1.6). |
+| `placement` | string | `page`, `statusbar`, `popover`, `canvasHeader` (1.6) or `panel` (1.9). |
 | `icon` | string | One character or emoji (at most two code points), for the sidebar. |
 | `nodeType` | string | (1.6) For `canvasHeader`: show only on canvases of this type. |
 

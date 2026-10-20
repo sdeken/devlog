@@ -411,7 +411,9 @@ try {
   const picker = page.frameLocator('.ext-popover iframe')
   await picker.locator('.dl-menu-item').first().waitFor({ timeout: 10_000 })
   check((await picker.locator('.dl-menu-item').first().textContent()).includes('Fix the login redirect'), 'its drop-down lists the tasks, the one on screen first')
-  await picker.locator('input').press('Escape')
+  // Focus the box, then press Escape on the page: the key closes (and removes) the frame, so nothing should wait on it.
+  await picker.locator('input').focus()
+  await page.keyboard.press('Escape')
   await page.waitForSelector('.ext-popover', { state: 'detached', timeout: 5_000 })
   check(true, 'Escape closes the list again')
   await timeStatus().locator('.tt-split button').first().click()
@@ -1200,6 +1202,63 @@ try {
     await fs.rm(path.join(repo, 'activity', 'sheet-machine-0000'), { recursive: true, force: true })
     await openCanvasNamed('Scratch')
   } else console.log('skip timesheet check: early on a Monday, no earlier day this week to track an hour on')
+
+  // 6d. Claude: a tab of the side panel writes up a canvas's work (against a local stand-in for the API).
+  {
+    const { startFakeAnthropic } = await import('./fake-anthropic.mjs')
+    const fake = await startFakeAnthropic(() => ({ text: ['### This week\n', '- Fixed the login redirect.\n', '- Renewed the staging certificate.'] }))
+    await openCanvasNamed('Website')
+    await openSettings('extensions')
+    await page.waitForSelector('.modal-settings .ext-manage', { timeout: 5_000 })
+    await page.locator('.ext-builtins .ext-item[data-builtin="devlog-claude"] button', { hasText: 'Add' }).click()
+    const item = page.locator('[data-ext-page="devlog-claude"]')
+    await item.locator('button', { hasText: 'Review and allow' }).click()
+    const consent = page.locator('.modal-consent')
+    await consent.waitFor({ timeout: 5_000 })
+    check((await consent.textContent()).includes('api.anthropic.com'), 'its consent names where it sends data: Anthropic')
+    for (const choice of await consent.locator('label', { hasText: 'The whole devlog' }).all()) await choice.locator('input').check()
+    await consent.locator('button', { hasText: 'Allow' }).click()
+    await item.locator('.ext-state', { hasText: 'Running' }).waitFor({ timeout: 20_000 })
+    check((await item.locator('.ext-missing').textContent()).includes('Anthropic API key'), 'it says it needs an Anthropic API key')
+    await page.locator('#set-devlog-claude-base_url').fill(fake.url)
+    await page.locator('#sec-devlog-claude-api_key').fill('sk-ant-smoke')
+    await item.locator('.page-actions button', { hasText: 'Save and test' }).click()
+    await page.waitForSelector('[data-ext-page="devlog-claude"] .ext-check-ok, [data-ext-page="devlog-claude"] .form-error', { timeout: 15_000 })
+    check((await item.locator('.ext-check-ok').count()) === 1, `Save and test checks the key against the API (${await item.locator('.ext-check-ok, .form-error').first().textContent()})`)
+    await closeSettings()
+
+    // Its tab sits beside To do; it starts on the canvas on screen.
+    await page.locator('.side-tab[data-tab="devlog-claude/claude"]').click()
+    const cl = page.frameLocator('.side-pane[data-pane="devlog-claude/claude"] iframe')
+    await cl.locator('.cl-go').waitFor({ timeout: 20_000 })
+    check((await cl.locator('select[aria-label="Canvas"]').inputValue()) === websiteId, 'the Claude tab starts on the canvas on screen')
+    await cl.locator('.cl-go').click()
+    await cl.locator('.cl-add').waitFor({ timeout: 30_000 })
+    check((await cl.locator('.cl-summary').textContent()).includes('Fixed the login redirect'), "Claude's summary streams into the panel")
+    const sent = fake.requests.find((r) => r.path.startsWith('/v1/messages'))
+    check(
+      sent?.body.model === 'claude-opus-5-5' && sent.headers['x-api-key'] === 'sk-ant-smoke' && String(sent.body.messages[0].content).includes('Renew the staging certificate') && !String(sent.body.messages[0].content).includes('Water the plants'),
+      "it sends the period's blocks on that canvas (and nothing else) to Claude Opus 5.5, with the key from the keychain"
+    )
+    await page.screenshot({ path: path.join(shots, '04h-claude-panel.png') })
+    // Another tab and back: the summary is still there.
+    await page.locator('.side-tab[data-tab="todo"]').click()
+    await page.locator('.todo-panel .todo-add textarea').waitFor({ timeout: 5_000 })
+    await page.locator('.side-tab[data-tab="devlog-claude/claude"]').click()
+    check((await cl.locator('.cl-summary').count()) === 1, 'switching tabs keeps the summary')
+    await cl.locator('.cl-add').click()
+    await cl.locator('.cl-added').waitFor({ timeout: 10_000 })
+    await page.waitForFunction(() => [...document.querySelectorAll('.feed .entry')].some((e) => e.textContent.includes('Summary: Acme Corp / Website')), null, { timeout: 10_000 })
+    check(true, 'Add to Website posts the summary on the canvas, as a block')
+    // Folded, the panel is a strip of its tabs.
+    await page.locator('.side-collapse').click()
+    check((await page.locator('.side-rail-tab').count()) === 2, 'folded, the side panel is a strip of its tabs')
+    await page.locator('.side-rail-tab[data-tab="todo"]').click()
+    await page.locator('.side-tab[data-tab="todo"].is-active').waitFor({ timeout: 5_000 })
+    check(true, 'a tab in the strip opens the panel on it')
+    await fake.close()
+    await openCanvasNamed('Scratch')
+  }
 
   // 6b. A long run of completed todos folds into one line and expands to every item.
   const bigList = await page.evaluate(async () => {

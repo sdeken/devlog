@@ -61,10 +61,14 @@ tracked against; any block can become one.
   you know better.
 - **Todos are blocks, and always in view.** A todo is a block with a
   checkbox, written anywhere: on a canvas, inside a block, inside another
-  todo. A panel pinned to the right edge gathers the open ones for the page
-  on screen and everything inside it (or every todo, with one click),
-  grouped under the canvases and blocks they live in. Click one to open it
-  as a page and write your notes about it there.
+  todo. The **To do** tab of the side panel on the right gathers the open
+  ones for the page on screen and everything inside it (or every todo, with
+  one click), grouped under the canvases and blocks they live in. Click one
+  to open it as a page and write your notes about it there.
+- **Summaries by Claude.** Add the built-in **Claude** extension and its tab
+  in the side panel writes up the work on a canvas over a period (this
+  week, last month, any dates) from what you wrote and the time recorded;
+  add the summary to the canvas as a block.
 - **Archive what you're done with.** Archive a canvas, with everything
   beneath it, to get it out of the sidebar. Archived things stay readable
   and searchable, and one click brings them back.
@@ -266,8 +270,11 @@ todo's page. Ask for a review, paste the list of findings inside that block,
 and work through them one by one, writing notes inside each as you go; when
 something new comes up, add it right there.
 
-The **To do** panel on the right stays put whatever the stream is doing, and
-collapses to a thin strip showing the open count.
+The **side panel** on the right holds **To do** and, as more tabs, panels
+that extensions bring (such as **Claude**, below). It stays put whatever the
+stream is doing, keeps the width you drag it to, and folds into a thin strip
+of its tabs (To do shows its open count there); a tab keeps what it was
+doing while you look at another, or while the panel is folded.
 
 - **Adding.** Type in the box at the top and press Enter, or paste a list
   (from an email, Slack, a Markdown file) and each line becomes a todo;
@@ -609,9 +616,36 @@ write, and it re-reads files that changed on disk when a devlog is opened,
 after a pull, and when the window regains focus (so edits made outside the
 app show up too). Delete it any time; it is rebuilt from the files.
 
+## Summaries by Claude
+
+The built-in **Claude** extension writes summaries of work. Add it in
+Settings → Extensions, allow it to read (and, to add summaries, write) the
+canvases you want summarized, and give it an Anthropic API key (create one
+at console.anthropic.com; it is kept in this computer's keychain, never in
+the devlog). **Save and test** checks the key.
+
+Its **Claude** tab in the side panel starts on the canvas on screen (pick
+another, or **Summarize with Claude…** from a canvas's menu). Choose whether
+to include the canvases inside it, and a period: today, this or last week,
+this or last month, or any dates. **Summarize** sends the notes, todos and
+commits written there in that period, and the time recorded (tracked, or
+estimated from the notes on days with none), to Claude, and the summary
+appears as it is written: an overview, the main pieces of work, open items,
+and time where the log has it. **Add to …** posts it on the canvas as a
+block (written by the extension, so read-only; its Copy action copies the
+Markdown), or **Copy** it from the panel.
+
+Nothing is sent until you press Summarize, and only that period's blocks on
+that canvas. In its settings: the model (Claude Opus 5.5 by default; Claude
+Sonnet 5.5 is faster and cheaper, Claude Haiku 5.5 the fastest and
+cheapest), the effort (medium by default), and an API address for going
+through a gateway. If Claude declines a request on policy grounds, Opus and
+Sonnet retry it on Anthropic's fallback model; otherwise the panel says it
+was declined.
+
 ## Extensions
 
-Features beyond notes (time tracking, window tracking, Jira, CMS, …) come as
+Features beyond notes (time tracking, window tracking, Jira, CMS, Claude, …) come as
 extensions that a devlog opts into. Open **Extensions** from the quick switcher or Settings:
 
 - **Add** one from a GitHub repository's releases (`owner/repo` and a version
@@ -639,7 +673,8 @@ extensions that a devlog opts into. Open **Extensions** from the quick switcher 
   targets are not).
 - Its **commands** appear in the quick switcher (and, if it says so, in
   menus, on keys and in the note box); its **pages** are listed with the
-  views; blocks it writes are marked as its own and are read-only.
+  views, and its **panels** are tabs of the side panel; blocks it writes are
+  marked as its own and are read-only.
 - **Check for updates** re-resolves the version ranges and pins what
   changed. **Remove** takes it out of the devlog (its data stays).
 
@@ -737,7 +772,7 @@ Code map:
 | `src/shared/review.ts`            | Weekly roll-up: week math, tracked/explicit/estimated time     |
 | `src/main/activity/`              | Commit watcher                                                 |
 | `src/main/workingCopy.ts`         | Checks that a folder picked for linking is a git working copy  |
-| `builtin-extensions/`             | Extensions that ship with Devlog (devlog-time, devlog-focus, Jira, CMS) |
+| `builtin-extensions/`             | Extensions that ship with Devlog (devlog-time, devlog-focus, Jira, CMS, Claude) |
 | `packages/ui/`                    | `@devlog/ui`: React components and the view bridge for extension views |
 | `src/main/updates.ts`             | Silent auto-update via electron-updater and GitHub Releases    |
 | `src/shared/updates.ts`           | Pure "is now a good moment to restart" policy                  |
@@ -745,7 +780,7 @@ Code map:
 | `src/main/ipc.ts`, `src/preload/` | IPC surface exposed to the renderer as `window.devlog`         |
 | `src/renderer/src/components/`    | React UI: top bar, sidebar tree, canvas view, composer, settings |
 | `src/renderer/src/editor/`        | TipTap extensions: highlighted code, asset images, Slack keys  |
-| `scripts/`                        | Built-in extension bundler, Playwright smoke test, screenshots |
+| `scripts/`                        | Built-in extension bundler, Playwright smoke test, screenshots, a stand-in for the Anthropic API (tests) |
 | `docs/DESIGN.md`                  | Design notes and rationale                                     |
 | `docs/EXTENSIONS.md`              | Extensions: packages, consent, sandbox, the API by topic       |
 | `docs/TIMESHEETS.md`              | Timesheets: rounding, trims, destinations, storage             |

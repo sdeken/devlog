@@ -70,7 +70,7 @@ Every `ctx` call becomes one of these, answered by `res`:
 | secrets | `secrets.get`, `set`, `delete` |
 | files | `files.read`, `write`, `append`, `list`, `stat`, `remove` (first argument: `'repo'` or `'local'`) |
 | activity | `activity.subscribe` (for `activity.on`), `activity.idleAfter` |
-| ui | `ui.notify`, `confirm`, `pick`, `open`, `openPage`, `highlight` |
+| ui | `ui.notify`, `confirm`, `pick`, `open`, `openPage`, `openPanel`, `highlight` |
 | app | `app.trayLabel`, `app.keepRunning` |
 | registration | `provide.register` (`'focus'` or `'activity'`), `views.handle`, `views.post` |
 

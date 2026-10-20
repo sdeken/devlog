@@ -44,6 +44,7 @@ Field rules are in [Extension Manifest → views](Extension-Manifest#views-15).
 | `statusbar` | 1.5 | A slot in the status bar. | 22 px high; asks for a width with `resize`, clamped to 24–360 px | The canvas (and block page) on screen |
 | `popover` | 1.5 | Opened by another of its views with `popover`, anchored to that view; closes on Escape, a click outside, or `close`. | Default 320 × 360; width clamped to 160–560 px, height to 640 px | The opener's context |
 | `canvasHeader` | 1.6 | Beside a canvas's title, on every canvas or only those of `nodeType`. | 26 px high; starts 120 px wide and asks for a width with `resize`, clamped to 24–480 px | That canvas |
+| `panel` | 1.9 | A tab of the side panel on the right, beside To do, with its `icon` and `title`. Stays loaded while another tab is on screen or the panel is folded. Open it from code with `ctx.ui.openPanel(id)`. | The panel's width (the user drags it, 220–720 px) and its height | The canvas (and block page) on screen |
 
 The composer (note box) is not shown on extension pages.
 
@@ -228,6 +229,7 @@ the first `theme` message.
 | Placement | `context` |
 |---|---|
 | `canvasHeader` | `{ canvasId }` of the canvas it sits on |
+| `panel` | The canvas on screen, and `date` + `blockId` when a block page is on screen |
 | `statusbar` | The canvas on screen, and `date` + `blockId` when a block page is on screen |
 | `popover` | The context of the view that opened it |
 | `page` | `{}` |

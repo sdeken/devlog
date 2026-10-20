@@ -1,6 +1,6 @@
 # Extension API reference
 
-API version **1.8.0**. Source of truth:
+API version **1.9.0**. Source of truth:
 [`packages/extension-api/src/index.ts`](https://github.com/sdeken/devlog/blob/main/packages/extension-api/src/index.ts),
 where every member is commented with the version that added it. Types used
 below are described in [Extension Types](Extension-Types).
@@ -76,7 +76,7 @@ CommonJS) works too.
 | Member | Type | Since | Description |
 |---|---|---|---|
 | `ctx.id` | `string` | 1.0 | The extension's id, from where it was installed: `sdeken.devlog-jira`, `url.my-ext`, `builtin.devlog-time`. |
-| `ctx.apiVersion` | `string` | 1.0 | The app's extension API version, e.g. `1.8.0`. |
+| `ctx.apiVersion` | `string` | 1.0 | The app's extension API version, e.g. `1.9.0`. |
 | `ctx.machine` | `string` | 1.1 | This machine's folder name in the devlog (`<host>-<short id>`), for per-machine files. |
 | `ctx.packageDir` | `string \| null` | 1.2 | The extension's unpacked folder, for helper scripts it ships. Only when running unrestricted; `null` in the sandbox. |
 
@@ -346,6 +346,7 @@ The machine's state as the app sees it. See
 | `pick(items: PickItem[], opts?: { placeholder? }): Promise<string \| null>` | 1.6 | A quick pick like the switcher. Returns the chosen item's `id`, or `null` if dismissed. Up to 5000 items; labels cut to 300, hints to 200 characters. |
 | `open({ canvasId, date?, blockId? }): void` | 1.6 | Show a canvas, or a block's page (`date` and `blockId` together). Throws `No access to that canvas` for a canvas it cannot see. *(no reply)* |
 | `openPage(viewId): void` | 1.7 | Show one of its `page` views. *(no reply)* |
+| `openPanel(viewId): void` | 1.9 | Open the side panel on one of its `panel` views. *(no reply)* |
 | `highlight(canvasId \| null): void` | 1.6 | Mark one canvas as its current one (the running task): the sidebar highlights it, and commits from a linked repository land on it when it is inside the linked canvas. `null` clears it. *(no reply)* |
 
 ```js

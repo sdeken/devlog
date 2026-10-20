@@ -4,7 +4,7 @@ The extension API is versioned separately from the app
 (`EXTENSION_API_VERSION` in `packages/core/src/extensions.ts`, `API_VERSION`
 in `@devlog/extension-api`). Every change so far has been **additive**: there
 has been no 2.0, and an extension built for 1.0 still loads in an app that
-provides 1.8.
+provides 1.9.
 
 - Declare the **lowest** version you need in the manifest: `"api": "^1.6.0"`.
 - `ctx.apiVersion` tells you what the running app provides, for optional
@@ -12,6 +12,7 @@ provides 1.8.
 
 | API | Devlog | Headline |
 |---|---|---|
+| 1.9 | 0.20 | Side-panel views (`panel` placement), `ui.openPanel` |
 | 1.8 | 0.19 | Corrections to tracked time (`assign` time events) |
 | 1.7 | 0.18 | Activity and ranges, managed canvases, sending through destinations, `openPage`, non-inherited fields |
 | 1.6 | 0.17 | Node types, canvas writes, command context/keys/menus/post, events, pick/open/highlight, tray, time providers, canvas-header views |
@@ -21,6 +22,15 @@ provides 1.8.
 | 1.2 | — | Unrestricted (trusted) extensions, `packageDir` |
 | 1.1 | — | `machine`, focus providers |
 | 1.0 | — | The base API |
+
+## 1.9
+
+- Views may be placed in the side panel: `placement: "panel"`, a tab beside
+  To do (with the view's `icon` and `title`). It gets the canvas (and block
+  page) on screen as its context, and stays loaded while another tab is on
+  screen or the panel is folded.
+- `ui.openPanel(viewId)`: open the side panel on one of its panel views.
+- The testing harness records `openedPanels`.
 
 ## 1.8
 

@@ -281,13 +281,14 @@ read. `activity.on(cb)` hears pause (locked, idle, asleep) and resume;
 `activity.idleAfter(minutes)` asks for idle detection (the app uses the
 shortest any extension asks for). `ui.notify`, `ui.confirm`; `ui.pick(items)`
 shows a quick pick; `ui.open({ canvasId, date?, blockId? })`;
-`ui.openPage(viewId)` (1.7); `ui.highlight(canvasId)` marks its current
+`ui.openPage(viewId)` (1.7); `ui.openPanel(viewId)` (1.9) shows one of its
+panel views, opening the side panel on that tab; `ui.highlight(canvasId)` marks its current
 canvas (the running task) in the sidebar, and commits from a linked
 repository land on it when it is inside the linked canvas;
 `app.setTrayLabel(text)`, `app.keepRunning(true)` (close to the tray
 instead of quitting).
 
-### Views (1.5, 1.6)
+### Views (1.5, 1.6, 1.9)
 
 Pages of its own, declared in `contributes.views` (`id`, `title`, `entry`:
 an .html file in the package, `placement`, `icon`, `nodeType`):
@@ -300,6 +301,11 @@ an .html file in the package, `placement`, `icon`, `nodeType`):
   Escape, a click outside, or `close`.
 - `canvasHeader` (1.6): beside a canvas's title (26 px high), optionally
   only for a `nodeType`.
+- `panel` (1.9): a tab of the side panel on the right, beside To do, with
+  its `icon` and `title`; it gets the canvas (and block page) on screen as
+  its context. Once shown it stays loaded while another tab is on screen or
+  the panel is folded, so work in progress (a request still streaming)
+  carries on.
 
 Pages load from `devlog-ext://<the devlog.json key, as hex>/<file>`, only
 from the extension's own folder and only while it runs, in a frame
@@ -362,6 +368,16 @@ replaying, in the order they were made, in every view (see
   entry's Jira issue (canvas field `issue`), REST v2, Basic auth (email and
   API token, Cloud) or a Bearer personal access token (Data Center), ledger
   in `sent/<week>.json`.
+- **devlog-claude** (Claude, sandboxed): a `panel` view that summarizes the
+  work on a canvas over a period. It reads the period's blocks
+  (`devlog.range`, the canvas and those inside it) and the time recorded
+  (`devlog.activity`, replayed as the review does), sends them to the
+  Messages API through the official Anthropic SDK (streamed; Claude Opus 5.5
+  by default, effort medium, server-side fallback on a policy decline),
+  posts the text to its panel as it arrives, and adds the summary as a
+  block on request. The API key is a secret; the model, effort and an API
+  address are settings. The request can outlast a view call, so the call
+  returns at once and the result arrives as messages.
 - **devlog-cms** (CMS timesheets, sandboxed): drives the CMS web pages (it
   has no API): form login (`j_security_check`, cookies kept in memory for
   the send), the week page parsed for assignment rows and each day's

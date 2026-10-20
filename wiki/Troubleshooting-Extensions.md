@@ -62,6 +62,7 @@ nothing.
 | `View "…" is not declared in contributes.views` | Declare the view before `views.handle` / `post`. |
 | `Destination "…" is not declared in contributes.destinations` | Declare it before `destinations.register`. |
 | `"…" is not one of its page views` | `ui.openPage` takes a view with `placement: "page"`. |
+| `"…" is not one of its panel views` | `ui.openPanel` takes a view with `placement: "panel"`. |
 | `Not allowed in a path: …` / `Not a relative path: …` / `Not allowed in a file name: …` | `ctx.files` paths are relative and `/`-separated; see [the path rules](Extension-API-Reference#ctxfiles). |
 | `Secret names are lowercase letters, digits, "_" or "-"` | |
 | `Mark the timesheet final before sending it` | `destinations.send` takes only `status: 'final'` sheets. |

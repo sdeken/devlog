@@ -33,8 +33,8 @@ open while you work.
 | [Activity and Time Data](Activity-and-Time-Data) | Pause/resume notices, idle detection, providing time and focus events |
 | [Sandbox and Permissions](Sandbox-and-Permissions) | What the runtime allows, grants, limits, unrestricted extensions |
 | [Testing Extensions](Testing-Extensions) | `@devlog/extension-api/testing`: the in-memory `ctx` |
-| [Built-in Extensions](Built-in-Extensions) | devlog-time, devlog-focus, devlog-jira, devlog-cms as worked examples |
-| [API Versions](API-Versions) | What arrived in each API version, 1.0 to 1.8 |
+| [Built-in Extensions](Built-in-Extensions) | devlog-time, devlog-focus, devlog-jira, devlog-cms, devlog-claude as worked examples |
+| [API Versions](API-Versions) | What arrived in each API version, 1.0 to 1.9 |
 | [Troubleshooting Extensions](Troubleshooting-Extensions) | Common errors and what they mean |
 
 ## Working on Devlog itself
@@ -49,7 +49,7 @@ open while you work.
 
 ## Versions
 
-This wiki describes Devlog **0.19.2**, extension API **1.8.0**, storage
+This wiki describes Devlog **0.20.0**, extension API **1.9.0**, storage
 format **4**. The longer design notes live in the repository under
 [`docs/`](https://github.com/sdeken/devlog/tree/main/docs); the wiki links to
 them where they go deeper.

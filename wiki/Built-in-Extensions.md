@@ -1,6 +1,6 @@
 # Built-in extensions
 
-Four extensions ship inside the app, in
+Five extensions ship inside the app, in
 [`builtin-extensions/`](https://github.com/sdeken/devlog/tree/main/builtin-extensions).
 They use the same API as anyone else's, so they are the best worked examples.
 A devlog enables one with `"<name>": "builtin"` in `devlog.json`; it still
@@ -12,6 +12,7 @@ asks before it starts, and keeps its grant when the app updates it.
 | [devlog-focus](#devlog-focus-window-tracking) | `builtin.devlog-focus` | 1.1.0 | `^1.2.0` | unrestricted | A small unrestricted extension with a platform helper, per-machine JSON-lines files, providing focus. |
 | [devlog-jira](#devlog-jira-jira-worklogs) | `builtin.devlog-jira` | 1.1.0 | `^1.3.0` | sandboxed | A complete destination: settings, a secret, a canvas field, a `check` command, a ledger, `fetch`. |
 | [devlog-cms](#devlog-cms-cms-timesheets) | `builtin.devlog-cms` | 1.0.1 | `^1.3.0` | sandboxed | A destination that drives a web app with no API (form login, HTML parsing). |
+| [devlog-claude](#devlog-claude-claude) | `builtin.devlog-claude` | 1.0.0 | `^1.9.0` | sandboxed | A side-panel view; reading a period (`devlog.range`, `devlog.activity`); an npm dependency bundled in (the Anthropic SDK); a long request that outlives a view call, reported through `views.post`. TypeScript + `@devlog/ui`. |
 
 ## How built-ins are built
 
@@ -101,3 +102,30 @@ no API, so it drives the web pages:
   that no longer have time go back to 0;
 - settings `username`, `baseurl`; secret `password`; commands `check` and
   `assignments`.
+
+## devlog-claude (Claude)
+
+Summaries of work by Claude, in a tab of the side panel.
+
+| Piece | API used |
+|---|---|
+| The **Claude** tab: a canvas (the one on screen by default), a period, Summarize; the summary streams in | `views` (`panel`), `views.handle` / `post`, the view `context` |
+| What it reads: the period's blocks on the canvas and those inside it, and the time recorded there (replayed as the review does) | `devlog.canvases`, `devlog.range`, `devlog.activity` |
+| The request: the official Anthropic SDK (`@anthropic-ai/sdk`, bundled into `dist/main.js`), streamed; Claude Opus 5.5 by default, effort medium, server-side fallback (`fallbacks: "default"`) and refusal handling | `fetch` (through the SDK) |
+| **Add to …**: the summary as a block on the canvas | `devlog.addBlock`, `ui.open` |
+| **Summarize with Claude…** on a canvas's menu | `commands` with `menus: ["canvas"]`, `ui.openPanel` |
+| **Save and test**: the key and the model, without spending tokens | the manifest's `check` command (`models.retrieve`) |
+
+A summary can take longer than a view call may wait (60 s), so `summarize`
+answers as soon as the log is read (with its run number), and the text, then
+`done` or `error`, arrive as `views.post` messages.
+
+Settings: `model` (`claude-opus-5-5`, `claude-sonnet-5-5`, `claude-haiku-5-5`),
+`effort` (`low`, `medium`, `high`), `base_url` (a gateway; empty for
+Anthropic's API). Secret: `api_key`. Permissions: `read`, `write`, network
+`api.anthropic.com`.
+
+Sources: `src/main.ts` (activation, the panel's methods, commands),
+`src/gather.ts` (what is read, laid out for Claude), `src/claude.ts` (the
+request), `src/views/panel.tsx`. Its tests run the real SDK against
+`scripts/fake-anthropic.mjs`, a local stand-in for the Messages API.

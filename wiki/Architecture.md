@@ -59,7 +59,7 @@ The long-form rationale is
 | `@devlog/extension-api` | `packages/extension-api/` | What extensions are written against: types, the wire protocol, view messages, the test harness. |
 | `@devlog/ui` | `packages/ui/` | React kit for extension views. |
 | the app | `src/` | Electron main (`src/main`), preload (`src/preload`), renderer (`src/renderer`), shared pure logic (`src/shared`). |
-| built-in extensions | `builtin-extensions/` | devlog-time, devlog-focus, devlog-jira, devlog-cms. |
+| built-in extensions | `builtin-extensions/` | devlog-time, devlog-focus, devlog-jira, devlog-cms, devlog-claude. |
 
 ## Code map
 

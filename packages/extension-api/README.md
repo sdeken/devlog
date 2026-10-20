@@ -7,7 +7,7 @@ or other extensions** (unless the user trusts it; see below); everything
 goes through the `ctx` object it is given, filtered by what the user
 allowed. How it fits together is in `docs/EXTENSIONS.md`; the reference is
 `src/index.ts`, every member commented with the API version that added it.
-This version of Devlog provides API **1.8.0**; declare the lowest you need
+This version of Devlog provides API **1.9.0**; declare the lowest you need
 (`"api": "^1.6.0"`) and newer apps keep loading it.
 
 ## The files
@@ -57,8 +57,8 @@ my-extension/
     is offered on, and `post: true` / `tag` to make it a way to post from
     the note box (1.6);
   - `views` (1.5): HTML pages from your package, `placement` `page` (in the
-    sidebar), `statusbar`, `popover` or `canvasHeader` (1.6, optionally for
-    one `nodeType`);
+    sidebar), `statusbar`, `popover`, `canvasHeader` (1.6, optionally for
+    one `nodeType`) or `panel` (1.9: a tab of the side panel, beside To do);
   - `nodeTypes` (1.6): kinds of canvas, with a label and icon;
   - `destinations` (1.3): places a finished timesheet can be sent.
 - **`permissions`**: `read` / `write` ask for access to notes; the user
@@ -95,7 +95,7 @@ The full API, with comments, is `src/index.ts`. In short:
 | `ctx.settings` | `get(key)`, `onChange(cb)` |
 | `ctx.secrets` | `get`, `set`, `delete` |
 | `ctx.activity` | `on(cb)`: pause (locked, idle, asleep) and resume; `idleAfter(minutes)` (1.6) |
-| `ctx.ui` | `notify(message)`, `confirm(message)`; `pick(items)`, `open({ canvasId, date, blockId })`, `highlight(canvasId)` (1.6); `openPage(viewId)` (1.7) |
+| `ctx.ui` | `notify(message)`, `confirm(message)`; `pick(items)`, `open({ canvasId, date, blockId })`, `highlight(canvasId)` (1.6); `openPage(viewId)` (1.7); `openPanel(viewId)` (1.9) |
 | `ctx.app` | `setTrayLabel(label)`, `keepRunning(on)` (1.6) |
 | `ctx.commands.register(id, run)` | for commands declared in the manifest; `run(context)` says where it was run from and on which canvas or block (1.6) |
 | `ctx.views.handle(viewId, (method, args) => …)`, `ctx.views.post(viewId, message)` | answer calls from your views' pages and push messages to them (1.5; see `docs/EXTENSIONS.md`, Views) |
@@ -137,7 +137,7 @@ expect(t.notifications).toEqual(['Sent'])
 
 Options also take `write`, `activity` (what `devlog.activity` returns),
 `destinations`, `confirm` and `now`. The harness records what the extension
-did (`added`, `created`, `files`, `secrets`, `opened`, `openedPages`,
+did (`added`, `created`, `files`, `secrets`, `opened`, `openedPages`, `openedPanels`,
 `picks`, `app`: tray label, keep running, idle minutes, highlight;
 `viewMessages`) and drives it: `run(command, context)`, `post(canvasId,
 date, block)` (a block posted in the app), `notice(n)` (pause/resume),

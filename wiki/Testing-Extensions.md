@@ -60,6 +60,7 @@ blocks to them.
 | `picks` | `{ items, placeholder }` for every `ui.pick` (1.6) |
 | `opened` | `ui.open` targets (1.6) |
 | `openedPages` | `ui.openPage` view ids (1.7) |
+| `openedPanels` | `ui.openPanel` view ids (1.9) |
 | `app` | `{ trayLabel, keepRunning, idleMinutes, highlight }`: what it asked of the app (1.6) |
 | `viewMessages` | `Map<viewId, unknown[]>`: messages sent with `views.post` |
 
