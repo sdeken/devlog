@@ -135,6 +135,15 @@ try {
   await page.keyboard.press('Backspace')
   check((await page.locator('.entry').count()) === 1, 'exactly one entry posted')
   check((await page.locator('.composer-toolbar').count()) === 0, 'no toolbar chrome around the composer')
+  // A code block's copy button (shown on hover) copies just the code.
+  const codeBlock = page.locator('.entry .markdown-body .code-block').first()
+  await codeBlock.hover()
+  await page.waitForFunction(() => getComputedStyle(document.querySelector('.code-copy')).opacity === '1', null, { timeout: 5_000 })
+  check(true, 'hovering a code block shows its copy button')
+  await codeBlock.locator('.code-copy').click()
+  await page.waitForFunction(() => document.querySelector('.code-copy')?.textContent === 'Copied', null, { timeout: 5_000 })
+  const copiedCode = await app.evaluate(({ clipboard }) => clipboard.readText())
+  check(copiedCode === 'const answer: number = 42 // comment' && (await page.locator('.block-page-head').count()) === 0, `the copy button copies just the code ("${copiedCode}")`)
 
   const today = new Date()
   const ymd = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
@@ -165,6 +174,31 @@ try {
     return img && img.complete && img.naturalWidth > 0
   }, null, { timeout: 10_000 })
   check(true, 'posted image renders in the feed')
+  // Right-clicking it offers Copy Image, which puts the picture itself on the clipboard. (The menu is
+  // caught rather than shown: a native menu would hold the pointer.)
+  await app.evaluate(async ({ Menu, clipboard }) => {
+    await clipboard.clear()
+    globalThis.__smokePopup = Menu.prototype.popup
+    Menu.prototype.popup = function () {
+      globalThis.__smokeMenu = this
+    }
+  })
+  await page.locator('.entry .markdown-body img').first().click({ button: 'right' })
+  const imageMenu = await app.evaluate(async ({ Menu, clipboard }) => {
+    for (let i = 0; i < 50 && !globalThis.__smokeMenu; i++) await new Promise((r) => setTimeout(r, 100))
+    const menu = globalThis.__smokeMenu
+    Menu.prototype.popup = globalThis.__smokePopup
+    globalThis.__smokeMenu = undefined
+    const labels = menu ? menu.items.map((i) => i.label) : []
+    menu?.items.find((i) => i.label === 'Copy Image')?.click()
+    for (let i = 0; i < 50 && !(await clipboard.has('image/png')); i++) await new Promise((r) => setTimeout(r, 100))
+    const item = (await clipboard.read()).find((it) => it.types.includes('image/png'))
+    const bytes = item ? Buffer.from(await (await item.getType('image/png')).arrayBuffer()) : Buffer.alloc(0)
+    // A PNG's size is in its IHDR chunk.
+    const size = bytes.length > 24 ? { width: bytes.readUInt32BE(16), height: bytes.readUInt32BE(20) } : { width: 0, height: 0 }
+    return { labels, size }
+  })
+  check(imageMenu.labels.includes('Copy Image') && imageMenu.size.width === 1 && imageMenu.size.height === 1, `right-clicking an image offers Copy Image, which copies the picture (${imageMenu.labels.join(', ')}; ${imageMenu.size.width}x${imageMenu.size.height})`)
   const text2 = await fs.readFile(dayFile, 'utf8')
   check(/!\[shot]\(assets\/\d{4}-\d{2}-\d{2}-\d{6}-[a-z0-9]{4}\.png\)/.test(text2), 'image is linked relative to the day file')
   const assets = await fs.readdir(path.join(path.dirname(dayFile), 'assets'))
@@ -184,8 +218,8 @@ try {
   const text3 = await fs.readFile(dayFile, 'utf8')
   check(text3.startsWith(text2) && /<!-- devlog:edit id=\w+ at=/.test(text3) && text3.includes('(edited!)'), 'an edit is appended as an edit record; nothing earlier in the file changes')
 
-  // 3b. Blocks are pages: a middle click (or Ctrl+click) opens one; what you write there goes inside it.
-  // A double-click only selects a word, as everywhere else.
+  // 3b. Blocks are pages: a double-click (or a middle click, or Ctrl+click) opens one; what you write there goes inside it.
+  // Double-click and drag still selects, word by word, and opens nothing.
   // On the first word itself (the middle of the body can be empty space).
   const word = await first.locator('.entry-body').evaluate((el) => {
     const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT)
@@ -198,10 +232,20 @@ try {
     const r = range.getBoundingClientRect()
     return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
   })
-  await page.mouse.dblclick(word.x, word.y)
+  await page.mouse.move(word.x, word.y)
+  await page.mouse.down({ clickCount: 1 })
+  await page.mouse.up({ clickCount: 1 })
+  await page.mouse.down({ clickCount: 2 })
+  await page.mouse.move(word.x + 80, word.y, { steps: 6 })
+  await page.mouse.up({ clickCount: 2 })
   await page.waitForTimeout(300)
   const selected = await page.evaluate(() => window.getSelection()?.toString().trim() ?? '')
-  check((await page.locator('.block-page-head').count()) === 0 && selected.length > 0, `double-clicking a block selects a word and does not open it ("${selected}")`)
+  check((await page.locator('.block-page-head').count()) === 0 && selected.split(/\s+/).length > 1, `double-click and drag selects words and does not open the block ("${selected}")`)
+  await page.mouse.dblclick(word.x, word.y)
+  await page.waitForSelector('.block-page-head .block-surface .entry-surface', { timeout: 10_000 })
+  check((await page.evaluate(() => window.getSelection()?.toString() ?? '')) === '', 'a double-click opens the block, leaving nothing selected')
+  await page.locator('.block-up').click()
+  await page.waitForSelector('.page-head:not(.block-page-head) .crumb.is-current:has-text("Scratch")', { timeout: 10_000 })
   await first.locator('.entry-body').click({ button: 'middle' })
   await page.waitForSelector('.block-page-head .block-surface .entry-surface', { timeout: 10_000 })
   check((await page.locator('.block-page-head .crumb.is-current').textContent()).startsWith('Started the git sync'), 'middle-clicking a block opens it as a page, titled by its first line')
@@ -240,6 +284,11 @@ try {
   await page.waitForSelector('.block-surface .composer-editor', { timeout: 5_000 })
   check(true, "Ctrl+click on the page's surface edits it")
   // On the editor itself: it takes the focus a moment after it appears.
+  await page.locator('.block-surface .composer-editor').press('Escape')
+  await page.waitForSelector('.block-surface .composer-editor', { state: 'detached', timeout: 5_000 })
+  await page.locator('.block-surface .entry-surface .entry-body').dblclick()
+  await page.waitForSelector('.block-surface .composer-editor', { timeout: 5_000 })
+  check(true, "so does a double-click")
   await page.locator('.block-surface .composer-editor').press('Escape')
   await page.waitForSelector('.block-surface .composer-editor', { state: 'detached', timeout: 5_000 })
   await page.locator('.block-up').click()

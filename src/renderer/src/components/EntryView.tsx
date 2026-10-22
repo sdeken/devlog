@@ -132,8 +132,8 @@ export const EntryView = memo(function EntryView({
     )
   }
 
-  // In a stream, a middle click (or Ctrl+click) opens the block's page; on a page's surface it edits.
-  // Double-click is left to select a word.
+  // In a stream, a double-click (or a middle click, or Ctrl+click) opens the block's page; on a page's surface it edits.
+  // Double-click and drag still selects.
   const openClick = openClickHandlers(onOpen && !surface ? onOpen : surface && !readOnly ? () => setEditing(true) : null)
 
   return (

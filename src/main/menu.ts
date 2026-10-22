@@ -1,4 +1,4 @@
-import { app, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { app, clipboard, Menu, shell, type BrowserWindow, type ContextMenuParams, type MenuItemConstructorOptions, type WebContents } from 'electron'
 
 export interface MenuActions {
   syncNow: () => void
@@ -118,4 +118,41 @@ export function buildMenu(win: () => BrowserWindow | null, actions: MenuActions)
   })
 
   Menu.setApplicationMenu(Menu.buildFromTemplate(template))
+}
+
+/**
+ * The right-click menu for the page: copy an image (as a picture, to paste
+ * into other apps), copy a link, and the usual cut, copy and paste. Empty
+ * where none of them applies; the page's own menus (canvases in the sidebar,
+ * breadcrumbs) cancel the event, so this never shows over them.
+ */
+export function contextMenuTemplate(params: ContextMenuParams, contents: WebContents): MenuItemConstructorOptions[] {
+  const items: MenuItemConstructorOptions[] = []
+  if (params.mediaType === 'image' && params.hasImageContents) {
+    items.push({ label: 'Copy Image', click: () => contents.copyImageAt(params.x, params.y) })
+  }
+  if (/^(https?|mailto):/i.test(params.linkURL)) {
+    items.push({ label: params.linkURL.startsWith('mailto:') ? 'Copy Email Address' : 'Copy Link', click: () => void clipboard.writeText(params.linkURL.replace(/^mailto:/i, '')) })
+  }
+  const edit: MenuItemConstructorOptions[] = params.isEditable
+    ? [
+        { role: 'cut', enabled: params.editFlags.canCut },
+        { role: 'copy', enabled: params.editFlags.canCopy },
+        { role: 'paste', enabled: params.editFlags.canPaste },
+        { type: 'separator' },
+        { role: 'selectAll', enabled: params.editFlags.canSelectAll }
+      ]
+    : params.selectionText.trim()
+      ? [{ role: 'copy' }]
+      : []
+  if (items.length && edit.length) items.push({ type: 'separator' })
+  return [...items, ...edit]
+}
+
+/** Show the right-click menu on a window's page. */
+export function installContextMenu(win: BrowserWindow): void {
+  win.webContents.on('context-menu', (_event, params) => {
+    const template = contextMenuTemplate(params, win.webContents)
+    if (template.length) Menu.buildFromTemplate(template).popup({ window: win })
+  })
 }

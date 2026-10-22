@@ -108,7 +108,7 @@ export function CanvasView({
   const isJournal = canvas.id === JOURNAL_ID
   const [full, setFull] = useState<Canvas | null>(null)
   const [editing, setEditing] = useState(false)
-  /** Middle-click or Ctrl+click edits the surface (double-click selects a word). */
+  /** Double-click, middle-click or Ctrl+click edits the surface (double-click and drag selects). */
   const surfaceOpen = openClickHandlers(() => setEditing(true))
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
@@ -270,7 +270,9 @@ export function CanvasView({
             <div
               className="surface-read markdown-body"
               onMouseDown={surfaceOpen.onMouseDown}
+              onMouseUp={surfaceOpen.onMouseUp}
               onAuxClick={surfaceOpen.onAuxClick}
+              onDoubleClick={surfaceOpen.onDoubleClick}
               onClick={(ev) => {
                 surfaceOpen.onClick?.(ev)
                 if (ev.defaultPrevented) return

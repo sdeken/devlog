@@ -16,7 +16,7 @@ import { Updater } from './updates'
 import { SyncManager, type SyncOptions } from '@devlog/core/node'
 import { SettingsStore } from './settings'
 import { installAssetHandler, installViewHandler, registerAssetScheme } from './protocol'
-import { buildMenu } from './menu'
+import { buildMenu, installContextMenu } from './menu'
 import { registerIpc } from './ipc'
 import { ExtensionManager } from './extensions/manager'
 import type { PickItem } from '@devlog/extension-api'
@@ -696,6 +696,7 @@ function createWindow(): BrowserWindow {
     win.show()
   })
   watchWindowState(win)
+  installContextMenu(win)
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
     return { action: 'deny' }

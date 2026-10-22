@@ -48,23 +48,37 @@ export function keybindingLabel(binding: string): string {
   return kbd(...parts.map((p) => (p === 'Mod' ? 'mod' : p === 'Shift' ? 'shift' : p === 'Alt' ? 'alt' : p === 'Ctrl' ? (isMac ? '⌃' : 'Ctrl') : p)))
 }
 
-/** What opens a block (or edits a surface), for tooltips: "middle-click or Ctrl+click". */
-export const OPEN_CLICK = `middle-click or ${isMac ? '⌘-click' : 'Ctrl+click'}`
+/** What opens a block (or edits a surface), for tooltips: "double-click, middle-click or Ctrl+click". */
+export const OPEN_CLICK = `double-click, middle-click or ${isMac ? '⌘-click' : 'Ctrl+click'}`
 
 /** Elements that keep their own clicks: links, images, form controls. */
 const OWN_CLICKS = 'a, img, button, select, input, textarea, label, summary'
 
+/** How far (px) the pointer may move during a double-click that opens; further is a drag that selects. */
+export const DOUBLE_CLICK_SLOP = 4
+
+// Where the second press of a double-click went down (one pointer, so one at a time).
+let pressedAt: { x: number; y: number } | null = null
+
 /**
- * Open-click handlers for a block or surface: a middle click, or a left
- * click with Ctrl (⌘ on a Mac). Double-click is left alone, so it selects a
- * word as everywhere else. Pressing the middle button is swallowed too, so it
- * neither starts autoscroll (Windows) nor pastes the selection (Linux).
+ * Open-click handlers for a block or surface: a double-click, a middle
+ * click, or a left click with Ctrl (⌘ on a Mac).
+ *
+ * A double-click opens only when the second press is released where it went
+ * down: double-click and drag still selects text word by word. The word the
+ * second press selected is let go, so nothing stays highlighted. The middle
+ * button is swallowed too, so it neither starts autoscroll (Windows, on the
+ * press) nor pastes the selection into the composer (Linux, on the release).
  */
-export function openClickHandlers(open: (() => void) | null | undefined): Pick<React.HTMLAttributes<HTMLElement>, 'onMouseDown' | 'onAuxClick' | 'onClick'> {
+export function openClickHandlers(open: (() => void) | null | undefined): Pick<React.HTMLAttributes<HTMLElement>, 'onMouseDown' | 'onMouseUp' | 'onAuxClick' | 'onClick' | 'onDoubleClick'> {
   if (!open) return {}
   const ownClick = (ev: React.MouseEvent): boolean => Boolean((ev.target as HTMLElement).closest(OWN_CLICKS))
   return {
     onMouseDown: (ev) => {
+      if (ev.button === 1 && !ownClick(ev)) ev.preventDefault()
+      if (ev.button === 0) pressedAt = ev.detail === 2 ? { x: ev.clientX, y: ev.clientY } : null
+    },
+    onMouseUp: (ev) => {
       if (ev.button === 1 && !ownClick(ev)) ev.preventDefault()
     },
     onAuxClick: (ev) => {
@@ -75,6 +89,15 @@ export function openClickHandlers(open: (() => void) | null | undefined): Pick<R
     onClick: (ev) => {
       if (ev.button !== 0 || !(isMac ? ev.metaKey : ev.ctrlKey) || ownClick(ev)) return
       ev.preventDefault()
+      open()
+    },
+    onDoubleClick: (ev) => {
+      const at = pressedAt
+      pressedAt = null
+      if (ev.button !== 0 || ev.shiftKey || ev.altKey || ev.ctrlKey || ev.metaKey || ownClick(ev)) return
+      if (!at || Math.hypot(ev.clientX - at.x, ev.clientY - at.y) > DOUBLE_CLICK_SLOP) return
+      ev.preventDefault()
+      window.getSelection()?.removeAllRanges()
       open()
     }
   }

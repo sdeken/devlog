@@ -54,10 +54,14 @@ reads as a list of dated blocks, each one openable.
    to reorder among the todos beside it (the same day file, inside the same
    block). There is no ranking across groups. Ticked todos stay in a Done
    section for 14 days.
-5. **Opening a page:** middle-click a block or Ctrl+click it (⌘-click on a
-   Mac), click its chip, or its Open action. On a page, the same click on
-   the surface edits it. (Until 0.19.2 this was a double-click, which got
-   in the way of double-clicking a word to select it.)
+5. **Opening a page:** double-click a block, middle-click it or Ctrl+click
+   it (⌘-click on a Mac), click its chip, or its Open action. On a page, the
+   same clicks on the surface edit it. A double-click opens only when the
+   second press is let go where it went down (within 4 px); double-click and
+   drag selects text word by word and opens nothing, and the word a plain
+   double-click would have selected is let go. (0.19.2 dropped the
+   double-click, which got in the way of selecting; 0.20.1 brought it back
+   in this form.)
 6. **Making a block with blocks inside it a task** (**Make task**, from the
    time extension, through `devlog.promote`) moves those blocks into the new
    task canvas; the block stays where it was as the link to it (phase 3).

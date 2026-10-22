@@ -39,9 +39,11 @@ Devlog opens on the canvas you last had open.
    (`**bold**`, `- ` for a list, ```` ```ts ```` for a code block, ⌘B, ⌘I, ⌘K).
 3. Paste or drop an image: it is saved next to the day's file and linked
    relatively, so the log renders on GitHub too.
-4. Middle-click a block, or Ctrl+click it (⌘-click on a Mac), to open it as
-   a page and write inside it (**Alt+Enter** when posting opens it straight
-   away).
+4. Double-click a block (or middle-click it, or Ctrl+click it; ⌘-click on a
+   Mac) to open it as a page and write inside it (**Alt+Enter** when posting
+   opens it straight away). Double-click and drag still selects text.
+5. Right-click an image and **Copy Image** to paste it elsewhere; hover a
+   code block and press **Copy** to copy just the code.
 
 Everything is written to disk immediately and committed shortly after (30
 seconds by default); with a remote, Devlog pulls and pushes every five
