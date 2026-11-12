@@ -29,7 +29,8 @@ function canvases(): TestCanvas[] {
     },
     { id: 'fix', title: 'Fix login', parentId: 'web', task: true, archived: false, fields: {}, days: { '2026-10-15': [block('f1', at(15, 9), 'Ask Priya about the SSO copy', { kind: 'todo' })] } },
     { id: 'globex', title: 'Globex', parentId: null, task: false, archived: false, fields: {}, days: { '2026-10-14': [block('g1', at(14, 9), 'Globex work, not Acme.')] } },
-    { id: 'sheets', title: 'Timesheets', parentId: null, task: false, archived: false, fields: { 'devlog.managed': 'timesheets' } }
+    { id: 'sheets', title: 'Timesheets', parentId: null, task: false, archived: false, fields: { 'devlog.managed': 'timesheets' } },
+    { id: 'runbook', title: 'Deploy process', parentId: 'acme', task: false, type: 'devlog/document', archived: false, fields: {} }
   ]
 }
 
@@ -119,6 +120,7 @@ describe('devlog-claude', () => {
     const state = (await t.viewCall(claude.PANEL, 'state')) as { hasKey: boolean; model: string; canvases: Array<{ id: string }> }
     expect(state).toMatchObject({ hasKey: true, model: 'claude-opus-5-5' })
     expect(state.canvases.map((c) => c.id)).not.toContain('sheets')
+    expect(state.canvases.map((c) => c.id)).not.toContain('runbook')
 
     const { run, blocks } = await summarize(t)
     expect(blocks).toBe(6)

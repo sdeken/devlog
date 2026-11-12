@@ -41,6 +41,7 @@ interface Props {
   fileDate?: string
   /** On a block page, the block: its children count as the stream's top level. */
   streamParentId?: string
+  /** What an empty stream says; '' says nothing (a document's page). */
   emptyText?: string
 }
 
@@ -501,7 +502,7 @@ export function Feed({
         </div>
       )}
       {loading && days.length === 0 && <p className="feed-empty">Loading…</p>}
-      {!loading && days.length === 0 && (
+      {!loading && days.length === 0 && emptyText !== '' && (
         <p className="feed-empty">{emptyText ?? (canvas.id === JOURNAL_ID ? 'No blocks yet.' : `Nothing on ${canvas.title} yet. Write the first block below.`)}</p>
       )}
       {days.map((day, i) => (

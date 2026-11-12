@@ -9,7 +9,9 @@
  * write about. Every canvas has a *surface* (free-form markdown: links,
  * how-tos, credentials, a research scratchpad) and a *stream* of blocks
  * (dated posts). Canvases nest through `parentId`. A canvas can have a
- * node type from an extension (the time extension's task is one).
+ * node type from an extension (the time extension's task is one), or the
+ * built-in document type: a canvas that is one Markdown page, its surface,
+ * written in place rather than posted block by block.
  *
  *   canvases/<xx>/<id>/canvas.md          ← front matter + the surface markdown
  *   canvases/<xx>/<id>/entries/2026/09/…  ← the stream, one day file per day
@@ -44,7 +46,18 @@ export function isManagedCanvas(c: Pick<CanvasMeta, 'fields'>): boolean {
   return Boolean(c.fields?.[MANAGED_FIELD])
 }
 
-/** A node type: "<extension id>/<type id>". */
+/**
+ * The built-in document type: the canvas is its surface, one Markdown page
+ * edited in place (a process written up for a client, a runbook), with no
+ * stream to post to. Extension ids always hold a dot, so none can name it.
+ */
+export const DOCUMENT_TYPE = 'devlog/document'
+
+export function isDocumentCanvas(c: Pick<CanvasMeta, 'type'>): boolean {
+  return c.type === DOCUMENT_TYPE
+}
+
+/** A node type: "<extension id>/<type id>", or a built-in one ("devlog/document"). */
 export const NODE_TYPE_RE = /^[a-z0-9][a-z0-9._-]{0,127}\/[a-z][a-z0-9_-]{0,63}$/
 
 /** Alphabet for canvas ids: lowercase, no easily confused characters (i, l, o, u). */

@@ -1,10 +1,11 @@
 /**
  * Node types: kinds of canvas that extensions give meaning to (the time
- * extension's "task"). The registry comes from the extensions that are
- * allowed; a canvas whose type no extension provides shows as a plain canvas.
+ * extension's "task"), plus the built-in document. The registry comes from
+ * the extensions that are allowed; a canvas whose type nothing provides
+ * shows as a plain canvas.
  */
 import { createContext, useContext } from 'react'
-import { nodeTypeName } from '@devlog/core'
+import { DOCUMENT_TYPE, nodeTypeName } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 
@@ -15,14 +16,17 @@ export interface NodeTypeInfo {
   icon: string
   /** A word for the note box on canvases of this type. */
   placeholder?: string
-  /** The extension that provides it (its devlog.json key). */
+  /** The extension that provides it (its devlog.json key); empty for a built-in type. */
   extensionKey: string
 }
+
+/** The built-in document: one Markdown page, edited in place. */
+export const DOCUMENT_NODE_TYPE: NodeTypeInfo = { type: DOCUMENT_TYPE, label: 'Document', icon: '¶', extensionKey: '' }
 
 export const PLAIN_ICON = '▤'
 
 export function buildNodeTypes(extensions: ExtensionInfo[]): Map<string, NodeTypeInfo> {
-  const out = new Map<string, NodeTypeInfo>()
+  const out = new Map<string, NodeTypeInfo>([[DOCUMENT_TYPE, DOCUMENT_NODE_TYPE]])
   for (const e of extensions)
     for (const t of e.nodeTypes) {
       const type = nodeTypeName(e.id, t.id)

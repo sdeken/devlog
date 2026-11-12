@@ -119,6 +119,7 @@ Marketing site rebuild. Weekly sync on Tuesdays.
 | `parent` | The enclosing canvas's id (absent at the top level) |
 | `created`, `updated` | Creation time; last surface edit |
 | `task: true` | devlog-time's task type (written this way for compatibility) |
+| `type: devlog/document` | A document: the surface below the front matter is the whole page |
 | `type: <ext id>/<type id>` | Any other node type |
 | `repo` | A linked git working copy (repeatable) |
 | `archived: true` | Archived, with everything beneath it |

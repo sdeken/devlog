@@ -2722,6 +2722,59 @@ body[data-platform='darwin'] .topbar-left {
   font-size: 14.5px;
 }
 
+/*
+ * A document: the surface is the page, read and written at full height. The
+ * header holds the whole page, so it scrolls; only its title row stays put.
+ */
+.page-head.is-document {
+  position: static;
+  border-bottom: 0;
+}
+
+.page-head.is-document .page-head-row {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--bg);
+  margin: -8px 0 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.page-head.is-document .surface {
+  margin-top: 14px;
+}
+
+.page-head.is-document .surface-read {
+  max-height: none;
+  overflow: visible;
+  padding: 4px 2px 12px;
+  font-size: 15px;
+  line-height: 1.6;
+  background: transparent;
+}
+
+.page-head.is-document .surface-read:hover {
+  border-color: transparent;
+}
+
+.page-head.is-document .surface .composer-editor {
+  min-height: 60vh;
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+.surface-empty {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+
+.document-blocks {
+  margin: 18px 0 0;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+
 .canvas-children {
   display: flex;
   flex-wrap: wrap;

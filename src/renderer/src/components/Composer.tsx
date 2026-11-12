@@ -5,7 +5,7 @@ import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import { Markdown } from '@tiptap/markdown'
 import type { EditorView } from '@tiptap/pm/view'
-import { isBlankMarkdown, localDate } from '@devlog/core'
+import { isBlankMarkdown, isDocumentCanvas, localDate } from '@devlog/core'
 import { api } from '@renderer/api'
 import { DevlogCodeBlock, DevlogImage, SubmitKeymap } from '@renderer/editor/extensions'
 import { clearActiveComposer, setActiveComposer, setDockEditor } from '@renderer/editor/active'
@@ -499,7 +499,7 @@ export function Composer({
                   </option>
                 )}
                 {flattenTree(buildCanvasTree(canvases)).map(({ canvas: c, depth }) => (
-                  <option key={c.id} value={c.id}>
+                  <option key={c.id} value={c.id} disabled={isDocumentCanvas(c)}>
                     {'\u00a0\u00a0'.repeat(depth)}
                     {typeOf(types, c) ? `${typeOf(types, c)?.icon} ` : ''}
                     {c.title}

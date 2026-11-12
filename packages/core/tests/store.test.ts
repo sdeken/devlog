@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { DevlogStore } from '../src/node/store'
+import { DOCUMENT_TYPE, isDocumentCanvas } from '../src/format/canvases'
 
 let root: string
 let store: DevlogStore
@@ -235,6 +236,27 @@ describe('canvases in the store', () => {
     expect((await store.listCanvases()).map((c) => c.id)).toEqual(['journal', dup.id, j.id])
     await expect(store.readCanvas(acme.id)).rejects.toThrow(/not found/)
     await expect(store.deleteCanvas('journal')).rejects.toThrow(/journal/)
+  })
+
+  it('keeps a document: the built-in type, its page in canvas.md', async () => {
+    const acme = await store.createCanvas({ title: 'Acme' })
+    const doc = await store.createCanvas({ title: 'Deploy process', parentId: acme.id, type: DOCUMENT_TYPE })
+    expect(doc).toMatchObject({ type: 'devlog/document', task: false })
+    expect(isDocumentCanvas(doc)).toBe(true)
+    expect(isDocumentCanvas(acme)).toBe(false)
+    await store.writeSurface(doc.id, '# Deploy\n\n1. Tag the release\n2. Watch the pipeline\n')
+    const back = await store.readCanvas(doc.id)
+    expect(back.type).toBe(DOCUMENT_TYPE)
+    expect(back.surface).toContain('2. Watch the pipeline')
+    // It is plain Markdown on disk, under the front matter.
+    const file = (await fs.readdir(path.join(root, 'canvases', doc.id.slice(0, 2), doc.id))).includes('canvas.md')
+    expect(file).toBe(true)
+    const text = await fs.readFile(path.join(root, 'canvases', doc.id.slice(0, 2), doc.id, 'canvas.md'), 'utf8')
+    expect(text).toMatch(/type: devlog\/document/)
+    expect(text).toContain('# Deploy\n\n1. Tag the release')
+    // A document can stop being one, and become one.
+    expect((await store.updateCanvas(doc.id, { type: null })).type).toBeUndefined()
+    expect((await store.updateCanvas(acme.id, { type: DOCUMENT_TYPE })).type).toBe(DOCUMENT_TYPE)
   })
 
   it('keeps same-named canvases under different parents distinct', async () => {

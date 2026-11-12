@@ -33,7 +33,7 @@ interface ExtensionCanvas {
 | `id` | Stable random id; renames and moves keep it. |
 | `parentId` | The enclosing canvas, or `null` at the top level. |
 | `task` | Whether it is devlog-time's task type (same as `type === 'builtin.devlog-time/task'`). |
-| `type` | Its node type, if any. |
+| `type` | Its node type, if any: `<extension id>/<type id>`, or `devlog/document` for a document (one Markdown page, its surface). |
 | `fields` | Keys as declared in `contributes.canvasFields`, values set **on this canvas** only (use `devlog.field` for the inherited value). |
 
 ### `ExtensionBlock`

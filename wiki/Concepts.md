@@ -46,12 +46,23 @@ day file (`YYYY-MM-DD`, local time).
 
 ## Node type
 
-A node type is a kind of canvas that an extension gives meaning to. The app
-has no types of its own: the one that ships, **task**, belongs to the time
-extension. A canvas carries its type as `type: <extension id>/<type id>` (the
+A node type is a kind of canvas that an extension gives meaning to, apart
+from the one the app has itself, the **document**. The task belongs to the
+time extension. A canvas carries its type as `type: <extension id>/<type id>` (the
 task is written `task: true` for compatibility). A type whose extension is
 gone reads as a plain canvas. See
 [Extension Manifest → nodeTypes](Extension-Manifest#nodetypes-16).
+
+## Document
+
+A document is a canvas that is one Markdown page: its surface, written and
+edited in place (a process written up for a client, a runbook), instead of
+posted block by block. It opens ready to write when new, saves as you type,
+and has no note box; a double-click (or **Edit**) edits it, **Done** reads
+it. It is stored as `type: devlog/document` in `canvas.md`, with the page
+below the front matter, so it reads as plain Markdown on GitHub too.
+Make one with **New document inside…** on a canvas's menu, or pick
+**Document** under **Type** in a canvas's properties.
 
 ## Task
 

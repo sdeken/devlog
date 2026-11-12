@@ -200,7 +200,14 @@ folder as the base and an `assets/` folder beside `canvas.md`.
 
 **Node types** come from extensions: `type: <extension>/<type>` in
 `canvas.md` (the task type is written `task: true`, as before node types
-existed). The app has no types of its own. **Tasks** are the time
+existed). The app has one type of its own, the **document**
+(`type: devlog/document`, `DOCUMENT_TYPE`; extension ids always hold a dot,
+so none can collide with it): the canvas is its surface, shown as the page
+at full height and edited in place with the same TipTap editor, saving as
+you type. A document has no note box and is not a target for posting,
+moving blocks or new todos (those go where the note box last pointed);
+blocks it already has (from before it became one, or from an extension)
+are listed under the page. **Tasks** are the time
 extension's (devlog-time): posting a user block on a task canvas makes it
 the active task; posting anywhere else is just a note. A block turns into a
 canvas of a type through `promoteBlock` (the extension's **Make task**, via

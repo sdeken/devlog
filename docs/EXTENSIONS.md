@@ -254,7 +254,10 @@ kinds of canvas. A canvas carries one as `type: <extension id>/<id>` in
 canvas.md (the time extension's task keeps the older `task: true`); the app
 shows its icon and label, offers it under **Type** in canvas properties and
 as **New *label* inside…** on a canvas's menu, and adds the placeholder to
-the note box. A type whose extension is gone reads as a plain canvas.
+the note box. A type whose extension is gone reads as a plain canvas. The
+app's own document type is `devlog/document`: extensions see it on
+`canvas.type`, and a command's `nodeType` can name it, but only the user
+sets or clears it.
 
 ### Commands (1.0, 1.6)
 

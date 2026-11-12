@@ -41,6 +41,13 @@ tracked against; any block can become one.
   inside it, or to archive it. "Website" under two clients is two different
   canvases. Blocks can be moved between canvases, and search covers all of
   them. Devlog opens on the canvas you last had open.
+- **Documents for write-ups.** A **document** is a canvas that is one
+  Markdown page, written in place with the same editor rather than posted
+  line by line: a process documented for a client, a runbook. **New document
+  inside…** on a canvas's menu (or **Type → Document** in its properties)
+  makes one; it opens ready to write, saves as you type, and has no note
+  box. Double-click it (or **Edit**) to change it, **Done** to read it. It is
+  stored as `canvas.md`, plain Markdown under a little front matter.
 - **Every canvas has a surface.** Above the stream sits free-form markdown
   that is not a dated note: links to the issue tracker, environments,
   contacts, credentials, how-tos, or the evolving write-up of whatever you are

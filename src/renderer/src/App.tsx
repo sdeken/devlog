@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { hasTag, localDate, stripTag } from '@devlog/core'
-import { JOURNAL, JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree } from '@devlog/core'
+import { JOURNAL, JOURNAL_ID, buildCanvasTree, canvasLabel, flattenTree, isDocumentCanvas } from '@devlog/core'
 import { themeCssVars } from '@shared/theme'
 import type { CanvasMeta, Day, Entry, EntryPosition, RepoInfo, SearchResult, Settings, SyncStatus } from '@shared/types'
 import { api } from '@renderer/api'
@@ -224,7 +224,15 @@ export function App(): React.JSX.Element {
 
   const page = block && block.canvasId === canvasId ? block : null
   const canvas = useMemo(() => canvases.find((c) => c.id === canvasId) ?? (canvasId === JOURNAL_ID ? JOURNAL : null), [canvases, canvasId])
-  const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId && c.id !== JOURNAL_ID && !c.archived) ?? null, [canvases, targetCanvasId])
+  // The To do panel's "Here": the canvas on screen, or for a document (which takes no todos) the canvas it sits in.
+  const todoCanvasId = useMemo(() => {
+    if (view !== 'canvas' || !canvas) return null
+    if (page) return canvas.id
+    let c: CanvasMeta | undefined = canvas
+    while (c && isDocumentCanvas(c)) c = c.parentId ? canvases.find((x) => x.id === c!.parentId) : undefined
+    return c?.id ?? null
+  }, [view, canvas, page, canvases])
+  const targetCanvas = useMemo(() => canvases.find((c) => c.id === targetCanvasId && c.id !== JOURNAL_ID && !c.archived && !isDocumentCanvas(c)) ?? null, [canvases, targetCanvasId])
 
   const refreshCanvases = useCallback(async () => {
     const list = await api.canvases.list()
@@ -379,13 +387,15 @@ export function App(): React.JSX.Element {
   // The composer target follows the canvas being viewed; remember it for next time.
   useEffect(() => {
     if (view !== 'canvas' || !canvasId || canvasId === JOURNAL_ID) return
+    // A document takes no notes: the note box keeps the canvas it had (and a canvas just made waits until it is listed).
+    if (!canvas || isDocumentCanvas(canvas)) return
     setTargetCanvasId(canvasId)
     try {
       localStorage.setItem(LAST_CANVAS_KEY, canvasId)
     } catch {
       /* ignore */
     }
-  }, [view, canvasId])
+  }, [view, canvasId, canvas])
 
   const pageTitle = page && pageDay?.date === page.date ? (() => {
     const e = pageDay.entries.find((x) => x.id === page.id)
@@ -957,7 +967,7 @@ export function App(): React.JSX.Element {
               onReorder={reorderEntry}
             />
           )}
-          {!search && targetCanvas && view !== 'ext' && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID)) && (
+          {!search && targetCanvas && view !== 'ext' && !(view === 'canvas' && (!canvas || canvas.archived || canvas.id === JOURNAL_ID || (!page && isDocumentCanvas(canvas)))) && (
             <div className="composer-dock">
               <Composer
                 key={pageBlock ? blockKey(page) : targetCanvasId}
@@ -1014,7 +1024,7 @@ export function App(): React.JSX.Element {
               render: () => (
                 <TodoPanel
                   canvases={canvases}
-                  canvasId={view === 'canvas' && canvas ? canvasId : null}
+                  canvasId={todoCanvasId}
                   page={pageBlock && page ? { canvasId: page.canvasId, date: page.date, id: page.id, title: blockTitle(pageBlock, 40) } : null}
                   fallbackCanvasId={targetCanvas?.id ?? null}
                   onOpenCanvas={openCanvas}

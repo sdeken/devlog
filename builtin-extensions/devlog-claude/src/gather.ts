@@ -4,7 +4,7 @@
  * canvases inside it) and the time recorded against it. Pure apart from the
  * reads through `ctx.devlog`.
  */
-import { canvasLabel, descendantCanvasIds, isManagedCanvas, localDate, type CanvasMeta } from '@devlog/core'
+import { canvasLabel, descendantCanvasIds, isDocumentCanvas, isManagedCanvas, localDate, type CanvasMeta } from '@devlog/core'
 import type { DevlogContext, ExtensionBlock, ExtensionCanvas } from '@devlog/extension-api'
 import { addDays, computeWeekTime, type ReviewNote } from '@shared/review'
 import type { ActivityEvent, Entry } from '@shared/types'
@@ -42,9 +42,9 @@ export function asMeta(list: ExtensionCanvas[]): CanvasMeta[] {
   return list.map((c) => ({ id: c.id, title: c.title, parentId: c.parentId, task: c.task, ...(c.type ? { type: c.type } : {}), archived: c.archived, createdAt: '', updatedAt: '', repos: [], hasSurface: false, fields: { ...c.fields } }))
 }
 
-/** Canvases a summary can be about: not those an extension keeps for itself. */
+/** Canvases a summary can be about: not those an extension keeps for itself, nor documents (a page, with no blocks or time). */
 export function summarizable(list: ExtensionCanvas[]): ExtensionCanvas[] {
-  return list.filter((c) => !isManagedCanvas(c))
+  return list.filter((c) => !isManagedCanvas(c) && !isDocumentCanvas(c))
 }
 
 export function datesBetween(from: string, to: string): string[] {

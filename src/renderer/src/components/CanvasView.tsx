@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { JOURNAL_ID, ancestorIds, canvasLabel } from '@devlog/core'
+import { JOURNAL_ID, ancestorIds, canvasLabel, isDocumentCanvas } from '@devlog/core'
 import type { Canvas, CanvasMeta, Day, EntryPosition, SearchResult } from '@shared/types'
 import { api } from '@renderer/api'
 import type { ViewContext } from '@devlog/extension-api/view'
@@ -106,6 +106,8 @@ export function CanvasView({
 }: Props): React.JSX.Element {
   const types = useNodeTypes()
   const isJournal = canvas.id === JOURNAL_ID
+  // A document is its surface: one page, read and edited in place, with no note box.
+  const isDocument = isDocumentCanvas(canvas)
   const [full, setFull] = useState<Canvas | null>(null)
   const [editing, setEditing] = useState(false)
   /** Double-click, middle-click or Ctrl+click edits the surface (double-click and drag selects). */
@@ -127,11 +129,13 @@ export function CanvasView({
       if (cancelled) return
       lastSaved.current = c.surface
       setFull(c)
+      // A new (empty) document opens ready to write.
+      if (isDocument && !c.surface.trim() && !canvas.archived) setEditing(true)
     })
     return () => {
       cancelled = true
     }
-  }, [canvas.id, isJournal])
+  }, [canvas.id, isJournal]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Linked folders that are not (or no longer) git repositories get flagged.
   const [badRepos, setBadRepos] = useState<Record<string, string>>({})
@@ -168,7 +172,7 @@ export function CanvasView({
   }
 
   const surfaceText = full ? lastSaved.current || full.surface : ''
-  const showSurface = !isJournal && (editing || surfaceText.trim().length > 0)
+  const showSurface = !isJournal && (editing || surfaceText.trim().length > 0 || (isDocument && full !== null))
 
   const menuFor =
     (id: string) =>
@@ -178,7 +182,7 @@ export function CanvasView({
     }
 
   const header = (
-    <header className="feed-head page-head">
+    <header className={`feed-head page-head${isDocument ? ' is-document' : ''}`}>
       <div className="page-head-row">
         <h2 className="breadcrumbs">
           {crumbs.map((id) => (
@@ -206,9 +210,9 @@ export function CanvasView({
                   type="button"
                   className={`btn btn-xs ${editing ? 'btn-primary' : 'btn-quiet'}`}
                   onClick={() => setEditing((e) => !e)}
-                  title={editing ? 'Back to reading (links open)' : 'Edit the surface: links, how-tos, anything that is not a dated note'}
+                  title={editing ? 'Back to reading (links open)' : isDocument ? 'Edit the document (or double-click it)' : 'Edit the surface: links, how-tos, anything that is not a dated note'}
                 >
-                  {editing ? 'Done' : surfaceText.trim() ? 'Edit surface' : 'Add surface'}
+                  {editing ? 'Done' : isDocument ? 'Edit' : surfaceText.trim() ? 'Edit surface' : 'Add surface'}
                 </button>
               </>
             )}
@@ -259,7 +263,11 @@ export function CanvasView({
                 key={canvas.id}
                 mode="document"
                 initialMarkdown={full?.surface ?? ''}
-                placeholder="The canvas surface: links to the tracker, environments, contacts, how-tos, a research scratchpad… Markdown, images, anything. Saves as you type."
+                placeholder={
+                  isDocument
+                    ? 'Write the document: headings, lists, code, tables, images… Markdown as you type. Saves as you type.'
+                    : 'The canvas surface: links to the tracker, environments, contacts, how-tos, a research scratchpad… Markdown, images, anything. Saves as you type.'
+                }
                 saveImage={(bytes, mime, name) => api.canvases.saveSurfaceAsset(canvas.id, bytes, mime, name)}
                 onSubmit={async () => undefined}
                 onChange={save}
@@ -289,12 +297,13 @@ export function CanvasView({
                   void api.shell.openExternal(href)
                 }
               }}
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(surfaceText) }}
+              dangerouslySetInnerHTML={{ __html: surfaceText.trim() ? renderMarkdown(surfaceText) : '<p class="surface-empty">Nothing written yet. Double-click here, or press Edit, to write.</p>' }}
             />
           )}
         </div>
       )}
-      {!isJournal && (
+      {isDocument && days.length > 0 && <p className="document-blocks">Blocks kept with this document (from before it was one, or from extensions):</p>}
+      {!isJournal && (!isDocument || canvas.repos.length > 0) && (
         <div className="canvas-repos">
           {canvas.repos.map((r) => (
             <span
@@ -308,7 +317,7 @@ export function CanvasView({
               </button>
             </span>
           ))}
-          {!canvas.archived && (
+          {!canvas.archived && !isDocument && (
             <button type="button" className="child-chip child-add repo-add" onClick={onLinkRepo} title="Link a working copy: its commits become blocks here, branch switches and pushes show on the timeline">
               {canvas.repos.length ? '+ repository' : '+ Link a repository…'}
             </button>
@@ -355,6 +364,7 @@ export function CanvasView({
       loading={loading}
       editRequest={editRequest}
       header={header}
+      emptyText={isDocument ? '' : undefined}
       onLoadMore={onLoadMore}
       onAdd={onAdd}
       onUpdate={onUpdate}

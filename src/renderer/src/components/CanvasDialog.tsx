@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { JOURNAL_ID, TASK_TYPE, buildCanvasTree, canvasLabel, flattenTree, inheritedField, isWithin } from '@devlog/core'
+import { DOCUMENT_TYPE, JOURNAL_ID, TASK_TYPE, buildCanvasTree, canvasLabel, flattenTree, inheritedField, isWithin } from '@devlog/core'
 import type { CanvasMeta } from '@shared/types'
 import type { ExtensionInfo } from '@shared/extensions'
 import { api } from '@renderer/api'
@@ -109,8 +109,9 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
   const beneath = canvas ? canvases.filter((c) => c.id !== canvas.id && isWithin(canvases, c.id, canvas.id)).length : 0
 
   const pages: DialogPage[] = [
-    { id: 'general', label: canvas ? 'Canvas' : 'New canvas', badge: canvas && generalDirty ? 'dirty' : null },
-    { id: 'repos', label: 'Repositories', badge: canvas && reposDirty ? 'dirty' : null },
+    { id: 'general', label: canvas ? (type === DOCUMENT_TYPE ? 'Document' : 'Canvas') : type === DOCUMENT_TYPE ? 'New document' : 'New canvas', badge: canvas && generalDirty ? 'dirty' : null },
+    // A document has no stream for commits to land in (one that has repositories keeps the page, to unlink them).
+    ...(type !== DOCUMENT_TYPE || repos.length ? [{ id: 'repos', label: 'Repositories', badge: canvas && reposDirty ? ('dirty' as const) : null }] : []),
     ...withFields.map((e) => ({ id: `ext:${e.key}`, label: e.displayName, group: 'Extensions', badge: canvas && extDirty(e) ? ('dirty' as const) : null }))
   ]
 
@@ -189,9 +190,11 @@ export function CanvasDialog({ canvas, canvases, extensions = [], initialParentI
             <p className="hint">
               {type === TASK_TYPE
                 ? 'Time is tracked against a task; posting on it makes it the active task.'
-                : type
-                  ? 'What this type does comes from its extension.'
-                  : 'Extensions can add types of canvas (a task, for time tracking).'}
+                : type === DOCUMENT_TYPE
+                  ? 'A document is one Markdown page, written and edited in place (a process, a runbook, a write-up), with no blocks to post. Blocks already on the canvas stay, listed under the page.'
+                  : type
+                    ? 'What this type does comes from its extension.'
+                    : 'A plain canvas holds dated blocks. A document is one Markdown page; extensions add more types (a task, for time tracking).'}
             </p>
           </div>
           {canvas && (

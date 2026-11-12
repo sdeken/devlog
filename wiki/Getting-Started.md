@@ -42,7 +42,10 @@ Devlog opens on the canvas you last had open.
 4. Double-click a block (or middle-click it, or Ctrl+click it; ⌘-click on a
    Mac) to open it as a page and write inside it (**Alt+Enter** when posting
    opens it straight away). Double-click and drag still selects text.
-5. Right-click an image and **Copy Image** to paste it elsewhere; hover a
+5. For a write-up (a process for a client, a runbook), right-click a canvas
+   and pick **New document inside…**: one Markdown page, written in place
+   and saved as you type.
+6. Right-click an image and **Copy Image** to paste it elsewhere; hover a
    code block and press **Copy** to copy just the code.
 
 Everything is written to disk immediately and committed shortly after (30

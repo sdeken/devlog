@@ -636,6 +636,45 @@ try {
   await page.waitForSelector('.surface .composer-editor', { timeout: 10_000 })
   check((await page.locator('.surface .composer-editor').textContent()).includes('Links'), 'Edit surface reopens the editor with its content')
 
+  // 3d-document. A document is one Markdown page, written in place: no note box, no blocks.
+  await page.locator('.canvas-tree .canvas-link', { hasText: 'Acme Corp' }).first().click({ button: 'right' })
+  await page.locator('.context-menu .context-item', { hasText: 'New document inside…' }).click()
+  await page.waitForSelector('.modal-page')
+  check((await page.locator('#canvasType').inputValue()) === 'devlog/document' && (await page.locator('#canvasParent').inputValue()) === acmeId, "a canvas's menu offers New document inside…")
+  await page.locator('#canvasTitle').fill('Deploy process')
+  await page.locator('.modal-page button[type=submit]').click()
+  await page.waitForSelector('.page-head.is-document .crumb.is-current:has-text("Deploy process")', { timeout: 10_000 })
+  await page.waitForSelector('.page-head.is-document .surface .composer-editor', { timeout: 10_000 })
+  check((await page.locator('.composer-dock').count()) === 0, 'a new document opens ready to write, with no note box')
+  const docId = await canvasIdOf('Deploy process')
+  await page.locator('.surface .composer-editor').click()
+  await page.keyboard.type('# Deploy')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('1. Tag the release')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Watch the pipeline')
+  await page.keyboard.press('Enter')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Then tell the client.')
+  await page.waitForFunction(() => document.querySelector('.save-state')?.textContent === 'Saved', null, { timeout: 10_000 })
+  const docText = await fs.readFile(path.join(canvasFolder(docId), 'canvas.md'), 'utf8')
+  check(docText.includes('type: devlog/document') && /# Deploy\n\n1\. Tag the release\n2\. Watch the pipeline\n\nThen tell the client\./.test(docText), 'Enter writes on (it never posts); the page autosaves as Markdown in canvas.md')
+  check((await fs.readdir(path.join(canvasFolder(docId), 'entries')).catch(() => [])).length === 0, 'a document has no blocks')
+  await page.locator('.page-head button', { hasText: 'Done' }).click()
+  await page.waitForSelector('.page-head.is-document .surface-read h1', { timeout: 10_000 })
+  check((await page.locator('.surface-read ol li').count()) === 2 && (await page.locator('.composer-dock').count()) === 0, 'Done shows the document rendered')
+  const todoWhere = await page.locator('.todo-panel .todo-where').textContent()
+  check(todoWhere === 'Acme Corp', `on a document, the To do panel's "Here" is the canvas it sits in (${todoWhere})`)
+  check((await page.locator('.canvas-tree .canvas-link', { hasText: 'Deploy process' }).locator('.canvas-icon').textContent()).trim() === '¶', 'the sidebar marks it as a document')
+  await page.screenshot({ path: path.join(shots, '02c3-document.png') })
+  await page.locator('.surface-read p').dblclick()
+  await page.waitForSelector('.page-head.is-document .surface .composer-editor', { timeout: 10_000 })
+  check((await page.locator('.surface .composer-editor').textContent()).includes('Tag the release'), 'a double-click edits it again')
+  await page.locator('.page-head button', { hasText: 'Done' }).click()
+  await page.locator('.breadcrumbs .crumb', { hasText: 'Acme Corp' }).click()
+  await page.waitForSelector('.page-head .crumb.is-current:has-text("Acme Corp")', { timeout: 10_000 })
+  check((await page.locator('.composer-dock').count()) === 1, 'back on a canvas, the note box is there again')
+
   // 3d-archive. Archive the project: it and its tasks leave the tree, stay searchable, come back.
   await page.locator('.canvas-children .child-chip', { hasText: 'Website' }).click()
   await page.waitForSelector('.page-head .crumb.is-current:has-text("Website")')
@@ -643,7 +682,7 @@ try {
   await page.locator('.page-head button.btn-danger', { hasText: 'Archive' }).click()
   await page.waitForSelector('.archived-banner', { timeout: 10_000 })
   const visible = await page.locator('.canvas-tree .canvas-name').allTextContents()
-  check(visible.join('>') === 'Acme Corp>Scratch', `archived project and its tasks leave the sidebar tree (${visible.join(' > ')})`)
+  check(visible.join('>') === 'Acme Corp>Deploy process>Scratch', `archived project and its tasks leave the sidebar tree (${visible.join(' > ')})`)
   check((await page.locator('.composer-new').count()) === 0, 'archived canvas has no composer')
   check((await page.locator('.sidebar-archived').textContent()).includes('Archived (4)'), 'sidebar shows an Archived section with the project and its three tasks')
   await page.locator('.topbar-search').fill('first note for acme')
@@ -659,7 +698,7 @@ try {
   await page.locator('.page-head button', { hasText: 'Unarchive' }).click()
   await page.locator('.page-head button.btn-primary', { hasText: 'Unarchive' }).click()
   await page.waitForFunction(() => !document.querySelector('.archived-banner'), null, { timeout: 10_000 })
-  check((await page.locator('.canvas-tree .canvas-name').count()) === 6, 'unarchived project and its tasks return to the sidebar tree')
+  check((await page.locator('.canvas-tree .canvas-name').count()) === 7, 'unarchived project and its tasks return to the sidebar tree')
 
   // 3e. Weekly review rolls blocks up by client → project → task.
   await page.locator('.sidebar-views .view-link', { hasText: 'Weekly review' }).click()
@@ -1361,7 +1400,7 @@ try {
   await page.keyboard.type('last words before quit')
   await page.keyboard.press('Enter')
   const lastPosted = await page
-    .waitForFunction(() => document.querySelectorAll('.entry').length === 3, null, { timeout: 10_000 })
+    .waitForFunction(() => [...document.querySelectorAll('.entry')].some((e) => e.textContent.includes('last words before quit')), null, { timeout: 10_000 })
     .then(() => true)
     .catch(() => false)
   if (!lastPosted) {
@@ -1372,7 +1411,7 @@ try {
       composer: document.querySelector('.composer-dock .composer-editor')?.textContent ?? null,
       toasts: [...document.querySelectorAll('.toast')].map((t) => t.textContent)
     }))
-    check(false, `the last block is posted on Scratch, which then has three: ${JSON.stringify(seen)}`)
+    check(false, `the last block is posted on Scratch: ${JSON.stringify(seen)}`)
   }
   await app.close()
   const machine = JSON.parse(await fs.readFile(path.join(userData, 'machine.json'), 'utf8')).folder
